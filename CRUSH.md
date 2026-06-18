@@ -21,7 +21,7 @@ bun run tauri build             # Production build
 **Type Check & Build:**
 
 ```bash
-bunx tsc --noEmit               # Type checking
+bun x tsc --noEmit              # Type checking
 bun run build                   # Build and validate
 ```
 
