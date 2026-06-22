@@ -28,6 +28,8 @@ pub use cli::CliArgs;
 use specta_typescript::{BigIntExportBehavior, Typescript};
 use tauri_specta::{collect_commands, collect_events, Builder};
 
+use crate::actions::MeetingOverlayStateStore;
+use crate::overlay::MeetingOverlayWindowState;
 use env_filter::Builder as EnvFilterBuilder;
 use managers::audio::AudioRecordingManager;
 use managers::diarization::DiarizationManager;
@@ -301,7 +303,8 @@ fn initialize_core_logic(app_handle: &AppHandle) {
         let _ = autostart_manager.disable();
     }
 
-    // Create the recording overlay window (hidden by default)
+    // Create the recording overlay hidden by default so it is mounted before first use.
+    // Meeting prompts are created lazily only while an actual prompt is active.
     utils::create_recording_overlay(app_handle);
 }
 
@@ -448,8 +451,13 @@ pub fn run(cli_args: CliArgs) {
             commands::history::ask_meeting_question,
             commands::google::connect_google_features,
             commands::google::get_google_integration_status,
+            commands::google::get_active_meeting_prompt,
+            commands::google::get_active_meeting_overlay,
             commands::google::disconnect_google_feature,
+            commands::google::meeting_overlay_ready,
             commands::google::start_meeting_recording_from_prompt,
+            commands::google::stop_meeting_recording_from_overlay,
+            commands::google::hide_meeting_overlay,
             commands::google::dismiss_meeting_prompt,
             commands::google::close_meeting_prompt,
             commands::google::set_meeting_calendar_prompts_enabled,
@@ -590,6 +598,8 @@ pub fn run(cli_args: CliArgs) {
             // Store the file log level in the atomic for the filter to use
             FILE_LOG_LEVEL.store(file_log_level.to_level_filter() as u8, Ordering::Relaxed);
             let app_handle = app.handle().clone();
+            app.manage(MeetingOverlayStateStore::default());
+            app.manage(MeetingOverlayWindowState::default());
             app.manage(TranscriptionCoordinator::new(app_handle.clone()));
             let meeting_assistant = MeetingAssistantManager::new(&app_handle);
             app.manage(meeting_assistant.clone());
@@ -788,8 +798,13 @@ mod test_bindings {
                 commands::history::update_recording_retention_period,
                 commands::google::connect_google_features,
                 commands::google::get_google_integration_status,
+                commands::google::get_active_meeting_prompt,
+                commands::google::get_active_meeting_overlay,
                 commands::google::disconnect_google_feature,
+                commands::google::meeting_overlay_ready,
                 commands::google::start_meeting_recording_from_prompt,
+                commands::google::stop_meeting_recording_from_overlay,
+                commands::google::hide_meeting_overlay,
                 commands::google::dismiss_meeting_prompt,
                 commands::google::close_meeting_prompt,
                 commands::google::set_meeting_calendar_prompts_enabled,

@@ -7,13 +7,12 @@ use once_cell::sync::Lazy;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use specta::Type;
-use std::collections::HashMap;
+use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Emitter, Manager};
 
 const LOCAL_POLL_SECS: u64 = 4;
 const CALENDAR_POLL_SECS: u64 = 60;
-const DUPLICATE_COOLDOWN_MINUTES: i64 = 15;
 const GOOGLE_MEET_PROVIDER: &str = "Google Meet";
 const ZOOM_PROVIDER: &str = "Zoom";
 const TEAMS_PROVIDER: &str = "Microsoft Teams";
@@ -85,8 +84,38 @@ pub struct MeetingCandidate {
 
 #[derive(Default)]
 struct MeetingAssistantState {
-    dismissed_until: HashMap<String, DateTime<Utc>>,
-    last_prompted_key: Option<String>,
+    handled_prompt_keys: HashSet<String>,
+    active_prompt_key: Option<String>,
+    active_prompt: Option<MeetingPromptPayload>,
+}
+
+impl MeetingAssistantState {
+    fn should_emit_prompt(&self, key: &str) -> bool {
+        !self.handled_prompt_keys.contains(key) && self.active_prompt_key.as_deref() != Some(key)
+    }
+
+    fn set_active_prompt(&mut self, key: String, payload: MeetingPromptPayload) {
+        self.active_prompt_key = Some(key);
+        self.active_prompt = Some(payload);
+    }
+
+    fn mark_prompt_handled(&mut self, key: String) {
+        self.handled_prompt_keys.insert(key);
+        self.active_prompt_key = None;
+        self.active_prompt = None;
+    }
+
+    fn mark_active_prompt_handled(&mut self) {
+        if let Some(key) = self.active_prompt_key.take() {
+            self.handled_prompt_keys.insert(key);
+        }
+        self.active_prompt = None;
+    }
+
+    fn clear_active_prompt(&mut self) {
+        self.active_prompt_key = None;
+        self.active_prompt = None;
+    }
 }
 
 pub struct MeetingAssistantManager {
@@ -208,65 +237,82 @@ impl MeetingAssistantManager {
 
     fn try_emit_prompt(&self, candidate: MeetingCandidate) {
         let key = prompt_key(&candidate);
-        let now = Utc::now();
+        let payload = MeetingPromptPayload {
+            provider: candidate.provider,
+            title: candidate.title,
+            source: candidate.source,
+            start_time: candidate.start_time.to_rfc3339(),
+            join_url: candidate.join_url,
+        };
         {
             let mut state = self.state.lock().expect("meeting assistant state poisoned");
-            if let Some(until) = state.dismissed_until.get(&key) {
-                if *until > now {
-                    return;
-                }
-            }
-            if state.last_prompted_key.as_deref() == Some(&key) {
+            if !state.should_emit_prompt(&key) {
                 return;
             }
-            state.last_prompted_key = Some(key);
+            state.set_active_prompt(key, payload.clone());
         }
 
         crate::overlay::show_meeting_prompt_window(&self.app);
-        let _ = self.app.emit(
-            "meeting-prompt-show",
-            MeetingPromptPayload {
-                provider: candidate.provider,
-                title: candidate.title,
-                source: candidate.source,
-                start_time: candidate.start_time.to_rfc3339(),
-                join_url: candidate.join_url,
-            },
-        );
+        let _ = self.app.emit("meeting-prompt-show", payload);
+    }
+
+    pub fn active_prompt(&self) -> Option<MeetingPromptPayload> {
+        let state = self.state.lock().expect("meeting assistant state poisoned");
+        state.active_prompt.clone()
     }
 
     pub fn dismiss_prompt(&self, payload: &MeetingPromptPayload) {
-        let candidate = MeetingCandidate {
-            provider: payload.provider.clone(),
-            title: payload.title.clone(),
-            source: payload.source.clone(),
-            start_time: DateTime::parse_from_rfc3339(&payload.start_time)
-                .map(|dt| dt.with_timezone(&Utc))
-                .unwrap_or_else(|_| Utc::now()),
-            join_url: payload.join_url.clone(),
-        };
-        let key = prompt_key(&candidate);
+        let key = prompt_key_from_payload(payload);
         let mut state = self.state.lock().expect("meeting assistant state poisoned");
-        state.dismissed_until.insert(
-            key,
-            Utc::now() + Duration::minutes(DUPLICATE_COOLDOWN_MINUTES),
-        );
-        state.last_prompted_key = None;
+        state.mark_prompt_handled(key);
+    }
+
+    pub fn mark_active_prompt_handled(&self) {
+        let mut state = self.state.lock().expect("meeting assistant state poisoned");
+        state.mark_active_prompt_handled();
     }
 
     pub fn clear_active_prompt(&self) {
         let mut state = self.state.lock().expect("meeting assistant state poisoned");
-        state.last_prompted_key = None;
+        state.clear_active_prompt();
     }
 }
 
 fn prompt_key(candidate: &MeetingCandidate) -> String {
-    format!(
-        "{}|{}|{}",
-        candidate.provider,
-        candidate.start_time.to_rfc3339(),
-        candidate.join_url.clone().unwrap_or_default()
-    )
+    match candidate.source {
+        MeetingPromptSource::LocalDetection => {
+            let stable_target = candidate
+                .join_url
+                .as_deref()
+                .map(str::to_lowercase)
+                .filter(|url| !url.is_empty())
+                .unwrap_or_else(|| candidate.title.trim().to_lowercase());
+            format!("local|{}|{}", candidate.provider, stable_target)
+        }
+        MeetingPromptSource::GoogleCalendar => format!(
+            "calendar|{}|{}|{}",
+            candidate.provider,
+            candidate.start_time.to_rfc3339(),
+            candidate
+                .join_url
+                .as_deref()
+                .map(str::to_lowercase)
+                .unwrap_or_default()
+        ),
+    }
+}
+
+fn prompt_key_from_payload(payload: &MeetingPromptPayload) -> String {
+    let candidate = MeetingCandidate {
+        provider: payload.provider.clone(),
+        title: payload.title.clone(),
+        source: payload.source.clone(),
+        start_time: DateTime::parse_from_rfc3339(&payload.start_time)
+            .map(|dt| dt.with_timezone(&Utc))
+            .unwrap_or_else(|_| Utc::now()),
+        join_url: payload.join_url.clone(),
+    };
+    prompt_key(&candidate)
 }
 
 #[derive(Debug, Clone)]
@@ -726,5 +772,90 @@ mod tests {
             join_url: Some("https://meet.google.com/abc".to_string()),
         };
         assert_eq!(prompt_key(&candidate), prompt_key(&candidate));
+    }
+
+    #[test]
+    fn local_detection_prompt_key_ignores_timestamp() {
+        let first = MeetingCandidate {
+            provider: "Google Meet".to_string(),
+            title: "Sprint review".to_string(),
+            source: MeetingPromptSource::LocalDetection,
+            start_time: Utc::now(),
+            join_url: Some("https://meet.google.com/abc-defg-hij".to_string()),
+        };
+        let second = MeetingCandidate {
+            start_time: Utc::now() + Duration::seconds(10),
+            ..first.clone()
+        };
+
+        assert_eq!(prompt_key(&first), prompt_key(&second));
+    }
+
+    #[test]
+    fn local_detection_prompt_key_uses_window_title_when_join_url_missing() {
+        let candidate = MeetingCandidate {
+            provider: "Zoom".to_string(),
+            title: "Weekly sync".to_string(),
+            source: MeetingPromptSource::LocalDetection,
+            start_time: Utc::now(),
+            join_url: None,
+        };
+
+        assert_eq!(prompt_key(&candidate), "local|Zoom|weekly sync");
+    }
+
+    #[test]
+    fn handled_prompt_does_not_reappear_for_same_local_meeting() {
+        let candidate = MeetingCandidate {
+            provider: "Google Meet".to_string(),
+            title: "Sprint review".to_string(),
+            source: MeetingPromptSource::LocalDetection,
+            start_time: Utc::now(),
+            join_url: Some("https://meet.google.com/abc-defg-hij".to_string()),
+        };
+        let payload = MeetingPromptPayload {
+            provider: candidate.provider.clone(),
+            title: candidate.title.clone(),
+            source: candidate.source.clone(),
+            start_time: candidate.start_time.to_rfc3339(),
+            join_url: candidate.join_url.clone(),
+        };
+        let key = prompt_key(&candidate);
+        let mut state = MeetingAssistantState::default();
+
+        assert!(state.should_emit_prompt(&key));
+        state.set_active_prompt(key.clone(), payload.clone());
+        state.mark_prompt_handled(prompt_key_from_payload(&payload));
+
+        assert!(!state.should_emit_prompt(&key));
+    }
+
+    #[test]
+    fn start_recording_marks_active_prompt_handled() {
+        let candidate = MeetingCandidate {
+            provider: "Microsoft Teams".to_string(),
+            title: "Planning".to_string(),
+            source: MeetingPromptSource::GoogleCalendar,
+            start_time: Utc::now(),
+            join_url: Some(
+                "https://teams.microsoft.com/l/meetup-join/19%3ameeting_id%40thread.v2/0"
+                    .to_string(),
+            ),
+        };
+        let key = prompt_key(&candidate);
+        let payload = MeetingPromptPayload {
+            provider: candidate.provider.clone(),
+            title: candidate.title.clone(),
+            source: candidate.source.clone(),
+            start_time: candidate.start_time.to_rfc3339(),
+            join_url: candidate.join_url.clone(),
+        };
+        let mut state = MeetingAssistantState::default();
+
+        state.set_active_prompt(key.clone(), payload);
+        state.mark_active_prompt_handled();
+
+        assert!(!state.should_emit_prompt(&key));
+        assert!(state.active_prompt.is_none());
     }
 }

@@ -1,6 +1,7 @@
 use crate::input;
 use crate::settings;
 use crate::settings::OverlayPosition;
+use std::sync::Mutex;
 use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize};
 
 #[cfg(not(target_os = "macos"))]
@@ -33,8 +34,8 @@ tauri_panel! {
 
 const OVERLAY_WIDTH: f64 = 172.0;
 const OVERLAY_HEIGHT: f64 = 36.0;
-const MEETING_PROMPT_WIDTH: f64 = 360.0;
-const MEETING_PROMPT_HEIGHT: f64 = 168.0;
+const MEETING_PROMPT_WIDTH: f64 = 320.0;
+const MEETING_PROMPT_HEIGHT: f64 = 108.0;
 
 #[cfg(target_os = "macos")]
 const OVERLAY_TOP_OFFSET: f64 = 46.0;
@@ -46,6 +47,28 @@ const OVERLAY_BOTTOM_OFFSET: f64 = 15.0;
 
 #[cfg(any(target_os = "windows", target_os = "linux"))]
 const OVERLAY_BOTTOM_OFFSET: f64 = 40.0;
+
+#[derive(Default)]
+pub struct MeetingOverlayWindowState {
+    ready: Mutex<bool>,
+}
+
+impl MeetingOverlayWindowState {
+    pub fn mark_ready(&self) {
+        let mut ready = self
+            .ready
+            .lock()
+            .expect("meeting overlay ready state poisoned");
+        *ready = true;
+    }
+
+    pub fn is_ready(&self) -> bool {
+        *self
+            .ready
+            .lock()
+            .expect("meeting overlay ready state poisoned")
+    }
+}
 
 #[cfg(target_os = "linux")]
 fn update_gtk_layer_shell_anchors(overlay_window: &tauri::webview::WebviewWindow) {
@@ -232,7 +255,7 @@ fn calculate_meeting_prompt_position(app_handle: &AppHandle) -> Option<(f64, f64
 
     Some((
         monitor_x + monitor_width - MEETING_PROMPT_WIDTH - 24.0,
-        monitor_y + OVERLAY_TOP_OFFSET + 24.0,
+        monitor_y + OVERLAY_TOP_OFFSET + 54.0,
     ))
 }
 
@@ -311,7 +334,7 @@ pub fn create_meeting_prompt_window(app_handle: &AppHandle) {
     .title("Meeting Prompt")
     .resizable(false)
     .inner_size(MEETING_PROMPT_WIDTH, MEETING_PROMPT_HEIGHT)
-    .shadow(true)
+    .shadow(false)
     .maximizable(false)
     .minimizable(false)
     .closable(false)
@@ -386,7 +409,7 @@ pub fn create_meeting_prompt_window(app_handle: &AppHandle) {
                 width: MEETING_PROMPT_WIDTH,
                 height: MEETING_PROMPT_HEIGHT,
             }))
-            .has_shadow(true)
+            .has_shadow(false)
             .transparent(true)
             .no_activate(false)
             .corner_radius(12.0)
@@ -469,9 +492,13 @@ pub fn hide_recording_overlay(app_handle: &AppHandle) {
     }
 }
 
-pub fn show_meeting_prompt_window(app_handle: &AppHandle) {
+pub fn show_meeting_prompt_window(app_handle: &AppHandle) -> bool {
     if app_handle.get_webview_window("meeting_prompt").is_none() {
         create_meeting_prompt_window(app_handle);
+    }
+
+    if !app_handle.state::<MeetingOverlayWindowState>().is_ready() {
+        return false;
     }
 
     if let Some(window) = app_handle.get_webview_window("meeting_prompt") {
@@ -481,12 +508,16 @@ pub fn show_meeting_prompt_window(app_handle: &AppHandle) {
         let _ = window.show();
         #[cfg(target_os = "windows")]
         force_overlay_topmost(&window);
+        return true;
     }
+
+    false
 }
 
 pub fn hide_meeting_prompt_window(app_handle: &AppHandle) {
     if let Some(window) = app_handle.get_webview_window("meeting_prompt") {
-        let _ = window.destroy();
+        let _ = window.emit("hide-meeting-overlay", ());
+        let _ = window.hide();
     }
 }
 
@@ -496,6 +527,10 @@ pub fn emit_levels(app_handle: &AppHandle, levels: &Vec<f32>) {
 
     // also emit to the recording overlay if it's open
     if let Some(overlay_window) = app_handle.get_webview_window("recording_overlay") {
+        let _ = overlay_window.emit("mic-level", levels);
+    }
+
+    if let Some(overlay_window) = app_handle.get_webview_window("meeting_prompt") {
         let _ = overlay_window.emit("mic-level", levels);
     }
 }

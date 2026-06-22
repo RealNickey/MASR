@@ -44,17 +44,20 @@ pub async fn process_local_file(
     let is_meeting = action == "meeting";
 
     // Create the history entry initially with empty text
+    let meeting_prompt_id = if is_meeting {
+        let settings = crate::settings::get_settings(&app);
+        Some(crate::actions::meeting_post_process_prompt_id(&settings).to_string())
+    } else {
+        None
+    };
+
     history_manager
         .save_entry(
             file_name.clone(),
             String::new(),
             is_meeting,
             None,
-            if is_meeting {
-                Some("default_meeting_summary".to_string())
-            } else {
-                None
-            },
+            meeting_prompt_id.clone(),
         )
         .map_err(|e| format!("Failed to create history entry: {}", e))?;
 
@@ -70,11 +73,7 @@ pub async fn process_local_file(
     let (post_processed_text, post_process_prompt) = if is_meeting {
         // For meetings, we want to force post-processing with the summary prompt.
         let settings = crate::settings::get_settings(&app);
-        let prompt_id = if settings.google_oauth_token.is_some() {
-            "default_meeting_notes_with_actions"
-        } else {
-            "default_meeting_summary"
-        };
+        let prompt_id = crate::actions::meeting_post_process_prompt_id(&settings);
         let summary_opt =
             crate::actions::run_specific_llm_prompt(&settings, prompt_id, &transcription).await;
         (summary_opt, Some(prompt_id.to_string()))
@@ -194,15 +193,25 @@ pub async fn retry_history_entry_transcription(
         return Err("Recording contains no speech".to_string());
     }
 
-    let processed =
-        process_transcription_output(&app, &transcription, entry.post_process_requested).await;
+    let (post_processed_text, post_process_prompt) = if matches!(
+        entry.post_process_prompt.as_deref(),
+        Some("default_meeting_summary" | "default_meeting_notes_with_actions")
+    ) {
+        let settings = crate::settings::get_settings(&app);
+        let prompt_id = entry
+            .post_process_prompt
+            .as_deref()
+            .unwrap_or_else(|| crate::actions::meeting_post_process_prompt_id(&settings));
+        let summary_opt =
+            crate::actions::run_specific_llm_prompt(&settings, prompt_id, &transcription).await;
+        (summary_opt, Some(prompt_id.to_string()))
+    } else {
+        let processed =
+            process_transcription_output(&app, &transcription, entry.post_process_requested).await;
+        (processed.post_processed_text, processed.post_process_prompt)
+    };
     history_manager
-        .update_transcription(
-            id,
-            transcription,
-            processed.post_processed_text,
-            processed.post_process_prompt,
-        )
+        .update_transcription(id, transcription, post_processed_text, post_process_prompt)
         .map(|_| ())
         .map_err(|e| e.to_string())
 }

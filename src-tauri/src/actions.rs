@@ -5,6 +5,7 @@ use crate::audio_toolkit::{is_microphone_access_denied, is_no_input_device_error
 use crate::managers::audio::AudioRecordingManager;
 use crate::managers::diarization::DiarizationManager;
 use crate::managers::history::HistoryManager;
+use crate::managers::meeting_assistant::MeetingPromptPayload;
 use crate::managers::transcription::TranscriptionManager;
 use crate::settings::{get_settings, AppSettings, OutputLanguage, APPLE_INTELLIGENCE_PROVIDER_ID};
 use crate::shortcut;
@@ -17,7 +18,7 @@ use ferrous_opencc::{config::BuiltinConfig, OpenCC};
 use log::{debug, error, warn};
 use once_cell::sync::Lazy;
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Instant;
 use tauri::Manager;
 use tauri::{AppHandle, Emitter};
@@ -71,6 +72,36 @@ struct MeetingSummaryPayload {
 #[derive(Clone, serde::Serialize)]
 struct RecordingStatePayload {
     mode: String, // "transcribe" | "meeting" | "idle"
+}
+
+#[derive(Clone, serde::Serialize, specta::Type)]
+pub struct MeetingOverlayShowPayload {
+    pub state: String,
+    pub prompt: MeetingPromptPayload,
+}
+
+#[derive(Default)]
+pub struct MeetingOverlayStateStore {
+    current: Mutex<Option<MeetingOverlayShowPayload>>,
+}
+
+impl MeetingOverlayStateStore {
+    pub fn set(&self, payload: MeetingOverlayShowPayload) {
+        let mut current = self.current.lock().expect("meeting overlay state poisoned");
+        *current = Some(payload);
+    }
+
+    pub fn get(&self) -> Option<MeetingOverlayShowPayload> {
+        self.current
+            .lock()
+            .expect("meeting overlay state poisoned")
+            .clone()
+    }
+
+    pub fn clear(&self) {
+        let mut current = self.current.lock().expect("meeting overlay state poisoned");
+        *current = None;
+    }
 }
 
 /// Build a system prompt from the user's prompt template.
@@ -610,6 +641,18 @@ pub(crate) async fn process_transcription_output(
     }
 }
 
+pub(crate) fn meeting_post_process_prompt_id(settings: &AppSettings) -> &'static str {
+    if settings
+        .google_auth_tokens
+        .gmail_tasks_refresh_token
+        .is_some()
+    {
+        "default_meeting_notes_with_actions"
+    } else {
+        "default_meeting_summary"
+    }
+}
+
 /// Run Manglish transliteration using the Google/Gemini provider with gemma-4-26b-a4b-it.
 /// Falls back to the active post-processing provider if Google API key is not set.
 async fn run_manglish_transliteration(settings: &AppSettings, text: &str) -> Option<String> {
@@ -1017,6 +1060,18 @@ impl ShortcutAction for MeetingAction {
         let start_time = Instant::now();
         debug!("MeetingAction::start called for binding: {}", binding_id);
 
+        app.state::<MeetingOverlayStateStore>().clear();
+        crate::overlay::hide_meeting_prompt_window(app);
+        change_tray_icon(app, TrayIconState::Recording);
+        show_recording_overlay(app);
+
+        let _ = app.emit(
+            "recording-state-changed",
+            RecordingStatePayload {
+                mode: "meeting".to_string(),
+            },
+        );
+
         let tm = app.state::<Arc<TranscriptionManager>>();
         let rm = app.state::<Arc<AudioRecordingManager>>();
         let dm = app.state::<Arc<DiarizationManager>>();
@@ -1035,17 +1090,6 @@ impl ShortcutAction for MeetingAction {
                 debug!("Diarization models pre-load failed: {}", e);
             }
         });
-
-        change_tray_icon(app, TrayIconState::Recording);
-        show_recording_overlay(app);
-
-        // Emit recording state
-        let _ = app.emit(
-            "recording-state-changed",
-            RecordingStatePayload {
-                mode: "meeting".to_string(),
-            },
-        );
 
         let settings = get_settings(app);
         let is_always_on = settings.always_on_microphone;
@@ -1086,6 +1130,7 @@ impl ShortcutAction for MeetingAction {
         if recording_error.is_none() {
             shortcut::register_cancel_shortcut(app);
         } else {
+            app.state::<MeetingOverlayStateStore>().clear();
             let _ = app.emit(
                 "recording-state-changed",
                 RecordingStatePayload {
@@ -1093,6 +1138,7 @@ impl ShortcutAction for MeetingAction {
                 },
             );
             utils::hide_recording_overlay(app);
+            crate::overlay::hide_meeting_prompt_window(app);
             change_tray_icon(app, TrayIconState::Idle);
             if let Some(err) = recording_error {
                 let error_type = if is_microphone_access_denied(&err) {
@@ -1131,6 +1177,8 @@ impl ShortcutAction for MeetingAction {
         let dm = Arc::clone(&app.state::<Arc<DiarizationManager>>());
 
         change_tray_icon(app, TrayIconState::Transcribing);
+        app.state::<MeetingOverlayStateStore>().clear();
+        crate::overlay::hide_meeting_prompt_window(app);
         show_transcribing_overlay(app);
 
         rm.remove_mute();
@@ -1210,6 +1258,26 @@ impl ShortcutAction for MeetingAction {
                         }
                     };
 
+                    let settings = get_settings(&ah);
+                    let prompt_id = meeting_post_process_prompt_id(&settings).to_string();
+                    let history_entry_id = if wav_saved {
+                        match hm.save_entry(
+                            file_name.clone(),
+                            String::new(),
+                            true,
+                            None,
+                            Some(prompt_id.clone()),
+                        ) {
+                            Ok(entry) => Some(entry.id),
+                            Err(err) => {
+                                error!("Failed to create pending meeting history entry: {}", err);
+                                None
+                            }
+                        }
+                    } else {
+                        None
+                    };
+
                     // Await transcription and diarization results
                     let diarization_res = match diarization_handle.await {
                         Ok(Ok(res)) => Some(res),
@@ -1248,16 +1316,9 @@ impl ShortcutAction for MeetingAction {
                             );
 
                             show_processing_overlay(&ah);
-
-                            let settings = get_settings(&ah);
-                            let prompt_id = if settings.google_oauth_token.is_some() {
-                                "default_meeting_notes_with_actions"
-                            } else {
-                                "default_meeting_summary"
-                            };
-
                             let summary_opt =
-                                run_specific_llm_prompt(&settings, prompt_id, &transcription).await;
+                                run_specific_llm_prompt(&settings, &prompt_id, &transcription)
+                                    .await;
 
                             let display_summary = if prompt_id
                                 == "default_meeting_notes_with_actions"
@@ -1280,14 +1341,22 @@ impl ShortcutAction for MeetingAction {
                                 summary_opt.clone().unwrap_or_else(|| transcription.clone())
                             };
 
-                            // Save to history if WAV was saved
-                            if wav_saved {
+                            if let Some(entry_id) = history_entry_id {
+                                if let Err(err) = hm.update_transcription(
+                                    entry_id,
+                                    transcription.clone(),
+                                    summary_opt.clone(),
+                                    Some(prompt_id.clone()),
+                                ) {
+                                    error!("Failed to update meeting history entry: {}", err);
+                                }
+                            } else if wav_saved {
                                 if let Err(err) = hm.save_entry(
                                     file_name,
                                     transcription.clone(),
                                     true,
                                     summary_opt.clone(),
-                                    Some(prompt_id.to_string()),
+                                    Some(prompt_id.clone()),
                                 ) {
                                     error!("Failed to save history entry: {}", err);
                                 }
@@ -1310,11 +1379,27 @@ impl ShortcutAction for MeetingAction {
                         }
                         Err(err) => {
                             debug!("Global Shortcut Transcription error: {}", err);
-                            // Save entry with empty text so user can retry
-                            if wav_saved {
-                                if let Err(save_err) =
-                                    hm.save_entry(file_name, String::new(), true, None, None)
-                                {
+                            let failure_text = "[Meeting processing failed]".to_string();
+                            if let Some(entry_id) = history_entry_id {
+                                if let Err(save_err) = hm.update_transcription(
+                                    entry_id,
+                                    failure_text.clone(),
+                                    None,
+                                    Some(prompt_id.clone()),
+                                ) {
+                                    error!(
+                                        "Failed to update failed meeting history entry: {}",
+                                        save_err
+                                    );
+                                }
+                            } else if wav_saved {
+                                if let Err(save_err) = hm.save_entry(
+                                    file_name,
+                                    failure_text,
+                                    true,
+                                    None,
+                                    Some(prompt_id.clone()),
+                                ) {
                                     error!("Failed to save failed history entry: {}", save_err);
                                 }
                             }

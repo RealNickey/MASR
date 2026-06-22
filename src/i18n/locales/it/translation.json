@@ -629,10 +629,16 @@
         "calendarDisconnected": "Connect Google Calendar for meeting reminders",
         "calendarSource": "Google Calendar",
         "localSource": "local detection",
+        "detectedTitle": "Meeting Detected",
         "promptBody": "Start meeting mode for this {{source}} prompt.",
         "openMeeting": "Open Meeting",
         "dismiss": "Dismiss",
-        "startRecording": "Start Recording"
+        "startRecording": "Start Recording",
+        "stopRecording": "Stop",
+        "minimize": "Minimize",
+        "recordedTitle": "Meeting saved",
+        "recordedShort": "Saved",
+        "recordingSubtle": "Recording in background"
       },
       "chatWithMeeting": "Chat with Meeting",
       "chatPlaceholder": "Ask something about the meeting...",

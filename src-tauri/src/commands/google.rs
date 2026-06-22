@@ -1,10 +1,11 @@
+use crate::actions::{MeetingOverlayShowPayload, MeetingOverlayStateStore};
 use crate::managers::google_api::GoogleApi;
 use crate::managers::google_oauth::GoogleOAuth;
 use crate::managers::meeting_assistant::{
     GoogleIntegrationStatus, MeetingAssistantManager, MeetingPromptPayload,
 };
 use crate::settings::{get_settings, write_settings, GoogleFeature};
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Emitter, Manager};
 
 fn meeting_assistant(app: &AppHandle) -> tauri::State<'_, std::sync::Arc<MeetingAssistantManager>> {
     app.state::<std::sync::Arc<MeetingAssistantManager>>()
@@ -49,6 +50,18 @@ pub fn get_google_integration_status(app: AppHandle) -> GoogleIntegrationStatus 
 
 #[tauri::command]
 #[specta::specta]
+pub fn get_active_meeting_prompt(app: AppHandle) -> Option<MeetingPromptPayload> {
+    meeting_assistant(&app).active_prompt()
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn get_active_meeting_overlay(app: AppHandle) -> Option<MeetingOverlayShowPayload> {
+    app.state::<MeetingOverlayStateStore>().get()
+}
+
+#[tauri::command]
+#[specta::specta]
 pub fn disconnect_google_feature(app: AppHandle, feature: GoogleFeature) -> Result<(), String> {
     let mut settings = get_settings(&app);
     match feature {
@@ -73,15 +86,48 @@ pub fn disconnect_google_feature(app: AppHandle, feature: GoogleFeature) -> Resu
 #[tauri::command]
 #[specta::specta]
 pub async fn start_meeting_recording_from_prompt(app: AppHandle) -> Result<(), String> {
-    crate::overlay::hide_meeting_prompt_window(&app);
-    meeting_assistant(&app).clear_active_prompt();
+    meeting_assistant(&app).mark_active_prompt_handled();
     crate::signal_handle::send_transcription_input(&app, "meeting", "Meeting Assistant");
     Ok(())
 }
 
 #[tauri::command]
 #[specta::specta]
+pub fn stop_meeting_recording_from_overlay(app: AppHandle) -> Result<(), String> {
+    crate::signal_handle::send_transcription_input(&app, "meeting", "Meeting Overlay");
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn meeting_overlay_ready(app: AppHandle) -> Result<(), String> {
+    app.state::<crate::overlay::MeetingOverlayWindowState>()
+        .mark_ready();
+
+    if let Some(payload) = app.state::<MeetingOverlayStateStore>().get() {
+        if crate::overlay::show_meeting_prompt_window(&app) {
+            let _ = app.emit("meeting-overlay-show", payload);
+        }
+    } else if let Some(payload) = meeting_assistant(&app).active_prompt() {
+        if crate::overlay::show_meeting_prompt_window(&app) {
+            let _ = app.emit("meeting-prompt-show", payload);
+        }
+    }
+
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn hide_meeting_overlay(app: AppHandle) -> Result<(), String> {
+    crate::overlay::hide_meeting_prompt_window(&app);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
 pub fn dismiss_meeting_prompt(app: AppHandle, payload: MeetingPromptPayload) -> Result<(), String> {
+    app.state::<MeetingOverlayStateStore>().clear();
     crate::overlay::hide_meeting_prompt_window(&app);
     meeting_assistant(&app).dismiss_prompt(&payload);
     Ok(())
@@ -90,6 +136,7 @@ pub fn dismiss_meeting_prompt(app: AppHandle, payload: MeetingPromptPayload) -> 
 #[tauri::command]
 #[specta::specta]
 pub fn close_meeting_prompt(app: AppHandle) -> Result<(), String> {
+    app.state::<MeetingOverlayStateStore>().clear();
     crate::overlay::hide_meeting_prompt_window(&app);
     meeting_assistant(&app).clear_active_prompt();
     Ok(())

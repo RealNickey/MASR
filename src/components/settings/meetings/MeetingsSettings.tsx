@@ -582,7 +582,7 @@ const MeetingEntryComponent: React.FC<MeetingEntryProps> = ({
   );
 
   const copySummary = async () => {
-    const text = entry.post_processed_text || entry.transcription_text;
+    const text = displaySummary || entry.transcription_text;
     try {
       await navigator.clipboard.writeText(text);
       setShowSummaryCopied(true);
@@ -677,7 +677,7 @@ const MeetingEntryComponent: React.FC<MeetingEntryProps> = ({
         <div className="p-3 bg-mid-gray/5 rounded-md border border-mid-gray/10 text-sm text-text/90 select-text markdown-summary">
           {entry.post_processed_text ? (
             <ReactMarkdown remarkPlugins={[remarkGfm]}>
-              {entry.post_processed_text}
+              {displaySummary}
             </ReactMarkdown>
           ) : entry.transcription_text === "" ? (
             <div className="flex items-center gap-2 text-mid-gray py-1">

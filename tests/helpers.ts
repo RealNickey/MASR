@@ -11,7 +11,9 @@ export interface MockState {
   meetingPromptLeadMinutes: number;
   promptEvents: Array<
     | { action: "start" }
+    | { action: "stop" }
     | { action: "dismiss"; payload: unknown }
+    | { action: "hide" }
     | { action: "close" }
   >;
   lastFollowUp: {
@@ -393,6 +395,18 @@ export async function setupMocks(page: Page, initialGoogleConnected = false) {
           };
         }
 
+        if (cmd === "get_active_meeting_prompt") {
+          return null;
+        }
+
+        if (cmd === "get_active_meeting_overlay") {
+          return null;
+        }
+
+        if (cmd === "meeting_overlay_ready") {
+          return null;
+        }
+
         if (cmd === "connect_google_features") {
           if (state.oauthSuccess) {
             const features = args?.features || [];
@@ -439,6 +453,21 @@ export async function setupMocks(page: Page, initialGoogleConnected = false) {
           return null;
         }
 
+        if (cmd === "stop_meeting_recording_from_overlay") {
+          state.promptEvents.push({ action: "stop" });
+          saveState();
+          return null;
+        }
+
+        if (cmd === "hide_meeting_overlay") {
+          state.promptEvents.push({ action: "hide" });
+          saveState();
+          queueMicrotask(() => {
+            (window as any).__EMIT_EVENT__("hide-meeting-overlay", null);
+          });
+          return null;
+        }
+
         if (cmd === "dismiss_meeting_prompt") {
           state.promptEvents.push({
             action: "dismiss",
@@ -451,6 +480,9 @@ export async function setupMocks(page: Page, initialGoogleConnected = false) {
         if (cmd === "close_meeting_prompt") {
           state.promptEvents.push({ action: "close" });
           saveState();
+          queueMicrotask(() => {
+            (window as any).__EMIT_EVENT__("hide-meeting-overlay", null);
+          });
           return null;
         }
 

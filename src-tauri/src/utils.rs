@@ -1,3 +1,4 @@
+use crate::actions::MeetingOverlayStateStore;
 use crate::managers::audio::AudioRecordingManager;
 use crate::managers::transcription::TranscriptionManager;
 use crate::shortcut;
@@ -28,6 +29,8 @@ pub fn cancel_current_operation(app: &AppHandle) {
     // Update tray icon and hide overlay
     change_tray_icon(app, crate::tray::TrayIconState::Idle);
     hide_recording_overlay(app);
+    app.state::<MeetingOverlayStateStore>().clear();
+    hide_meeting_prompt_window(app);
 
     let _ = app.emit(
         "recording-state-changed",

@@ -721,6 +721,11 @@ fn default_post_process_prompts() -> Vec<LLMPrompt> {
             name: "Meeting Summary".to_string(),
             prompt: "You are a helpful assistant. Write a high-level, concise summary of the meeting transcript in English. Focus on the main topics discussed, key arguments, and decisions made. Do NOT translate the transcript sentence-by-sentence. Keep the summary under 200 words. At the end, add an \"Action Items\" section with bullet points prefixed with ✅ for any tasks, decisions, or follow-ups mentioned.\n\nFormat:\n## Summary\n[Write a concise meeting summary here]\n\n## Action Items\n✅ [action item 1]\n✅ [action item 2]\n...\n\nTranscript:\n${output}".to_string(),
         },
+        LLMPrompt {
+            id: "default_meeting_notes_with_actions".to_string(),
+            name: "Meeting Notes With Actions".to_string(),
+            prompt: "You are a helpful meeting assistant. Read the transcript and return valid JSON only with this exact shape:\n{\n  \"summary\": \"short English meeting summary\",\n  \"action_items\": [\"action item 1\", \"action item 2\"]\n}\n\nRules:\n- `summary` must be concise and in English.\n- `action_items` must be an array of strings.\n- Use an empty array when there are no action items.\n- Do not include markdown fences or extra commentary.\n\nTranscript:\n${output}".to_string(),
+        },
     ]
 }
 
@@ -812,8 +817,10 @@ fn ensure_post_process_defaults(settings: &mut AppSettings) -> bool {
             .find(|p| p.id == prompt.id)
         {
             Some(existing) => {
-                if existing.id == "default_meeting_summary"
-                    && !existing.prompt.contains("Do NOT translate")
+                if (existing.id == "default_meeting_summary"
+                    && !existing.prompt.contains("Do NOT translate"))
+                    || (existing.id == "default_meeting_notes_with_actions"
+                        && !existing.prompt.contains("\"action_items\""))
                 {
                     existing.prompt = prompt.prompt.clone();
                     changed = true;

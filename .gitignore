@@ -31,6 +31,10 @@ dist-ssr
 /target/
 recording_*
 .crush/
+.codex/
+
+# Imported font package docs
+src/assets/fonts/**/readme.html
 
 # Playwright
 playwright-report/
