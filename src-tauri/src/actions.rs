@@ -1554,6 +1554,9 @@ pub(crate) fn merge_short_speaker_turns(
                 if merge_with_prev {
                     if let Some(prev) = final_turns.last_mut() {
                         prev.2 = prev.2.max(end);
+                    } else {
+                        // No previous turn to merge into, push this turn instead
+                        final_turns.push((spk_id, start, end));
                     }
                 } else {
                     merged[i+1].1 = merged[i+1].1.min(start);

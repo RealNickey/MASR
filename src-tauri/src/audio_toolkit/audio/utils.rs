@@ -5,12 +5,19 @@ use std::path::Path;
 
 /// Read a WAV file and return normalised f32 samples.
 pub fn read_wav_samples<P: AsRef<Path>>(file_path: P) -> Result<Vec<f32>> {
+    let (samples, _) = read_wav_samples_with_rate(file_path)?;
+    Ok(samples)
+}
+
+/// Read a WAV file and return normalised f32 samples along with the sample rate.
+pub fn read_wav_samples_with_rate<P: AsRef<Path>>(file_path: P) -> Result<(Vec<f32>, u32)> {
     let reader = WavReader::open(file_path.as_ref())?;
+    let sample_rate = reader.spec().sample_rate;
     let samples = reader
         .into_samples::<i16>()
         .map(|s| s.map(|v| v as f32 / i16::MAX as f32))
         .collect::<Result<Vec<f32>, _>>()?;
-    Ok(samples)
+    Ok((samples, sample_rate))
 }
 
 /// Verify a WAV file by reading it back and checking the sample count.

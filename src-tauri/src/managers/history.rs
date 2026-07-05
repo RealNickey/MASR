@@ -306,6 +306,12 @@ impl HistoryManager {
     }
 
     /// Update an existing history entry with new transcription results (used by retry).
+    ///
+    /// The `diarization_json` parameter behavior:
+    /// - `Some(json)` - set to the provided JSON string
+    /// - `None` - clear the field (set to NULL)
+    ///
+    /// To preserve existing diarization, use `update_transcription_preserve_diarization`.
     pub fn update_transcription(
         &self,
         id: i64,
@@ -320,7 +326,7 @@ impl HistoryManager {
              SET transcription_text = ?1,
                  post_processed_text = ?2,
                  post_process_prompt = ?3,
-                 diarization_json = COALESCE(?4, diarization_json)
+                 diarization_json = ?4
              WHERE id = ?5",
             params![
                 transcription_text,
@@ -344,6 +350,55 @@ impl HistoryManager {
             )?;
 
         debug!("Updated transcription for history entry {}", id);
+
+        if let Err(e) = (HistoryUpdatePayload::Updated {
+            entry: entry.clone(),
+        })
+        .emit(&self.app_handle)
+        {
+            error!("Failed to emit history-updated event: {}", e);
+        }
+
+        Ok(entry)
+    }
+
+    /// Update an existing history entry while preserving the existing diarization_json.
+    /// Used when regenerating summaries where diarization should not be cleared.
+    pub fn update_transcription_preserve_diarization(
+        &self,
+        id: i64,
+        transcription_text: String,
+        post_processed_text: Option<String>,
+        post_process_prompt: Option<String>,
+    ) -> Result<HistoryEntry> {
+        let conn = self.get_connection()?;
+        let updated = conn.execute(
+            "UPDATE transcription_history
+             SET transcription_text = ?1,
+                 post_processed_text = ?2,
+                 post_process_prompt = ?3
+             WHERE id = ?4",
+            params![
+                transcription_text,
+                post_processed_text,
+                post_process_prompt,
+                id
+            ],
+        )?;
+
+        if updated == 0 {
+            return Err(anyhow!("History entry {} not found", id));
+        }
+
+        let entry = conn
+            .query_row(
+                "SELECT id, file_name, timestamp, saved, title, transcription_text, post_processed_text, post_process_prompt, post_process_requested, diarization_json
+                 FROM transcription_history WHERE id = ?1",
+                params![id],
+                Self::map_history_entry,
+            )?;
+
+        debug!("Updated transcription for history entry {} (preserved diarization)", id);
 
         if let Err(e) = (HistoryUpdatePayload::Updated {
             entry: entry.clone(),
