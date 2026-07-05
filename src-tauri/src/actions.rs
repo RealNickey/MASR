@@ -1181,25 +1181,6 @@ impl ShortcutAction for MeetingAction {
                         "default_meeting_summary"
                     };
 
-                    // Transcribe and diarize concurrently with WAV save
-                    let transcription_time = Instant::now();
-
-                    let dm_clone = dm.clone();
-                    let samples_for_diarize = samples.clone();
-                    let diarization_handle = tauri::async_runtime::spawn(async move {
-                        if let Err(e) = dm_clone.init().await {
-                            error!("Failed to initialize DiarizationManager: {}", e);
-                            return Err(e);
-                        }
-                        dm_clone.diarize(&samples_for_diarize, 16000).await
-                    });
-
-                    let tm_clone = tm.clone();
-                    let samples_for_transcribe = samples.clone();
-                    let transcribe_handle = tauri::async_runtime::spawn_blocking(move || {
-                        tm_clone.transcribe(samples_for_transcribe)
-                    });
-
                     // Await WAV save and verify
                     let wav_saved = match wav_handle.await {
                         Ok(Ok(())) => {
@@ -1225,12 +1206,13 @@ impl ShortcutAction for MeetingAction {
                     };
 
                     let history_entry_id = if wav_saved {
-                        match hm.save_entry(
+                        match hm.save_entry_with_diarization(
                             file_name.clone(),
                             String::new(),
                             true,
                             None,
                             Some(prompt_id.to_string()),
+                            None,
                         ) {
                             Ok(entry) => Some(entry.id),
                             Err(err) => {
@@ -1242,98 +1224,180 @@ impl ShortcutAction for MeetingAction {
                         None
                     };
 
-                    // Await transcription and diarization results
-                    let diarization_res = match diarization_handle.await {
-                        Ok(Ok(res)) => Some(res),
-                        Ok(Err(e)) => {
-                            error!("Diarization failed: {}", e);
-                            None
-                        }
-                        Err(e) => {
-                            error!("Diarization task panicked: {}", e);
-                            None
-                        }
-                    };
+                    if wav_saved {
+                        // Diarize full audio
+                        let transcription_time = Instant::now();
+                        let dm_clone = dm.clone();
+                        let samples_for_diarize = samples.clone();
+                        let diarization_handle = tauri::async_runtime::spawn(async move {
+                            if let Err(e) = dm_clone.init().await {
+                                error!("Failed to initialize DiarizationManager: {}", e);
+                                return Err(e);
+                            }
+                            dm_clone.diarize(&samples_for_diarize, 16000).await
+                        });
 
-                    let transcription_result = match transcribe_handle.await {
-                        Ok(res) => res,
-                        Err(e) => Err(anyhow::anyhow!("Transcription task panicked: {}", e)),
-                    };
+                        let diarization_result = match diarization_handle.await {
+                            Ok(Ok(res)) => Some(res),
+                            Ok(Err(e)) => {
+                                error!("Diarization failed: {}", e);
+                                None
+                            }
+                            Err(e) => {
+                                error!("Diarization task panicked: {}", e);
+                                None
+                            }
+                        };
 
-                    match transcription_result {
-                        Ok(result) => {
-                            let transcription = if let (Some(diar), Some(ref segs)) =
-                                (&diarization_res, &result.segments)
-                            {
-                                if !segs.is_empty() {
-                                    align_transcription_with_diarization(segs, &diar.segments)
-                                } else {
-                                    result.text.clone()
+                        // Merge short speaker turns
+                        let mut merged_turns = Vec::new();
+                        if let Some(diar) = &diarization_result {
+                            merged_turns = merge_short_speaker_turns(&diar.segments);
+                        }
+
+                        // Slice and transcribe
+                        let mut diarized_turns = Vec::new();
+                        if !merged_turns.is_empty() {
+                            for (spk_id, start, end) in merged_turns {
+                                let start_sample = (start * 16000.0) as usize;
+                                let end_sample = (end * 16000.0) as usize;
+                                let start_sample = start_sample.min(samples.len());
+                                let end_sample = end_sample.min(samples.len());
+                                if start_sample >= end_sample {
+                                    continue;
                                 }
-                            } else {
-                                result.text.clone()
-                            };
-                            debug!(
-                                "Transcription and Diarization completed in {:?}: '{}'",
-                                transcription_time.elapsed(),
-                                transcription
+                                let slice = samples[start_sample..end_sample].to_vec();
+                                if slice.is_empty() {
+                                    continue;
+                                }
+
+                                let tm_clone = tm.clone();
+                                let transcribe_res = tauri::async_runtime::spawn_blocking(move || {
+                                    tm_clone.transcribe(slice)
+                                })
+                                .await;
+
+                                match transcribe_res {
+                                    Ok(Ok(res)) => {
+                                        let text = res.text.trim().to_string();
+                                        if !text.is_empty() {
+                                            diarized_turns.push(DiarizedTurn {
+                                                speaker_id: spk_id,
+                                                start,
+                                                end,
+                                                text,
+                                            });
+                                        }
+                                    }
+                                    Ok(Err(e)) => {
+                                        error!("Slice transcription failed for speaker {}: {}", spk_id, e);
+                                    }
+                                    Err(e) => {
+                                        error!("Slice transcription panicked for speaker {}: {}", spk_id, e);
+                                    }
+                                }
+                            }
+                        }
+
+                        // Fallback to transcribing whole audio if no turns text found
+                        if diarized_turns.is_empty() {
+                            let duration = samples.len() as f64 / 16000.0;
+                            let tm_clone = tm.clone();
+                            let samples_clone = samples.clone();
+                            let transcribe_res = tauri::async_runtime::spawn_blocking(move || {
+                                tm_clone.transcribe(samples_clone)
+                            })
+                            .await;
+
+                            match transcribe_res {
+                                Ok(Ok(res)) => {
+                                    let text = res.text.trim().to_string();
+                                    if !text.is_empty() {
+                                        diarized_turns.push(DiarizedTurn {
+                                            speaker_id: 0,
+                                            start: 0.0,
+                                            end: duration,
+                                            text,
+                                        });
+                                    }
+                                }
+                                Ok(Err(e)) => {
+                                    error!("Fallback transcription failed: {}", e);
+                                }
+                                Err(e) => {
+                                    error!("Fallback transcription panicked: {}", e);
+                                }
+                            }
+                        }
+
+                        // Construct final transcript and sidecar JSON
+                        let mut final_transcript = String::new();
+                        for turn in &diarized_turns {
+                            final_transcript.push_str(&format!(
+                                "Speaker {}: {}\n\n",
+                                turn.speaker_id + 1,
+                                turn.text
+                            ));
+                        }
+                        let final_transcript = final_transcript.trim().to_string();
+                        let diarization_json = serde_json::to_string(&diarized_turns).ok();
+
+                        debug!(
+                            "Transcription and Diarization completed in {:?}: '{}'",
+                            transcription_time.elapsed(),
+                            final_transcript
+                        );
+
+                        // Run LLM summary
+                        let summary_opt = run_specific_llm_prompt(&settings, prompt_id, &final_transcript).await;
+
+                        let display_summary = if prompt_id == "default_meeting_notes_with_actions" {
+                            summary_opt
+                                .as_ref()
+                                .and_then(|json_str| {
+                                    serde_json::from_str::<serde_json::Value>(json_str)
+                                        .ok()
+                                        .and_then(|v| {
+                                            v.get("summary")
+                                                .and_then(|s| s.as_str())
+                                                .map(|s| s.to_string())
+                                        })
+                                })
+                                .unwrap_or_else(|| {
+                                    summary_opt.clone().unwrap_or_else(|| final_transcript.clone())
+                                })
+                        } else {
+                            summary_opt.clone().unwrap_or_else(|| final_transcript.clone())
+                        };
+
+                        // Update in database
+                        if let Some(entry_id) = history_entry_id {
+                            if let Err(err) = hm.update_transcription(
+                                entry_id,
+                                final_transcript.clone(),
+                                summary_opt.clone(),
+                                Some(prompt_id.to_string()),
+                                diarization_json,
+                            ) {
+                                error!("Failed to update meeting history entry: {}", err);
+                            }
+                        }
+
+                        if display_summary.is_empty() {
+                            change_tray_icon(&ah, TrayIconState::Idle);
+                        } else {
+                            let _ = ah.emit(
+                                "meeting-summary",
+                                MeetingSummaryPayload {
+                                    summary: display_summary,
+                                    transcript: final_transcript,
+                                },
                             );
-
-                            let summary_opt =
-                                run_specific_llm_prompt(&settings, prompt_id, &transcription).await;
-
-                            let display_summary = if prompt_id
-                                == "default_meeting_notes_with_actions"
-                            {
-                                summary_opt
-                                    .as_ref()
-                                    .and_then(|json_str| {
-                                        serde_json::from_str::<serde_json::Value>(json_str)
-                                            .ok()
-                                            .and_then(|v| {
-                                                v.get("summary")
-                                                    .and_then(|s| s.as_str())
-                                                    .map(|s| s.to_string())
-                                            })
-                                    })
-                                    .unwrap_or_else(|| {
-                                        summary_opt.clone().unwrap_or_else(|| transcription.clone())
-                                    })
-                            } else {
-                                summary_opt.clone().unwrap_or_else(|| transcription.clone())
-                            };
-
-                            if let Some(entry_id) = history_entry_id {
-                                if let Err(err) = hm.update_transcription(
-                                    entry_id,
-                                    transcription.clone(),
-                                    summary_opt.clone(),
-                                    Some(prompt_id.to_string()),
-                                ) {
-                                    error!("Failed to update meeting history entry: {}", err);
-                                }
-                            }
-
-                            if display_summary.is_empty() {
-                                change_tray_icon(&ah, TrayIconState::Idle);
-                            } else {
-                                let _ = ah.emit(
-                                    "meeting-summary",
-                                    MeetingSummaryPayload {
-                                        summary: display_summary,
-                                        transcript: transcription,
-                                    },
-                                );
-                                change_tray_icon(&ah, TrayIconState::Idle);
-                            }
-                        }
-                        Err(err) => {
-                            debug!("Global Shortcut Transcription error: {}", err);
-                            if history_entry_id.is_none() && wav_saved {
-                                error!("Meeting WAV was saved but no history placeholder exists");
-                            }
                             change_tray_icon(&ah, TrayIconState::Idle);
                         }
+                    } else {
+                        error!("Meeting WAV save failed; discarding recording");
+                        change_tray_icon(&ah, TrayIconState::Idle);
                     }
                 }
             } else {
@@ -1423,6 +1487,101 @@ fn align_transcription_with_diarization(
     }
 
     aligned_transcript
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct DiarizedTurn {
+    pub speaker_id: usize,
+    pub start: f64,
+    pub end: f64,
+    pub text: String,
+}
+
+pub(crate) fn merge_short_speaker_turns(
+    segments: &[polyvoice::types::Segment],
+) -> Vec<(usize, f64, f64)> {
+    let mut turns: Vec<(usize, f64, f64)> = Vec::new();
+    
+    // First, convert valid polyvoice segments to simple tuples: (speaker_id, start, end)
+    for seg in segments {
+        if let Some(spk) = seg.speaker {
+            turns.push((spk.0 as usize, seg.time.start, seg.time.end));
+        }
+    }
+    
+    // If turns are empty, we return empty
+    if turns.is_empty() {
+        return turns;
+    }
+    
+    // Sort turns by start time
+    turns.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
+    
+    // Merge consecutive segments of the same speaker
+    let mut merged: Vec<(usize, f64, f64)> = Vec::new();
+    for (spk_id, start, end) in turns {
+        if let Some(last) = merged.last_mut() {
+            if last.0 == spk_id {
+                last.2 = last.2.max(end);
+            } else {
+                merged.push((spk_id, start, end));
+            }
+        } else {
+            merged.push((spk_id, start, end));
+        }
+    }
+    
+    // Handle turns with duration < 1.0 second
+    let mut final_turns: Vec<(usize, f64, f64)> = Vec::new();
+    let mut i = 0;
+    while i < merged.len() {
+        let (spk_id, start, end) = merged[i];
+        let duration = end - start;
+        if duration < 1.0 {
+            if i > 0 || i + 1 < merged.len() {
+                let merge_with_prev = if i > 0 && i + 1 < merged.len() {
+                    let prev_end = merged[i-1].2;
+                    let next_start = merged[i+1].1;
+                    let gap_prev = start - prev_end;
+                    let gap_next = next_start - end;
+                    gap_prev <= gap_next
+                } else if i > 0 {
+                    true
+                } else {
+                    false
+                };
+                
+                if merge_with_prev {
+                    if let Some(prev) = final_turns.last_mut() {
+                        prev.2 = prev.2.max(end);
+                    }
+                } else {
+                    merged[i+1].1 = merged[i+1].1.min(start);
+                }
+            } else {
+                final_turns.push((spk_id, start, end));
+            }
+        } else {
+            final_turns.push((spk_id, start, end));
+        }
+        i += 1;
+    }
+    
+    // Final pass of merging consecutive turns of the same speaker
+    let mut result: Vec<(usize, f64, f64)> = Vec::new();
+    for (spk_id, start, end) in final_turns {
+        if let Some(last) = result.last_mut() {
+            if last.0 == spk_id {
+                last.2 = last.2.max(end);
+            } else {
+                result.push((spk_id, start, end));
+            }
+        } else {
+            result.push((spk_id, start, end));
+        }
+    }
+    
+    result
 }
 
 // Test Action

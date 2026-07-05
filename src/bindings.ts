@@ -839,6 +839,14 @@ async retryHistoryEntryTranscription(id: number) : Promise<Result<null, string>>
     else return { status: "error", error: e  as any };
 }
 },
+async regenerateMeetingSummary(id: number, labeledTranscript: string) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("regenerate_meeting_summary", { id, labeledTranscript }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async updateHistoryLimit(limit: number) : Promise<Result<null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("update_history_limit", { limit }) };
@@ -990,7 +998,7 @@ export type GoogleAuthTokens = { gmail_tasks_refresh_token?: string | null; cale
 export type GoogleFeature = "gmail_tasks" | "calendar"
 export type GoogleIntegrationStatus = { oauth_client_configured: boolean; gmail_tasks_connected: boolean; calendar_connected: boolean; gmail_tasks_available: boolean; calendar_available: boolean; meeting_calendar_prompts_enabled: boolean; meeting_detection_enabled: boolean; meeting_prompt_lead_minutes: number }
 export type GpuDeviceOption = { id: number; name: string; total_vram_mb: number }
-export type HistoryEntry = { id: number; file_name: string; timestamp: number; saved: boolean; title: string; transcription_text: string; post_processed_text: string | null; post_process_prompt: string | null; post_process_requested: boolean }
+export type HistoryEntry = { id: number; file_name: string; timestamp: number; saved: boolean; title: string; transcription_text: string; post_processed_text: string | null; post_process_prompt: string | null; post_process_requested: boolean; diarization_json: string | null }
 export type HistoryUpdatePayload = { action: "added"; entry: HistoryEntry } | { action: "updated"; entry: HistoryEntry } | { action: "deleted"; id: number } | { action: "toggled"; id: number }
 /**
  * Result of changing keyboard implementation

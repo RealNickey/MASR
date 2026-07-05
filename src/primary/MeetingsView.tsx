@@ -258,6 +258,12 @@ export const MeetingsView: React.FC = () => {
   const [showSummaryCopied, setShowSummaryCopied] = useState(false);
   const [showTranscriptCopied, setShowTranscriptCopied] = useState(false);
 
+  // Speaker Renaming & Regeneration state
+  const [speakerNames, setSpeakerNames] = useState<Record<string, string>>({});
+  const [editingSpeakerId, setEditingSpeakerId] = useState<string | null>(null);
+  const [editingNameValue, setEditingNameValue] = useState("");
+  const [isRegenerating, setIsRegenerating] = useState(false);
+
   // Google follow-up modal state
   const [showFollowUpDialog, setShowFollowUpDialog] = useState(false);
   const [followUpMeeting, setFollowUpMeeting] = useState<HistoryEntry | null>(
@@ -408,6 +414,97 @@ export const MeetingsView: React.FC = () => {
     setExpandTranscript(false);
     setDetailViewMode("summary");
   }, [selectedMeeting?.id]);
+
+  // Load speakerNames when selected meeting changes
+  useEffect(() => {
+    if (selectedMeeting) {
+      const cached = localStorage.getItem(`speakerNames_${selectedMeeting.id}`);
+      if (cached) {
+        try {
+          setSpeakerNames(JSON.parse(cached));
+        } catch (e) {
+          setSpeakerNames({});
+        }
+      } else {
+        setSpeakerNames({});
+      }
+    } else {
+      setSpeakerNames({});
+    }
+  }, [selectedMeeting?.id]);
+
+  const handleRenameSpeaker = (speakerId: string, newName: string) => {
+    if (!selectedMeeting) return;
+    const updated = { ...speakerNames, [speakerId]: newName };
+    setSpeakerNames(updated);
+    localStorage.setItem(`speakerNames_${selectedMeeting.id}`, JSON.stringify(updated));
+    toast.success(t("meetings.speakerRenamedToast") || "Speaker renamed. Regenerate the summary to reflect this.");
+  };
+
+  const startEditingSpeaker = (spkId: string) => {
+    setEditingSpeakerId(spkId);
+    setEditingNameValue(speakerNames[spkId] || `Speaker ${parseInt(spkId) + 1}`);
+  };
+
+  const finishEditingSpeaker = () => {
+    if (editingSpeakerId !== null) {
+      const trimmed = editingNameValue.trim();
+      if (trimmed) {
+        handleRenameSpeaker(editingSpeakerId, trimmed);
+      }
+    }
+    setEditingSpeakerId(null);
+  };
+
+  const formatTime = (secs: number) => {
+    const m = Math.floor(secs / 60);
+    const s = Math.floor(secs % 60);
+    return `${m}:${s.toString().padStart(2, "0")}`;
+  };
+
+  const formatTimeRange = (start: number, end: number) => {
+    return `${formatTime(start)} - ${formatTime(end)}`;
+  };
+
+  const handleRegenerateSummary = async () => {
+    if (!selectedMeeting || !selectedMeeting.diarization_json || isRegenerating) return;
+
+    setIsRegenerating(true);
+    try {
+      let labeledTranscript = selectedMeeting.transcription_text;
+      try {
+        const segments = JSON.parse(selectedMeeting.diarization_json);
+        if (Array.isArray(segments) && segments.length > 0) {
+          labeledTranscript = segments
+            .map((seg: any) => {
+              const spkId = String(seg.speaker_id);
+              const name = speakerNames[spkId] || `Speaker ${seg.speaker_id + 1}`;
+              return `${name}: ${seg.text}`;
+            })
+            .join("\n\n");
+        }
+      } catch (e) {
+        console.error("Failed to parse diarization_json for regeneration:", e);
+      }
+
+      const result = await commands.regenerateMeetingSummary(
+        selectedMeeting.id,
+        labeledTranscript
+      );
+
+      if (result.status === "ok") {
+        toast.success(t("meetings.toastSuccess") || "Meeting summary generated!");
+        void loadMeetings();
+      } else {
+        toast.error(t("meetings.summaryFailed") || "Failed to generate meeting summary.");
+      }
+    } catch (error) {
+      console.error("Failed to regenerate meeting summary:", error);
+      toast.error(t("meetings.summaryFailed") || "Failed to generate meeting summary.");
+    } finally {
+      setIsRegenerating(false);
+    }
+  };
 
   // Helper to extract parsed title, subtitle, and time pill
   const getMeetingMetadata = useCallback(
@@ -706,8 +803,26 @@ export const MeetingsView: React.FC = () => {
 
     setIsAsking(true);
     try {
+      let promptTranscript = selectedMeeting.transcription_text;
+      if (selectedMeeting.diarization_json) {
+        try {
+          const segments = JSON.parse(selectedMeeting.diarization_json);
+          if (Array.isArray(segments) && segments.length > 0) {
+            promptTranscript = segments
+              .map((seg: any) => {
+                const spkId = String(seg.speaker_id);
+                const name = speakerNames[spkId] || `Speaker ${seg.speaker_id + 1}`;
+                return `${name}: ${seg.text}`;
+              })
+              .join("\n\n");
+          }
+        } catch (e) {
+          console.error("Failed to parse diarization_json for chat:", e);
+        }
+      }
+
       const result = await commands.askMeetingQuestion(
-        selectedMeeting.transcription_text,
+        promptTranscript,
         message,
       );
       if (result.status === "ok") {
@@ -1039,6 +1154,23 @@ export const MeetingsView: React.FC = () => {
             {detailViewMode === "summary" ? (
               /* Summary Section (Direct area, no card) */
               <div className="text-sm leading-relaxed text-charcoal select-text markdown-summary min-h-[200px]">
+                {selectedMeeting.diarization_json && (
+                  <div className="flex justify-end mb-4">
+                    <button
+                      type="button"
+                      onClick={handleRegenerateSummary}
+                      disabled={isRegenerating}
+                      className="flex items-center gap-1.5 text-xs font-semibold text-forest-green hover:text-deep-forest-green transition-colors bg-forest-green/10 hover:bg-forest-green/20 px-3 py-1.5 rounded-lg cursor-pointer disabled:opacity-50 shadow-sm"
+                    >
+                      <Sparkles className={`w-3.5 h-3.5 ${isRegenerating ? "animate-spin" : ""}`} />
+                      <span>
+                        {isRegenerating
+                          ? t("meetings.regenerating") || "Regenerating..."
+                          : t("meetings.regenerateSummary") || "Regenerate Summary"}
+                      </span>
+                    </button>
+                  </div>
+                )}
                 {selectedMeeting.post_processed_text ? (
                   <ReactMarkdown
                     remarkPlugins={[remarkGfm]}
@@ -1074,7 +1206,29 @@ export const MeetingsView: React.FC = () => {
                       </span>
                       <button
                         type="button"
-                        onClick={() => copyTranscript(selectedMeeting)}
+                        onClick={async () => {
+                          let copyText = selectedMeeting.transcription_text;
+                          if (selectedMeeting.diarization_json) {
+                            try {
+                              const segments = JSON.parse(selectedMeeting.diarization_json);
+                              if (Array.isArray(segments) && segments.length > 0) {
+                                copyText = segments
+                                  .map((seg: any) => {
+                                    const spkId = String(seg.speaker_id);
+                                    const name = speakerNames[spkId] || `Speaker ${seg.speaker_id + 1}`;
+                                    return `${name}: ${seg.text}`;
+                                  })
+                                  .join("\n\n");
+                              }
+                            } catch (e) {}
+                          }
+                          try {
+                            await navigator.clipboard.writeText(copyText);
+                            setShowTranscriptCopied(true);
+                            setTimeout(() => setShowTranscriptCopied(false), 2000);
+                            toast.success(t("settings.history.copied") || "Copied transcript!");
+                          } catch (e) {}
+                        }}
                         className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-bark-grey hover:text-charcoal border border-stone-mist/40 bg-orange-off-white rounded-lg transition-colors cursor-pointer"
                       >
                         {showTranscriptCopied ? (
@@ -1089,15 +1243,94 @@ export const MeetingsView: React.FC = () => {
                         </span>
                       </button>
                     </div>
-                    <div className="text-sm text-bark-grey whitespace-pre-wrap leading-relaxed select-text font-normal font-sans max-h-96 overflow-y-auto pr-2 scrollbar-thin">
-                      {selectedMeeting.transcription_text || (
-                        <p className="italic text-pebble">
-                          {t(
-                            "settings.meetings.noTranscript",
-                            "No transcript text available.",
-                          )}
-                        </p>
-                      )}
+                    <div className="text-sm text-bark-grey leading-relaxed select-text font-normal font-sans max-h-96 overflow-y-auto pr-2 scrollbar-thin space-y-4">
+                      {(() => {
+                        let diarizedSegments: any[] = [];
+                        if (selectedMeeting.diarization_json) {
+                          try {
+                            diarizedSegments = JSON.parse(selectedMeeting.diarization_json);
+                          } catch (e) {
+                            console.error("Failed to parse diarization_json:", e);
+                          }
+                        }
+
+                        if (diarizedSegments.length > 0) {
+                          return (
+                            <div className="space-y-4">
+                              {diarizedSegments.map((seg, idx) => {
+                                const spkIdStr = String(seg.speaker_id);
+                                const displayName = speakerNames[spkIdStr] || `Speaker ${seg.speaker_id + 1}`;
+                                const isEditingThis = editingSpeakerId === spkIdStr;
+                                const colors = [
+                                  "bg-tide-teal/15 text-tide-teal border-tide-teal/30",
+                                  "bg-forest-green/15 text-forest-green border-forest-green/30",
+                                  "bg-terracotta/15 text-terracotta border-terracotta/30",
+                                  "bg-lichen-green/15 text-lichen-green border-lichen-green/30",
+                                  "bg-alarm-red/15 text-alarm-red border-alarm-red/30",
+                                ];
+                                const colorClass = colors[seg.speaker_id % colors.length];
+
+                                return (
+                                  <div key={idx} className="flex gap-4 p-4 border border-stone-mist/20 rounded-xl bg-orange-off-white/20">
+                                    <div className={`w-8 h-8 rounded-full border flex items-center justify-center font-bold text-xs shrink-0 select-none ${colorClass}`}>
+                                      {displayName.charAt(0).toUpperCase()}
+                                    </div>
+                                    <div className="flex-1 space-y-1">
+                                      <div className="flex items-center gap-2">
+                                        {isEditingThis ? (
+                                          <input
+                                            type="text"
+                                            value={editingNameValue}
+                                            onChange={(e) => setEditingNameValue(e.target.value)}
+                                            onBlur={finishEditingSpeaker}
+                                            onKeyDown={(e) => {
+                                              if (e.key === "Enter") {
+                                                finishEditingSpeaker();
+                                              } else if (e.key === "Escape") {
+                                                setEditingSpeakerId(null);
+                                              }
+                                            }}
+                                            className="px-2 py-0.5 text-xs font-semibold bg-orange-off-white border border-forest-green focus:outline-none rounded"
+                                            autoFocus
+                                          />
+                                        ) : (
+                                          <button
+                                            type="button"
+                                            onClick={() => startEditingSpeaker(spkIdStr)}
+                                            className="text-xs font-semibold text-charcoal hover:underline text-left"
+                                            title={t("meetings.editSpeakerName") || "Edit Speaker Name"}
+                                          >
+                                            {displayName}
+                                          </button>
+                                        )}
+                                        <span className="text-[10px] text-bark-grey font-mono">
+                                          {formatTimeRange(seg.start, seg.end)}
+                                        </span>
+                                      </div>
+                                      <p className="text-sm text-bark-grey select-text leading-relaxed whitespace-pre-wrap">
+                                        {seg.text}
+                                      </p>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          );
+                        } else {
+                          return (
+                            <div className="whitespace-pre-wrap">
+                              {selectedMeeting.transcription_text || (
+                                <p className="italic text-pebble">
+                                  {t(
+                                    "settings.meetings.noTranscript",
+                                    "No transcript text available.",
+                                  )}
+                                </p>
+                              )}
+                            </div>
+                          );
+                        }
+                      })()}
                     </div>
                   </div>
                 </div>
