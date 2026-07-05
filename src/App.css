@@ -56,27 +56,9 @@
   font-style: normal;
 }
 
-@font-face {
-  font-family: "Cooper LtBT";
-  src: url("/src/assets/fonts/Cooper Lt BT Light/Cooper Lt BT Light.ttf")
-    format("truetype");
-  font-weight: 300;
-  font-style: normal;
-}
-@font-face {
-  font-family: "Cooper LtBT";
-  src: url("/src/assets/fonts/Cooper Lt BT Light Italic/Cooper Lt BT Light Italic.ttf")
-    format("truetype");
-  font-weight: 300;
-  font-style: italic;
-}
-@font-face {
-  font-family: "Cooper LtBT";
-  src: url("/src/assets/fonts/Cooper Lt BT Bold/Cooper Lt BT Bold.ttf")
-    format("truetype");
-  font-weight: 700;
-  font-style: normal;
-}
+
+
+
 
 @theme {
   /* Strict Dark Mode Palette adapted from the stone-warm atelier design language */
@@ -106,7 +88,7 @@
 
   /* Typography Families */
   --font-geist: "Geist", ui-sans-serif, system-ui, -apple-system, sans-serif;
-  --font-cooper-ltbt: "Cooper LtBT", "Playfair Display", serif;
+  --font-cooper-ltbt: "Playfair Display", serif;
   --font-geist-mono: "Geist Mono", ui-monospace, monospace;
 }
 
