@@ -4,6 +4,8 @@ use crate::audio_feedback::{play_feedback_sound, play_feedback_sound_blocking, S
 use crate::audio_toolkit::{is_microphone_access_denied, is_no_input_device_error};
 use crate::managers::audio::AudioRecordingManager;
 use crate::managers::diarization::DiarizationManager;
+#[cfg(not(feature = "diarization"))]
+use crate::managers::diarization::polyvoice;
 use crate::managers::history::HistoryManager;
 use crate::managers::transcription::TranscriptionManager;
 use crate::settings::{get_settings, AppSettings, OutputLanguage, APPLE_INTELLIGENCE_PROVIDER_ID};

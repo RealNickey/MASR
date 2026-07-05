@@ -1,19 +1,31 @@
+#[cfg(feature = "diarization")]
 use anyhow::Result;
+#[cfg(feature = "diarization")]
 use log::{debug, info};
+#[cfg(feature = "diarization")]
 use polyvoice::clusterer::NmeScClusterer;
+#[cfg(feature = "diarization")]
 use polyvoice::embedder::ResNet34Adapter;
+#[cfg(feature = "diarization")]
 use polyvoice::models::ModelRegistry;
+#[cfg(feature = "diarization")]
 use polyvoice::pipeline_v2::hybrid::HybridPipeline;
+#[cfg(feature = "diarization")]
 use polyvoice::segmentation::{PowersetConfig, PowersetSegmenter};
+#[cfg(feature = "diarization")]
 use polyvoice::types::{Profile, SampleRate};
+#[cfg(feature = "diarization")]
 use std::sync::Arc;
+#[cfg(feature = "diarization")]
 use tauri::async_runtime::Mutex;
 
+#[cfg(feature = "diarization")]
 pub struct DiarizationManager {
     pipeline: Arc<Mutex<Option<HybridPipeline>>>,
     models_dir: std::path::PathBuf,
 }
 
+#[cfg(feature = "diarization")]
 impl DiarizationManager {
     pub fn new(models_dir: std::path::PathBuf) -> Self {
         Self {
@@ -82,5 +94,59 @@ impl DiarizationManager {
         let result = pipeline.run(audio_samples, sample_rate)?;
 
         Ok(result)
+    }
+}
+
+#[cfg(not(feature = "diarization"))]
+use anyhow::Result;
+
+#[cfg(not(feature = "diarization"))]
+pub struct DiarizationManager {
+    _models_dir: std::path::PathBuf,
+}
+
+#[cfg(not(feature = "diarization"))]
+impl DiarizationManager {
+    pub fn new(models_dir: std::path::PathBuf) -> Self {
+        Self {
+            _models_dir: models_dir,
+        }
+    }
+
+    pub async fn init(&self) -> Result<()> {
+        Ok(())
+    }
+
+    pub async fn diarize(
+        &self,
+        _audio_samples: &[f32],
+        _sample_rate_hz: u32,
+    ) -> Result<polyvoice::types::DiarizationResult> {
+        Ok(polyvoice::types::DiarizationResult { segments: vec![] })
+    }
+}
+
+#[cfg(not(feature = "diarization"))]
+pub mod polyvoice {
+    pub mod types {
+        #[derive(Clone, Debug)]
+        pub struct DiarizationResult {
+            pub segments: Vec<Segment>,
+        }
+
+        #[derive(Clone, Debug)]
+        pub struct TimeRange {
+            pub start: f64,
+            pub end: f64,
+        }
+
+        #[derive(Clone, Debug)]
+        pub struct Segment {
+            pub speaker: Option<SpeakerId>,
+            pub time: TimeRange,
+        }
+
+        #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+        pub struct SpeakerId(pub usize);
     }
 }

@@ -87,7 +87,11 @@ specta = "=2.0.0-rc.22"
 specta-typescript = "0.0.9"
 tauri-specta = { version = "=2.0.0-rc.21", features = ["derive", "typescript"] }
 tauri-plugin-dialog = "2.6"
-polyvoice = { version = "0.9.0", features = ["clusterer", "embedder", "onnx", "download", "segmentation", "resegmentation", "spectral"] }
+polyvoice = { version = "0.9.0", features = ["clusterer", "embedder", "onnx", "download", "segmentation", "resegmentation", "spectral"], optional = true }
+
+[features]
+default = []
+diarization = ["dep:polyvoice"]
 
 [target.'cfg(unix)'.dependencies]
 signal-hook = "0.3"
