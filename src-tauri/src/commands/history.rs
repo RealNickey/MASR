@@ -144,7 +144,6 @@ pub async fn process_local_file(
         if diarized_turns.is_empty() {
             return Err("Failed to transcribe meeting audio: no text segments produced".to_string());
         }
-
         // Construct final transcript
         let mut final_transcript = String::new();
         for turn in &diarized_turns {
