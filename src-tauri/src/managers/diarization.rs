@@ -1,6 +1,6 @@
 use anyhow::Result;
 use log::{debug, info};
-use polyvoice::clusterer::KMeansClusterer; // Or AHC Clusterer if available
+use polyvoice::clusterer::NmeScClusterer;
 use polyvoice::embedder::ResNet34Adapter;
 use polyvoice::models::ModelRegistry;
 use polyvoice::pipeline_v2::hybrid::HybridPipeline;
@@ -48,8 +48,8 @@ impl DiarizationManager {
 
         let embedder = ResNet34Adapter::new(&models.embedder_path, pool_size)?;
 
-        // Use 20 max speakers for KMeans as a starting point.
-        let clusterer = KMeansClusterer::new(20);
+        // Use 20 max speakers for NmeSc as a starting point.
+        let clusterer = NmeScClusterer::new(20);
 
         let pipeline =
             HybridPipeline::new(Box::new(segmenter), Box::new(embedder), Box::new(clusterer));

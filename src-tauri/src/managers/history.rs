@@ -398,7 +398,10 @@ impl HistoryManager {
                 Self::map_history_entry,
             )?;
 
-        debug!("Updated transcription for history entry {} (preserved diarization)", id);
+        debug!(
+            "Updated transcription for history entry {} (preserved diarization)",
+            id
+        );
 
         if let Err(e) = (HistoryUpdatePayload::Updated {
             entry: entry.clone(),

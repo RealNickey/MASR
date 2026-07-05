@@ -17,7 +17,7 @@ use std::time::{Duration, Instant};
 use tar::Archive;
 use tauri::{AppHandle, Emitter, Manager};
 
-#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
 pub enum EngineType {
     Whisper,
     Parakeet,
@@ -675,6 +675,16 @@ impl ModelManager {
     pub fn get_model_info(&self, model_id: &str) -> Option<ModelInfo> {
         let models = self.available_models.lock().unwrap();
         models.get(model_id).cloned()
+    }
+
+    pub fn get_smallest_downloaded_whisper_model(&self) -> Option<ModelInfo> {
+        let mut whisper_models: Vec<ModelInfo> = self
+            .get_available_models()
+            .into_iter()
+            .filter(|m| m.is_downloaded && m.engine_type == EngineType::Whisper)
+            .collect();
+        whisper_models.sort_by_key(|m| m.size_mb);
+        whisper_models.first().cloned()
     }
 
     fn migrate_bundled_models(&self) -> Result<()> {

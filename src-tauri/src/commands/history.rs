@@ -1,11 +1,11 @@
-use crate::actions::{process_transcription_output, DiarizedTurn};
+use crate::actions::process_transcription_output;
 use crate::managers::{
     diarization::DiarizationManager,
     history::{HistoryManager, PaginatedHistory},
     transcription::TranscriptionManager,
 };
 use std::sync::Arc;
-use tauri::{AppHandle, State, Manager};
+use tauri::{AppHandle, Manager, State};
 
 #[tauri::command]
 #[specta::specta]
@@ -21,21 +21,33 @@ pub async fn process_local_file(
         return Err(format!("File does not exist: {}", path));
     }
 
+    // Initiate model loading in the background so it's ready when transcription starts
+    transcription_manager.initiate_model_load();
+
     let file_name = format!("thegai-{}.wav", chrono::Utc::now().timestamp());
     let dest_path = history_manager.recordings_dir().join(&file_name);
 
     // For now, we only support WAV or we attempt to read samples and save as WAV.
     // Use read_wav_samples_with_rate to get both samples and the actual sample rate.
     // In the future, this should decode mp3/flac using rodio.
-    let (samples, source_sample_rate) = crate::audio_toolkit::read_wav_samples_with_rate(&source_path).map_err(|e| {
-        format!(
-            "Failed to read audio file (only WAV is supported currently): {}",
-            e
-        )
-    })?;
+    let (mut samples, mut source_sample_rate) =
+        crate::audio_toolkit::read_wav_samples_with_rate(&source_path).map_err(|e| {
+            format!(
+                "Failed to read audio file (only WAV is supported currently): {}",
+                e
+            )
+        })?;
 
     if samples.is_empty() {
         return Err("Audio file contains no samples".to_string());
+    }
+
+    // Resample to 16000 Hz if the source audio has a different sample rate
+    if source_sample_rate != 16000 {
+        log::info!("Resampling audio from {}Hz to 16000Hz", source_sample_rate);
+        samples = crate::audio_toolkit::resample(&samples, source_sample_rate as usize, 16000)
+            .map_err(|e| format!("Failed to resample audio: {}", e))?;
+        source_sample_rate = 16000;
     }
 
     // Save as WAV into our recordings folder
@@ -61,109 +73,31 @@ pub async fn process_local_file(
         .map_err(|e| format!("Failed to create history entry: {}", e))?;
 
     let (transcription, diarization_json) = if is_meeting {
-        let dm = app.state::<Arc<DiarizationManager>>();
-        dm.init().await.map_err(|e| format!("Failed to init diarization: {}", e))?;
-        let diarization_res = dm.diarize(&samples, source_sample_rate).await.map_err(|e| format!("Diarization failed: {}", e))?;
-        let merged_turns = crate::actions::merge_short_speaker_turns(&diarization_res.segments);
+        let dm = app.state::<Arc<DiarizationManager>>().inner().clone();
+        let tm = Arc::clone(&transcription_manager);
+        let (final_transcript, diarization_json) = crate::actions::run_hybrid_diarization_pipeline(
+            &app,
+            samples.clone(),
+            source_sample_rate,
+            tm,
+            dm,
+        )
+        .await
+        .map_err(|e| format!("Hybrid diarization pipeline failed: {}", e))?;
 
-        let mut diarized_turns = Vec::new();
-        if !merged_turns.is_empty() {
-            for (spk_id, start, end) in merged_turns {
-                let start_sample = (start * source_sample_rate as f64) as usize;
-                let end_sample = (end * source_sample_rate as f64) as usize;
-                let start_sample = start_sample.min(samples.len());
-                let end_sample = end_sample.min(samples.len());
-                if start_sample >= end_sample {
-                    continue;
-                }
-                let slice = samples[start_sample..end_sample].to_vec();
-                if slice.is_empty() {
-                    continue;
-                }
-
-                let tm = Arc::clone(&transcription_manager);
-                let transcribe_res = tauri::async_runtime::spawn_blocking(move || {
-                    tm.transcribe(slice)
-                })
-                .await;
-
-                match transcribe_res {
-                    Ok(Ok(res)) => {
-                        let text = res.text.trim().to_string();
-                        if !text.is_empty() {
-                            diarized_turns.push(DiarizedTurn {
-                                speaker_id: spk_id,
-                                start,
-                                end,
-                                text,
-                            });
-                        }
-                    }
-                    Ok(Err(e)) => {
-                        log::warn!("Transcription error for speaker {} segment [{}, {}]: {}", spk_id, start, end, e);
-                    }
-                    Err(e) => {
-                        log::warn!("Async task error for speaker {} segment [{}, {}]: {}", spk_id, start, end, e);
-                    }
-                }
-            }
-        }
-
-        // Fallback to transcribing whole audio if no turns text found
-        if diarized_turns.is_empty() {
-            let duration = samples.len() as f64 / source_sample_rate as f64;
-            let tm = Arc::clone(&transcription_manager);
-            let samples_clone = samples.clone();
-            let transcribe_res = tauri::async_runtime::spawn_blocking(move || {
-                tm.transcribe(samples_clone)
-            })
-            .await;
-
-            match transcribe_res {
-                Ok(Ok(res)) => {
-                    let text = res.text.trim().to_string();
-                    if !text.is_empty() {
-                        diarized_turns.push(DiarizedTurn {
-                            speaker_id: 0,
-                            start: 0.0,
-                            end: duration,
-                            text,
-                        });
-                    }
-                }
-                Ok(Err(e)) => {
-                    log::error!("Transcription error in fallback path: {}", e);
-                }
-                Err(e) => {
-                    log::error!("Async task error in fallback path: {}", e);
-                }
-            }
-        }
-
-        // If still no transcript was produced, return an error instead of empty string
-        if diarized_turns.is_empty() {
+        if final_transcript.is_empty() {
             return Err("Failed to transcribe meeting audio: no text segments produced".to_string());
         }
-        // Construct final transcript
-        let mut final_transcript = String::new();
-        for turn in &diarized_turns {
-            final_transcript.push_str(&format!(
-                "Speaker {}: {}\n\n",
-                turn.speaker_id + 1,
-                turn.text
-            ));
-        }
-        let final_transcript = final_transcript.trim().to_string();
-        let diarization_json = serde_json::to_string(&diarized_turns).ok();
         (final_transcript, diarization_json)
     } else {
         // Transcribe whole audio
         let tm = Arc::clone(&transcription_manager);
-        let transcription_res = tauri::async_runtime::spawn_blocking(move || tm.transcribe(samples))
-            .await
-            .map_err(|e| format!("Transcription task panicked: {}", e))?
-            .map(|r| r.text)
-            .map_err(|e| e.to_string())?;
+        let transcription_res =
+            tauri::async_runtime::spawn_blocking(move || tm.transcribe(samples))
+                .await
+                .map_err(|e| format!("Transcription task panicked: {}", e))?
+                .map(|r| r.text)
+                .map_err(|e| e.to_string())?;
         (transcription_res, None)
     };
 

@@ -1,6 +1,8 @@
 use anyhow::Result;
 use hound::{WavReader, WavSpec, WavWriter};
 use log::debug;
+use rodio::conversions::SampleTypeConverter;
+use rodio::source::Source;
 use std::path::Path;
 
 /// Read a WAV file and return normalised f32 samples.
@@ -11,12 +13,25 @@ pub fn read_wav_samples<P: AsRef<Path>>(file_path: P) -> Result<Vec<f32>> {
 
 /// Read a WAV file and return normalised f32 samples along with the sample rate.
 pub fn read_wav_samples_with_rate<P: AsRef<Path>>(file_path: P) -> Result<(Vec<f32>, u32)> {
-    let reader = WavReader::open(file_path.as_ref())?;
-    let sample_rate = reader.spec().sample_rate;
-    let samples = reader
-        .into_samples::<i16>()
-        .map(|s| s.map(|v| v as f32 / i16::MAX as f32))
-        .collect::<Result<Vec<f32>, _>>()?;
+    let file = std::fs::File::open(file_path.as_ref())?;
+    let decoder = rodio::Decoder::new(std::io::BufReader::new(file))?;
+    let sample_rate = decoder.sample_rate();
+    let channels = decoder.channels() as usize;
+
+    let raw_samples: Vec<f32> = SampleTypeConverter::<_, f32>::new(decoder).collect();
+
+    // Mix down to mono if multi-channel
+    let samples = if channels > 1 {
+        let mut mono = Vec::with_capacity(raw_samples.len() / channels);
+        for chunk in raw_samples.chunks_exact(channels) {
+            let sum: f32 = chunk.iter().sum();
+            mono.push(sum / channels as f32);
+        }
+        mono
+    } else {
+        raw_samples
+    };
+
     Ok((samples, sample_rate))
 }
 
@@ -54,4 +69,25 @@ pub fn save_wav_file<P: AsRef<Path>>(file_path: P, samples: &[f32]) -> Result<()
     writer.finalize()?;
     debug!("Saved WAV file: {:?}", file_path.as_ref());
     Ok(())
+}
+
+/// Resample a buffer from one sample rate to another using FFT resampler
+pub fn resample(input: &[f32], in_sr: usize, out_sr: usize) -> Result<Vec<f32>> {
+    use rubato::{FftFixedIn, Resampler};
+    let chunk = 1024usize;
+    let mut r = FftFixedIn::<f32>::new(in_sr, out_sr, chunk, 1, 1)?;
+    let mut out = Vec::new();
+    let mut src = input;
+    while src.len() >= chunk {
+        let res = r.process(&[&src[..chunk]], None)?;
+        out.extend_from_slice(&res[0]);
+        src = &src[chunk..];
+    }
+    if !src.is_empty() {
+        let mut pad = src.to_vec();
+        pad.resize(chunk, 0.0);
+        let res = r.process(&[&pad], None)?;
+        out.extend_from_slice(&res[0]);
+    }
+    Ok(out)
 }

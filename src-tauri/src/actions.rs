@@ -1225,131 +1225,18 @@ impl ShortcutAction for MeetingAction {
                     };
 
                     if wav_saved {
-                        // Diarize full audio
-                        let transcription_time = Instant::now();
-                        let dm_clone = dm.clone();
-                        let samples_for_diarize = samples.clone();
-                        let diarization_handle = tauri::async_runtime::spawn(async move {
-                            if let Err(e) = dm_clone.init().await {
-                                error!("Failed to initialize DiarizationManager: {}", e);
-                                return Err(e);
-                            }
-                            dm_clone.diarize(&samples_for_diarize, 16000).await
-                        });
-
-                        let diarization_result = match diarization_handle.await {
-                            Ok(Ok(res)) => Some(res),
-                            Ok(Err(e)) => {
-                                error!("Diarization failed: {}", e);
-                                None
-                            }
-                            Err(e) => {
-                                error!("Diarization task panicked: {}", e);
-                                None
-                            }
-                        };
-
-                        // Merge short speaker turns
-                        let mut merged_turns = Vec::new();
-                        if let Some(diar) = &diarization_result {
-                            merged_turns = merge_short_speaker_turns(&diar.segments);
-                        }
-
-                        // Slice and transcribe
-                        let mut diarized_turns = Vec::new();
-                        if !merged_turns.is_empty() {
-                            for (spk_id, start, end) in merged_turns {
-                                let start_sample = (start * 16000.0) as usize;
-                                let end_sample = (end * 16000.0) as usize;
-                                let start_sample = start_sample.min(samples.len());
-                                let end_sample = end_sample.min(samples.len());
-                                if start_sample >= end_sample {
-                                    continue;
+                        let (final_transcript, diarization_json) =
+                            match run_hybrid_diarization_pipeline(&ah, samples.clone(), 16000, tm.clone(), dm.clone()).await {
+                                Ok((transcript, json)) => (transcript, json),
+                                Err(err) => {
+                                    error!("Hybrid diarization pipeline failed: {}", err);
+                                    (String::new(), None)
                                 }
-                                let slice = samples[start_sample..end_sample].to_vec();
-                                if slice.is_empty() {
-                                    continue;
-                                }
-
-                                let tm_clone = tm.clone();
-                                let transcribe_res = tauri::async_runtime::spawn_blocking(move || {
-                                    tm_clone.transcribe(slice)
-                                })
-                                .await;
-
-                                match transcribe_res {
-                                    Ok(Ok(res)) => {
-                                        let text = res.text.trim().to_string();
-                                        if !text.is_empty() {
-                                            diarized_turns.push(DiarizedTurn {
-                                                speaker_id: spk_id,
-                                                start,
-                                                end,
-                                                text,
-                                            });
-                                        }
-                                    }
-                                    Ok(Err(e)) => {
-                                        error!("Slice transcription failed for speaker {}: {}", spk_id, e);
-                                    }
-                                    Err(e) => {
-                                        error!("Slice transcription panicked for speaker {}: {}", spk_id, e);
-                                    }
-                                }
-                            }
-                        }
-
-                        // Fallback to transcribing whole audio if no turns text found
-                        if diarized_turns.is_empty() {
-                            let duration = samples.len() as f64 / 16000.0;
-                            let tm_clone = tm.clone();
-                            let samples_clone = samples.clone();
-                            let transcribe_res = tauri::async_runtime::spawn_blocking(move || {
-                                tm_clone.transcribe(samples_clone)
-                            })
-                            .await;
-
-                            match transcribe_res {
-                                Ok(Ok(res)) => {
-                                    let text = res.text.trim().to_string();
-                                    if !text.is_empty() {
-                                        diarized_turns.push(DiarizedTurn {
-                                            speaker_id: 0,
-                                            start: 0.0,
-                                            end: duration,
-                                            text,
-                                        });
-                                    }
-                                }
-                                Ok(Err(e)) => {
-                                    error!("Fallback transcription failed: {}", e);
-                                }
-                                Err(e) => {
-                                    error!("Fallback transcription panicked: {}", e);
-                                }
-                            }
-                        }
-
-                        // Construct final transcript and sidecar JSON
-                        let mut final_transcript = String::new();
-                        for turn in &diarized_turns {
-                            final_transcript.push_str(&format!(
-                                "Speaker {}: {}\n\n",
-                                turn.speaker_id + 1,
-                                turn.text
-                            ));
-                        }
-                        let final_transcript = final_transcript.trim().to_string();
-                        let diarization_json = serde_json::to_string(&diarized_turns).ok();
-
-                        debug!(
-                            "Transcription and Diarization completed in {:?}: '{}'",
-                            transcription_time.elapsed(),
-                            final_transcript
-                        );
+                            };
 
                         // Run LLM summary
-                        let summary_opt = run_specific_llm_prompt(&settings, prompt_id, &final_transcript).await;
+                        let summary_opt =
+                            run_specific_llm_prompt(&settings, prompt_id, &final_transcript).await;
 
                         let display_summary = if prompt_id == "default_meeting_notes_with_actions" {
                             summary_opt
@@ -1364,10 +1251,14 @@ impl ShortcutAction for MeetingAction {
                                         })
                                 })
                                 .unwrap_or_else(|| {
-                                    summary_opt.clone().unwrap_or_else(|| final_transcript.clone())
+                                    summary_opt
+                                        .clone()
+                                        .unwrap_or_else(|| final_transcript.clone())
                                 })
                         } else {
-                            summary_opt.clone().unwrap_or_else(|| final_transcript.clone())
+                            summary_opt
+                                .clone()
+                                .unwrap_or_else(|| final_transcript.clone())
                         };
 
                         // Update in database
@@ -1410,85 +1301,6 @@ impl ShortcutAction for MeetingAction {
     }
 }
 
-fn align_transcription_with_diarization(
-    trans_segs: &[transcribe_rs::TranscriptionSegment],
-    diar_segs: &[polyvoice::types::Segment],
-) -> String {
-    let mut aligned_transcript = String::new();
-    let mut current_speaker: Option<polyvoice::types::SpeakerId> = None;
-    let mut current_paragraph = String::new();
-
-    for t_seg in trans_segs {
-        let t_start = t_seg.start as f64;
-        let t_end = t_seg.end as f64;
-
-        // Find the speaker with the maximum overlap with [t_start, t_end]
-        let mut best_speaker: Option<polyvoice::types::SpeakerId> = None;
-        let mut max_overlap = 0.0;
-
-        for d_seg in diar_segs {
-            if let Some(spk) = d_seg.speaker {
-                let d_start = d_seg.time.start;
-                let d_end = d_seg.time.end;
-
-                // Overlap interval is [max(t_start, d_start), min(t_end, d_end)]
-                let overlap_start = t_start.max(d_start);
-                let overlap_end = t_end.min(d_end);
-
-                if overlap_end > overlap_start {
-                    let overlap = overlap_end - overlap_start;
-                    if overlap > max_overlap {
-                        max_overlap = overlap;
-                        best_speaker = Some(spk);
-                    }
-                }
-            }
-        }
-
-        // If no overlap is found (e.g. silence or empty diarization), fall back or use previous
-        let speaker = best_speaker.or(current_speaker);
-
-        if speaker != current_speaker {
-            // Speaker changed! Flush the previous paragraph
-            if !current_paragraph.is_empty() {
-                if let Some(spk) = current_speaker {
-                    aligned_transcript.push_str(&format!(
-                        "Speaker {}: {}\n\n",
-                        spk.0 + 1,
-                        current_paragraph.trim()
-                    ));
-                } else {
-                    aligned_transcript.push_str(&format!(
-                        "Unknown Speaker: {}\n\n",
-                        current_paragraph.trim()
-                    ));
-                }
-                current_paragraph.clear();
-            }
-            current_speaker = speaker;
-        }
-
-        current_paragraph.push_str(&t_seg.text);
-        current_paragraph.push_str(" ");
-    }
-
-    // Flush the final paragraph
-    if !current_paragraph.is_empty() {
-        if let Some(spk) = current_speaker {
-            aligned_transcript.push_str(&format!(
-                "Speaker {}: {}\n",
-                spk.0 + 1,
-                current_paragraph.trim()
-            ));
-        } else {
-            aligned_transcript
-                .push_str(&format!("Unknown Speaker: {}\n", current_paragraph.trim()));
-        }
-    }
-
-    aligned_transcript
-}
-
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct DiarizedTurn {
     pub speaker_id: usize,
@@ -1501,27 +1313,26 @@ pub(crate) fn merge_short_speaker_turns(
     segments: &[polyvoice::types::Segment],
 ) -> Vec<(usize, f64, f64)> {
     let mut turns: Vec<(usize, f64, f64)> = Vec::new();
-    
-    // First, convert valid polyvoice segments to simple tuples: (speaker_id, start, end)
+
+    // Convert valid polyvoice segments to simple tuples: (speaker_id, start, end)
     for seg in segments {
         if let Some(spk) = seg.speaker {
             turns.push((spk.0 as usize, seg.time.start, seg.time.end));
         }
     }
-    
-    // If turns are empty, we return empty
+
     if turns.is_empty() {
         return turns;
     }
-    
+
     // Sort turns by start time
     turns.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
-    
-    // Merge consecutive segments of the same speaker
+
+    // Merge consecutive segments of the same speaker if the gap is small (e.g. <= 1.5s)
     let mut merged: Vec<(usize, f64, f64)> = Vec::new();
     for (spk_id, start, end) in turns {
         if let Some(last) = merged.last_mut() {
-            if last.0 == spk_id {
+            if last.0 == spk_id && (start - last.2) <= 1.5 {
                 last.2 = last.2.max(end);
             } else {
                 merged.push((spk_id, start, end));
@@ -1530,61 +1341,525 @@ pub(crate) fn merge_short_speaker_turns(
             merged.push((spk_id, start, end));
         }
     }
+
+    merged
+}
+
+fn align_text_to_timestamps(
+    primary_text: &str,
+    whisper_segments: &[transcribe_rs::TranscriptionSegment]
+) -> Vec<transcribe_rs::TranscriptionSegment> {
+    if whisper_segments.is_empty() {
+        return Vec::new();
+    }
     
-    // Handle turns with duration < 1.0 second
-    let mut final_turns: Vec<(usize, f64, f64)> = Vec::new();
-    let mut i = 0;
-    while i < merged.len() {
-        let (spk_id, start, end) = merged[i];
-        let duration = end - start;
-        if duration < 1.0 {
-            if i > 0 || i + 1 < merged.len() {
-                let merge_with_prev = if i > 0 && i + 1 < merged.len() {
-                    let prev_end = merged[i-1].2;
-                    let next_start = merged[i+1].1;
-                    let gap_prev = start - prev_end;
-                    let gap_next = next_start - end;
-                    gap_prev <= gap_next
-                } else if i > 0 {
-                    true
-                } else {
-                    false
-                };
-                
-                if merge_with_prev {
-                    if let Some(prev) = final_turns.last_mut() {
-                        prev.2 = prev.2.max(end);
-                    } else {
-                        // No previous turn to merge into, push this turn instead
-                        final_turns.push((spk_id, start, end));
+    let words: Vec<&str> = primary_text.split_whitespace().collect();
+    if words.is_empty() {
+        return Vec::new();
+    }
+
+    let segment_lengths: Vec<usize> = whisper_segments
+        .iter()
+        .map(|seg| seg.text.chars().count())
+        .collect();
+    
+    let total_len: usize = segment_lengths.iter().sum();
+    
+    let mut aligned_segments = Vec::new();
+    let mut word_idx = 0;
+    
+    if total_len == 0 {
+        // If all whisper segments are empty, distribute words evenly
+        let words_per_seg = (words.len() as f64 / whisper_segments.len() as f64).max(1.0).ceil() as usize;
+        for seg in whisper_segments {
+            if word_idx >= words.len() {
+                break;
+            }
+            let end_idx = (word_idx + words_per_seg).min(words.len());
+            let seg_words = &words[word_idx..end_idx];
+            aligned_segments.push(transcribe_rs::TranscriptionSegment {
+                start: seg.start,
+                end: seg.end,
+                text: seg_words.join(" "),
+            });
+            word_idx = end_idx;
+        }
+    } else {
+        // Distribute words proportionally based on character length of each whisper segment
+        let mut cumulative_words = 0.0;
+        let total_words = words.len() as f64;
+        
+        for (i, seg) in whisper_segments.iter().enumerate() {
+            if word_idx >= words.len() {
+                break;
+            }
+            
+            let weight = segment_lengths[i] as f64 / total_len as f64;
+            cumulative_words += weight * total_words;
+            
+            let mut target_end_idx = cumulative_words.round() as usize;
+            if i == whisper_segments.len() - 1 {
+                target_end_idx = words.len();
+            }
+            target_end_idx = target_end_idx.clamp(word_idx, words.len());
+            
+            let seg_words = &words[word_idx..target_end_idx];
+            aligned_segments.push(transcribe_rs::TranscriptionSegment {
+                start: seg.start,
+                end: seg.end,
+                text: seg_words.join(" "),
+            });
+            word_idx = target_end_idx;
+        }
+    }
+    
+    if word_idx < words.len() && !aligned_segments.is_empty() {
+        let last_idx = aligned_segments.len() - 1;
+        let mut last_text = aligned_segments[last_idx].text.clone();
+        if !last_text.is_empty() {
+            last_text.push(' ');
+        }
+        last_text.push_str(&words[word_idx..].join(" "));
+        aligned_segments[last_idx].text = last_text;
+    }
+    
+    aligned_segments
+}
+
+fn align_text_to_diarization(
+    primary_text: &str,
+    diarization_boundaries: &[(usize, f64, f64)],
+) -> Vec<DiarizedTurn> {
+    if diarization_boundaries.is_empty() {
+        return Vec::new();
+    }
+
+    let words: Vec<&str> = primary_text.split_whitespace().collect();
+    if words.is_empty() {
+        return Vec::new();
+    }
+
+    let total_duration: f64 = diarization_boundaries
+        .iter()
+        .map(|&(_, start, end)| (end - start).max(0.01))
+        .sum();
+
+    let mut turns = Vec::new();
+    let mut word_idx = 0;
+
+    if total_duration <= 0.0 {
+        let words_per_seg = (words.len() as f64 / diarization_boundaries.len() as f64).max(1.0).ceil() as usize;
+        for &(spk_id, start, end) in diarization_boundaries {
+            if word_idx >= words.len() {
+                break;
+            }
+            let end_idx = (word_idx + words_per_seg).min(words.len());
+            let seg_words = &words[word_idx..end_idx];
+            turns.push(DiarizedTurn {
+                speaker_id: spk_id,
+                start,
+                end,
+                text: seg_words.join(" "),
+            });
+            word_idx = end_idx;
+        }
+    } else {
+        let mut cumulative_words = 0.0;
+        let total_words = words.len() as f64;
+
+        for (i, &(spk_id, start, end)) in diarization_boundaries.iter().enumerate() {
+            if word_idx >= words.len() {
+                break;
+            }
+
+            let duration = (end - start).max(0.01);
+            let weight = duration / total_duration;
+            cumulative_words += weight * total_words;
+
+            let mut target_end_idx = cumulative_words.round() as usize;
+            if i == diarization_boundaries.len() - 1 {
+                target_end_idx = words.len();
+            }
+            target_end_idx = target_end_idx.clamp(word_idx, words.len());
+
+            let seg_words = &words[word_idx..target_end_idx];
+            let text = seg_words.join(" ");
+            
+            if let Some(last_turn) = turns.last_mut() {
+                if last_turn.speaker_id == spk_id {
+                    if !last_turn.text.is_empty() && !text.is_empty() {
+                        last_turn.text.push(' ');
                     }
-                } else {
-                    merged[i+1].1 = merged[i+1].1.min(start);
+                    last_turn.text.push_str(&text);
+                    last_turn.end = last_turn.end.max(end);
+                    word_idx = target_end_idx;
+                    continue;
                 }
-            } else {
-                final_turns.push((spk_id, start, end));
             }
-        } else {
-            final_turns.push((spk_id, start, end));
-        }
-        i += 1;
-    }
-    
-    // Final pass of merging consecutive turns of the same speaker
-    let mut result: Vec<(usize, f64, f64)> = Vec::new();
-    for (spk_id, start, end) in final_turns {
-        if let Some(last) = result.last_mut() {
-            if last.0 == spk_id {
-                last.2 = last.2.max(end);
-            } else {
-                result.push((spk_id, start, end));
-            }
-        } else {
-            result.push((spk_id, start, end));
+
+            turns.push(DiarizedTurn {
+                speaker_id: spk_id,
+                start,
+                end,
+                text,
+            });
+            word_idx = target_end_idx;
         }
     }
-    
-    result
+
+    if word_idx < words.len() && !turns.is_empty() {
+        let last_idx = turns.len() - 1;
+        let mut last_text = turns[last_idx].text.clone();
+        if !last_text.is_empty() {
+            last_text.push(' ');
+        }
+        last_text.push_str(&words[word_idx..].join(" "));
+        turns[last_idx].text = last_text;
+    }
+
+    turns.into_iter().filter(|t| !t.text.trim().is_empty()).collect()
+}
+
+fn assign_speakers(
+    timestamped_text: &[transcribe_rs::TranscriptionSegment],
+    diarization_boundaries: &[(usize, f64, f64)]
+) -> Vec<DiarizedTurn> {
+    let mut turns: Vec<DiarizedTurn> = Vec::new();
+    let mut current_speaker = 0;
+
+    for t_seg in timestamped_text {
+        let t_start = t_seg.start as f64;
+        let t_end = t_seg.end as f64;
+        
+        let mut best_speaker = None;
+        let mut max_overlap = 0.0;
+
+        for &(spk_id, d_start, d_end) in diarization_boundaries {
+            let overlap_start = t_start.max(d_start);
+            let overlap_end = t_end.min(d_end);
+
+            if overlap_end > overlap_start {
+                let overlap = overlap_end - overlap_start;
+                if overlap > max_overlap {
+                    max_overlap = overlap;
+                    best_speaker = Some(spk_id);
+                }
+            }
+        }
+
+        let speaker = best_speaker.unwrap_or(current_speaker);
+        current_speaker = speaker;
+
+        if let Some(last_turn) = turns.last_mut() {
+            if last_turn.speaker_id == speaker {
+                if !last_turn.text.is_empty() {
+                    last_turn.text.push(' ');
+                }
+                last_turn.text.push_str(&t_seg.text);
+                last_turn.end = last_turn.end.max(t_end);
+                continue;
+            }
+        }
+
+        turns.push(DiarizedTurn {
+            speaker_id: speaker,
+            start: t_start,
+            end: t_end,
+            text: t_seg.text.clone(),
+        });
+    }
+
+    turns
+}
+
+async fn llm_refine_speakers(
+    settings: &AppSettings,
+    turns: &[DiarizedTurn],
+) -> Vec<DiarizedTurn> {
+    if turns.is_empty() {
+        return turns.to_vec();
+    }
+
+    let provider = match settings.active_post_process_provider().cloned() {
+        Some(provider) => provider,
+        None => {
+            debug!("llm_refine_speakers: no provider is selected");
+            return turns.to_vec();
+        }
+    };
+
+    let model = settings
+        .post_process_models
+        .get(&provider.id)
+        .cloned()
+        .unwrap_or_default();
+
+    if model.trim().is_empty() {
+        debug!("llm_refine_speakers: provider '{}' has no model configured", provider.id);
+        return turns.to_vec();
+    }
+
+    let api_key = settings
+        .post_process_api_keys
+        .get(&provider.id)
+        .cloned()
+        .unwrap_or_default();
+
+    let turns_json = match serde_json::to_string_pretty(turns) {
+        Ok(s) => s,
+        Err(e) => {
+            error!("Failed to serialize turns for LLM: {}", e);
+            return turns.to_vec();
+        }
+    };
+
+    let system_prompt = "You are an expert dialogue analyzer. You will receive a transcript divided into conversational turns, with heuristically assigned speaker IDs, start and end times, and text. Your job is to analyze the dialogue flow (questions, answers, interruptions, short comments) and correct any misassigned speaker IDs. Keep the start and end times, and text exactly as they are. Output only the corrected list of turns in the exact schema specified.".to_string();
+
+    let json_schema = serde_json::json!({
+        "type": "object",
+        "properties": {
+            "turns": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "speaker_id": { "type": "integer" },
+                        "start": { "type": "number" },
+                        "end": { "type": "number" },
+                        "text": { "type": "string" }
+                    },
+                    "required": ["speaker_id", "start", "end", "text"],
+                    "additionalProperties": false
+                }
+            }
+        },
+        "required": ["turns"],
+        "additionalProperties": false
+    });
+
+    let (reasoning_effort, reasoning) = match provider.id.as_str() {
+        "custom" | "google" | "ollama" => (Some("none".to_string()), None),
+        "openrouter" => (
+            None,
+            Some(crate::llm_client::ReasoningConfig {
+                effort: Some("none".to_string()),
+                exclude: Some(true),
+            }),
+        ),
+        _ => (None, None),
+    };
+
+    if provider.supports_structured_output {
+        match crate::llm_client::send_chat_completion_with_schema(
+            &provider,
+            api_key,
+            &model,
+            turns_json,
+            Some(system_prompt),
+            Some(json_schema),
+            reasoning_effort,
+            reasoning,
+        )
+        .await
+        {
+            Ok(Some(response_text)) => {
+                if let Ok(v) = serde_json::from_str::<serde_json::Value>(&response_text) {
+                    if let Some(turns_array) = v.get("turns").and_then(|t| t.as_array()) {
+                        let mut refined_turns = Vec::new();
+                        for item in turns_array {
+                            if let Ok(turn) = serde_json::from_value::<DiarizedTurn>(item.clone()) {
+                                refined_turns.push(turn);
+                            }
+                        }
+                        if !refined_turns.is_empty() {
+                            debug!("Successfully refined speaker turns with LLM");
+                            return refined_turns;
+                        }
+                    }
+                }
+                warn!("Failed to parse LLM structured output for speaker refinement, falling back to original turns");
+            }
+            Ok(None) => {
+                debug!("LLM returned empty response for speaker refinement");
+            }
+            Err(e) => {
+                warn!("LLM speaker refinement failed: {}", e);
+            }
+        }
+    } else {
+        debug!("Provider '{}' does not support structured output, skipping speaker refinement", provider.id);
+    }
+
+    turns.to_vec()
+}
+
+pub async fn run_hybrid_diarization_pipeline(
+    app: &AppHandle,
+    samples: Vec<f32>,
+    sample_rate_hz: u32,
+    tm: Arc<TranscriptionManager>,
+    dm: Arc<DiarizationManager>,
+) -> anyhow::Result<(String, Option<String>)> {
+    use std::time::Instant;
+    use log::{info, debug, error, warn};
+    use transcribe_rs::whisper_cpp::{WhisperEngine, WhisperInferenceParams};
+    use crate::managers::model::{EngineType, ModelManager};
+    use tauri::Manager;
+
+    let start_time = Instant::now();
+    info!("Running hybrid diarization pipeline on {} samples at {}Hz", samples.len(), sample_rate_hz);
+
+    let settings = get_settings(app);
+    let mm = app.state::<Arc<ModelManager>>().inner().clone();
+
+    let primary_model_info = mm.get_model_info(&settings.selected_model);
+    let primary_is_whisper = primary_model_info
+        .as_ref()
+        .map(|info| info.engine_type == EngineType::Whisper)
+        .unwrap_or(false);
+
+    // 1. Spawning Diarization task
+    let dm_clone = dm.clone();
+    let samples_for_diarize = samples.clone();
+    let diarization_handle = tauri::async_runtime::spawn(async move {
+        if let Err(e) = dm_clone.init().await {
+            error!("Failed to initialize DiarizationManager: {}", e);
+            return Err(e);
+        }
+        dm_clone.diarize(&samples_for_diarize, sample_rate_hz).await
+    });
+
+    // 2. Spawning Primary Transcription task
+    let tm_clone = tm.clone();
+    let samples_for_primary = samples.clone();
+    let primary_transcribe_handle = tauri::async_runtime::spawn_blocking(move || {
+        tm_clone.transcribe(samples_for_primary)
+    });
+
+    // 3. Spawning Whisper Transcription task (for timestamps) if needed
+    let smallest_whisper = mm.get_smallest_downloaded_whisper_model();
+    let mut whisper_handle = None;
+    if !primary_is_whisper {
+        if let Some(whisper_model) = smallest_whisper {
+            debug!("Smallest downloaded Whisper model for timestamps: {}", whisper_model.id);
+            let whisper_model_id = whisper_model.id.clone();
+            let samples_for_whisper = samples.clone();
+            let mm_clone = mm.clone();
+            whisper_handle = Some(tauri::async_runtime::spawn_blocking(move || -> anyhow::Result<transcribe_rs::TranscriptionResult> {
+                let whisper_path = mm_clone.get_model_path(&whisper_model_id)?;
+                let mut whisper_engine = WhisperEngine::load(&whisper_path)
+                    .map_err(|e| anyhow::anyhow!("Failed to load Whisper engine: {:?}", e))?;
+                let params = WhisperInferenceParams::default();
+                let res = whisper_engine.transcribe_with(&samples_for_whisper, &params)
+                    .map_err(|e| anyhow::anyhow!("Whisper transcription failed: {:?}", e))?;
+                Ok(res)
+            }));
+        } else {
+            debug!("No downloaded Whisper model available for hybrid timestamps pass; will fall back to direct diarization mapping.");
+        }
+    } else {
+        debug!("Primary model is already Whisper; skipping separate Whisper pass.");
+    }
+
+    // Await primary transcription
+    let primary_res = match primary_transcribe_handle.await {
+        Ok(Ok(res)) => res,
+        Ok(Err(e)) => return Err(anyhow::anyhow!("Primary transcription failed: {}", e)),
+        Err(e) => return Err(anyhow::anyhow!("Primary transcription task panicked: {}", e)),
+    };
+
+    let primary_text = primary_res.text.trim();
+    if primary_text.is_empty() {
+        debug!("Primary transcription text is empty.");
+        return Ok((String::new(), None));
+    }
+
+    // Await Diarization
+    let diarization_res = match diarization_handle.await {
+        Ok(Ok(res)) => Some(res),
+        Ok(Err(e)) => {
+            error!("Diarization failed: {}", e);
+            None
+        }
+        Err(e) => {
+            error!("Diarization task panicked: {}", e);
+            None
+        }
+    };
+
+    // Await Whisper transcription if run
+    let mut whisper_res = None;
+    if let Some(handle) = whisper_handle {
+        match handle.await {
+            Ok(Ok(res)) => {
+                whisper_res = Some(res);
+            }
+            Ok(Err(e)) => {
+                warn!("Whisper timestamps transcription failed: {}", e);
+            }
+            Err(e) => {
+                warn!("Whisper timestamps task panicked: {}", e);
+            }
+        }
+    }
+
+    let mut diarized_turns = Vec::new();
+
+    if let Some(diar) = diarization_res {
+        let merged_turns = merge_short_speaker_turns(&diar.segments);
+
+        if !merged_turns.is_empty() {
+            let mut time_segments = Vec::new();
+
+            if primary_is_whisper {
+                if let Some(segs) = primary_res.segments {
+                    time_segments = segs;
+                }
+            } else if let Some(w_res) = whisper_res {
+                if let Some(segs) = w_res.segments {
+                    time_segments = segs;
+                }
+            }
+
+            if !time_segments.is_empty() {
+                let aligned_segs = align_text_to_timestamps(primary_text, &time_segments);
+                diarized_turns = assign_speakers(&aligned_segs, &merged_turns);
+            } else {
+                debug!("No timestamped segments available; distributing words directly to diarization boundaries.");
+                diarized_turns = align_text_to_diarization(primary_text, &merged_turns);
+            }
+        }
+    }
+
+    if diarized_turns.is_empty() {
+        let duration = samples.len() as f64 / sample_rate_hz as f64;
+        diarized_turns.push(DiarizedTurn {
+            speaker_id: 0,
+            start: 0.0,
+            end: duration,
+            text: primary_text.to_string(),
+        });
+    }
+
+    let diarized_turns = llm_refine_speakers(&settings, &diarized_turns).await;
+
+    let mut final_transcript = String::new();
+    for turn in &diarized_turns {
+        final_transcript.push_str(&format!(
+            "Speaker {}: {}\n\n",
+            turn.speaker_id + 1,
+            turn.text
+        ));
+    }
+    let final_transcript = final_transcript.trim().to_string();
+    let diarization_json = serde_json::to_string(&diarized_turns).ok();
+
+    debug!(
+        "Hybrid Diarization Pipeline completed in {:?}",
+        start_time.elapsed()
+    );
+
+    Ok((final_transcript, diarization_json))
 }
 
 // Test Action
