@@ -62,6 +62,13 @@ fn strip_invisible_chars(s: &str) -> String {
     s.replace(['\u{200B}', '\u{200C}', '\u{200D}', '\u{FEFF}'], "")
 }
 
+/// Builds the on-disk WAV file name for a recording captured at `timestamp`
+/// (Unix seconds). Centralizing this avoids drift between the different
+/// recording flows (standard transcription vs. meetings).
+fn recording_file_name(timestamp: i64) -> String {
+    format!("thegai-{}.wav", timestamp)
+}
+
 #[derive(Clone, serde::Serialize)]
 struct MeetingSummaryPayload {
     summary: String,
@@ -870,7 +877,7 @@ impl ShortcutAction for TranscribeAction {
                 } else {
                     // Save WAV concurrently with transcription
                     let sample_count = samples.len();
-                    let file_name = format!("handy-{}.wav", chrono::Utc::now().timestamp());
+                    let file_name = recording_file_name(chrono::Utc::now().timestamp());
                     let wav_path = hm.recordings_dir().join(&file_name);
                     let wav_path_for_verify = wav_path.clone();
                     let samples_for_wav = samples.clone();
@@ -1166,7 +1173,7 @@ impl ShortcutAction for MeetingAction {
                 } else {
                     // Save WAV concurrently with transcription
                     let sample_count = samples.len();
-                    let file_name = format!("handy-{}.wav", chrono::Utc::now().timestamp());
+                    let file_name = recording_file_name(chrono::Utc::now().timestamp());
                     let wav_path = hm.recordings_dir().join(&file_name);
                     let wav_path_for_verify = wav_path.clone();
                     let samples_for_wav = samples.clone();
@@ -1473,3 +1480,55 @@ pub static ACTION_MAP: Lazy<HashMap<String, Arc<dyn ShortcutAction>>> = Lazy::ne
     );
     map
 });
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn recording_file_name_uses_thegai_prefix_and_wav_extension() {
+        let name = recording_file_name(1_700_000_000);
+        assert_eq!(name, "thegai-1700000000.wav");
+        assert!(name.starts_with("thegai-"));
+        assert!(name.ends_with(".wav"));
+    }
+
+    #[test]
+    fn recording_file_name_does_not_regress_to_legacy_handy_prefix() {
+        // Regression test: this PR renamed the recording file prefix from
+        // "handy-" to "thegai-". Guard against accidentally reverting it.
+        let name = recording_file_name(42);
+        assert!(!name.starts_with("handy-"));
+    }
+
+    #[test]
+    fn recording_file_name_embeds_timestamp_verbatim() {
+        for ts in [0_i64, 1, 1_234_567_890, i64::MAX] {
+            let name = recording_file_name(ts);
+            assert_eq!(name, format!("thegai-{}.wav", ts));
+        }
+    }
+
+    #[test]
+    fn recording_file_name_handles_negative_timestamp() {
+        // chrono's `timestamp()` returns an `i64` and can technically be
+        // negative for pre-epoch dates; make sure formatting doesn't panic
+        // or otherwise corrupt the file name in that case.
+        let name = recording_file_name(-5);
+        assert_eq!(name, "thegai--5.wav");
+    }
+
+    #[test]
+    fn recording_file_name_has_exactly_one_extension_separator() {
+        let name = recording_file_name(123);
+        assert_eq!(name.matches('.').count(), 1);
+    }
+
+    #[test]
+    fn recording_file_name_is_stable_for_same_timestamp() {
+        // Same input should always produce the same file name (no hidden
+        // randomness/state), which the WAV-save and history-entry code paths
+        // rely on to reference the same file consistently.
+        assert_eq!(recording_file_name(999), recording_file_name(999));
+    }
+}
