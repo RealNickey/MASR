@@ -25,9 +25,9 @@ pub async fn process_local_file(
     let dest_path = history_manager.recordings_dir().join(&file_name);
 
     // For now, we only support WAV or we attempt to read samples and save as WAV.
-    // Use read_wav_samples for simple implementation.
+    // Use read_wav_samples_with_rate to get both samples and the actual sample rate.
     // In the future, this should decode mp3/flac using rodio.
-    let samples = crate::audio_toolkit::read_wav_samples(&source_path).map_err(|e| {
+    let (samples, source_sample_rate) = crate::audio_toolkit::read_wav_samples_with_rate(&source_path).map_err(|e| {
         format!(
             "Failed to read audio file (only WAV is supported currently): {}",
             e
@@ -63,14 +63,14 @@ pub async fn process_local_file(
     let (transcription, diarization_json) = if is_meeting {
         let dm = app.state::<Arc<DiarizationManager>>();
         dm.init().await.map_err(|e| format!("Failed to init diarization: {}", e))?;
-        let diarization_res = dm.diarize(&samples, 16000).await.map_err(|e| format!("Diarization failed: {}", e))?;
+        let diarization_res = dm.diarize(&samples, source_sample_rate).await.map_err(|e| format!("Diarization failed: {}", e))?;
         let merged_turns = crate::actions::merge_short_speaker_turns(&diarization_res.segments);
-        
+
         let mut diarized_turns = Vec::new();
         if !merged_turns.is_empty() {
             for (spk_id, start, end) in merged_turns {
-                let start_sample = (start * 16000.0) as usize;
-                let end_sample = (end * 16000.0) as usize;
+                let start_sample = (start * source_sample_rate as f64) as usize;
+                let end_sample = (end * source_sample_rate as f64) as usize;
                 let start_sample = start_sample.min(samples.len());
                 let end_sample = end_sample.min(samples.len());
                 if start_sample >= end_sample {
@@ -99,14 +99,19 @@ pub async fn process_local_file(
                             });
                         }
                     }
-                    _ => {}
+                    Ok(Err(e)) => {
+                        log::warn!("Transcription error for speaker {} segment [{}, {}]: {}", spk_id, start, end, e);
+                    }
+                    Err(e) => {
+                        log::warn!("Async task error for speaker {} segment [{}, {}]: {}", spk_id, start, end, e);
+                    }
                 }
             }
         }
 
         // Fallback to transcribing whole audio if no turns text found
         if diarized_turns.is_empty() {
-            let duration = samples.len() as f64 / 16000.0;
+            let duration = samples.len() as f64 / source_sample_rate as f64;
             let tm = Arc::clone(&transcription_manager);
             let samples_clone = samples.clone();
             let transcribe_res = tauri::async_runtime::spawn_blocking(move || {
@@ -126,10 +131,19 @@ pub async fn process_local_file(
                         });
                     }
                 }
-                _ => {}
+                Ok(Err(e)) => {
+                    log::error!("Transcription error in fallback path: {}", e);
+                }
+                Err(e) => {
+                    log::error!("Async task error in fallback path: {}", e);
+                }
             }
         }
 
+        // If still no transcript was produced, return an error instead of empty string
+        if diarized_turns.is_empty() {
+            return Err("Failed to transcribe meeting audio: no text segments produced".to_string());
+        }
         // Construct final transcript
         let mut final_transcript = String::new();
         for turn in &diarized_turns {
@@ -428,14 +442,18 @@ pub async fn regenerate_meeting_summary(
     let summary_opt =
         crate::actions::run_specific_llm_prompt(&settings, prompt_id, &labeled_transcript).await;
 
-    // Save the new summary in history. Pass None for diarization_json so COALESCE keeps the existing value.
+    // Only update if we successfully generated a new summary
+    if summary_opt.is_none() {
+        return Err("Failed to generate meeting summary: LLM returned no content".to_string());
+    }
+
+    // Save the new summary in history, preserving the existing diarization_json.
     history_manager
-        .update_transcription(
+        .update_transcription_preserve_diarization(
             id,
             labeled_transcript,
             summary_opt,
             Some(prompt_id.to_string()),
-            None,
         )
         .map(|_| ())
         .map_err(|e| e.to_string())

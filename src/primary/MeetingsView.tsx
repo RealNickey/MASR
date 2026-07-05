@@ -47,6 +47,42 @@ function isMeetingEntry(entry: HistoryEntry): boolean {
   );
 }
 
+// ---------------------------------------------------------------------------
+// Diarization helper functions
+// ---------------------------------------------------------------------------
+interface DiarizedSegment {
+  speaker_id: number;
+  start: number;
+  end: number;
+  text: string;
+}
+
+function parseDiarizationJson(diarizationJson: string | null): DiarizedSegment[] {
+  if (!diarizationJson) return [];
+  try {
+    const segments = JSON.parse(diarizationJson);
+    if (Array.isArray(segments) && segments.length > 0) {
+      return segments;
+    }
+  } catch (e) {
+    console.error("Failed to parse diarization_json:", e);
+  }
+  return [];
+}
+
+function buildLabeledTranscript(
+  segments: DiarizedSegment[],
+  speakerNames: Record<string, string>
+): string {
+  return segments
+    .map((seg) => {
+      const spkId = String(seg.speaker_id);
+      const name = speakerNames[spkId] || `Speaker ${seg.speaker_id + 1}`;
+      return `${name}: ${seg.text}`;
+    })
+    .join("\n\n");
+}
+
 // Custom interactive checkbox for Markdown rendering
 // Custom interactive list item for task lists
 const InteractiveTaskListItem: React.FC<{ children?: React.ReactNode }> = ({
@@ -472,19 +508,9 @@ export const MeetingsView: React.FC = () => {
     setIsRegenerating(true);
     try {
       let labeledTranscript = selectedMeeting.transcription_text;
-      try {
-        const segments = JSON.parse(selectedMeeting.diarization_json);
-        if (Array.isArray(segments) && segments.length > 0) {
-          labeledTranscript = segments
-            .map((seg: any) => {
-              const spkId = String(seg.speaker_id);
-              const name = speakerNames[spkId] || `Speaker ${seg.speaker_id + 1}`;
-              return `${name}: ${seg.text}`;
-            })
-            .join("\n\n");
-        }
-      } catch (e) {
-        console.error("Failed to parse diarization_json for regeneration:", e);
+      const segments = parseDiarizationJson(selectedMeeting.diarization_json);
+      if (segments.length > 0) {
+        labeledTranscript = buildLabeledTranscript(segments, speakerNames);
       }
 
       const result = await commands.regenerateMeetingSummary(
@@ -804,21 +830,9 @@ export const MeetingsView: React.FC = () => {
     setIsAsking(true);
     try {
       let promptTranscript = selectedMeeting.transcription_text;
-      if (selectedMeeting.diarization_json) {
-        try {
-          const segments = JSON.parse(selectedMeeting.diarization_json);
-          if (Array.isArray(segments) && segments.length > 0) {
-            promptTranscript = segments
-              .map((seg: any) => {
-                const spkId = String(seg.speaker_id);
-                const name = speakerNames[spkId] || `Speaker ${seg.speaker_id + 1}`;
-                return `${name}: ${seg.text}`;
-              })
-              .join("\n\n");
-          }
-        } catch (e) {
-          console.error("Failed to parse diarization_json for chat:", e);
-        }
+      const segments = parseDiarizationJson(selectedMeeting.diarization_json);
+      if (segments.length > 0) {
+        promptTranscript = buildLabeledTranscript(segments, speakerNames);
       }
 
       const result = await commands.askMeetingQuestion(
@@ -1208,19 +1222,9 @@ export const MeetingsView: React.FC = () => {
                         type="button"
                         onClick={async () => {
                           let copyText = selectedMeeting.transcription_text;
-                          if (selectedMeeting.diarization_json) {
-                            try {
-                              const segments = JSON.parse(selectedMeeting.diarization_json);
-                              if (Array.isArray(segments) && segments.length > 0) {
-                                copyText = segments
-                                  .map((seg: any) => {
-                                    const spkId = String(seg.speaker_id);
-                                    const name = speakerNames[spkId] || `Speaker ${seg.speaker_id + 1}`;
-                                    return `${name}: ${seg.text}`;
-                                  })
-                                  .join("\n\n");
-                              }
-                            } catch (e) {}
+                          const segments = parseDiarizationJson(selectedMeeting.diarization_json);
+                          if (segments.length > 0) {
+                            copyText = buildLabeledTranscript(segments, speakerNames);
                           }
                           try {
                             await navigator.clipboard.writeText(copyText);
@@ -1245,14 +1249,7 @@ export const MeetingsView: React.FC = () => {
                     </div>
                     <div className="text-sm text-bark-grey leading-relaxed select-text font-normal font-sans max-h-96 overflow-y-auto pr-2 scrollbar-thin space-y-4">
                       {(() => {
-                        let diarizedSegments: any[] = [];
-                        if (selectedMeeting.diarization_json) {
-                          try {
-                            diarizedSegments = JSON.parse(selectedMeeting.diarization_json);
-                          } catch (e) {
-                            console.error("Failed to parse diarization_json:", e);
-                          }
-                        }
+                        const diarizedSegments = parseDiarizationJson(selectedMeeting.diarization_json);
 
                         if (diarizedSegments.length > 0) {
                           return (
