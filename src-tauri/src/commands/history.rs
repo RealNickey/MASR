@@ -1,10 +1,11 @@
-use crate::actions::process_transcription_output;
+use crate::actions::{process_transcription_output, DiarizedTurn};
 use crate::managers::{
+    diarization::DiarizationManager,
     history::{HistoryManager, PaginatedHistory},
     transcription::TranscriptionManager,
 };
 use std::sync::Arc;
-use tauri::{AppHandle, State};
+use tauri::{AppHandle, State, Manager};
 
 #[tauri::command]
 #[specta::specta]
@@ -45,7 +46,7 @@ pub async fn process_local_file(
 
     // Create the history entry initially with empty text
     history_manager
-        .save_entry(
+        .save_entry_with_diarization(
             file_name.clone(),
             String::new(),
             is_meeting,
@@ -55,17 +56,102 @@ pub async fn process_local_file(
             } else {
                 None
             },
+            None,
         )
         .map_err(|e| format!("Failed to create history entry: {}", e))?;
 
-    // Transcribe
-    transcription_manager.initiate_model_load();
-    let tm = Arc::clone(&transcription_manager);
-    let transcription = tauri::async_runtime::spawn_blocking(move || tm.transcribe(samples))
-        .await
-        .map_err(|e| format!("Transcription task panicked: {}", e))?
-        .map(|r| r.text)
-        .map_err(|e| e.to_string())?;
+    let (transcription, diarization_json) = if is_meeting {
+        let dm = app.state::<Arc<DiarizationManager>>();
+        dm.init().await.map_err(|e| format!("Failed to init diarization: {}", e))?;
+        let diarization_res = dm.diarize(&samples, 16000).await.map_err(|e| format!("Diarization failed: {}", e))?;
+        let merged_turns = crate::actions::merge_short_speaker_turns(&diarization_res.segments);
+        
+        let mut diarized_turns = Vec::new();
+        if !merged_turns.is_empty() {
+            for (spk_id, start, end) in merged_turns {
+                let start_sample = (start * 16000.0) as usize;
+                let end_sample = (end * 16000.0) as usize;
+                let start_sample = start_sample.min(samples.len());
+                let end_sample = end_sample.min(samples.len());
+                if start_sample >= end_sample {
+                    continue;
+                }
+                let slice = samples[start_sample..end_sample].to_vec();
+                if slice.is_empty() {
+                    continue;
+                }
+
+                let tm = Arc::clone(&transcription_manager);
+                let transcribe_res = tauri::async_runtime::spawn_blocking(move || {
+                    tm.transcribe(slice)
+                })
+                .await;
+
+                match transcribe_res {
+                    Ok(Ok(res)) => {
+                        let text = res.text.trim().to_string();
+                        if !text.is_empty() {
+                            diarized_turns.push(DiarizedTurn {
+                                speaker_id: spk_id,
+                                start,
+                                end,
+                                text,
+                            });
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        // Fallback to transcribing whole audio if no turns text found
+        if diarized_turns.is_empty() {
+            let duration = samples.len() as f64 / 16000.0;
+            let tm = Arc::clone(&transcription_manager);
+            let samples_clone = samples.clone();
+            let transcribe_res = tauri::async_runtime::spawn_blocking(move || {
+                tm.transcribe(samples_clone)
+            })
+            .await;
+
+            match transcribe_res {
+                Ok(Ok(res)) => {
+                    let text = res.text.trim().to_string();
+                    if !text.is_empty() {
+                        diarized_turns.push(DiarizedTurn {
+                            speaker_id: 0,
+                            start: 0.0,
+                            end: duration,
+                            text,
+                        });
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        // Construct final transcript
+        let mut final_transcript = String::new();
+        for turn in &diarized_turns {
+            final_transcript.push_str(&format!(
+                "Speaker {}: {}\n\n",
+                turn.speaker_id + 1,
+                turn.text
+            ));
+        }
+        let final_transcript = final_transcript.trim().to_string();
+        let diarization_json = serde_json::to_string(&diarized_turns).ok();
+        (final_transcript, diarization_json)
+    } else {
+        // Transcribe whole audio
+        let tm = Arc::clone(&transcription_manager);
+        let transcription_res = tauri::async_runtime::spawn_blocking(move || tm.transcribe(samples))
+            .await
+            .map_err(|e| format!("Transcription task panicked: {}", e))?
+            .map(|r| r.text)
+            .map_err(|e| e.to_string())?;
+        (transcription_res, None)
+    };
 
     let (post_processed_text, post_process_prompt) = if is_meeting {
         // For meetings, we want to force post-processing with the summary prompt.
@@ -97,6 +183,7 @@ pub async fn process_local_file(
                     transcription,
                     post_processed_text,
                     post_process_prompt,
+                    diarization_json,
                 )
                 .map_err(|e| e.to_string())?;
             return Ok(entry.id);
@@ -202,6 +289,7 @@ pub async fn retry_history_entry_transcription(
             transcription,
             processed.post_processed_text,
             processed.post_process_prompt,
+            None,
         )
         .map(|_| ())
         .map_err(|e| e.to_string())
@@ -320,4 +408,35 @@ pub async fn ask_meeting_question(
         Ok(None) => Err("LLM returned an empty response".to_string()),
         Err(e) => Err(e),
     }
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn regenerate_meeting_summary(
+    app: AppHandle,
+    history_manager: State<'_, Arc<HistoryManager>>,
+    id: i64,
+    labeled_transcript: String,
+) -> Result<(), String> {
+    let settings = crate::settings::get_settings(&app);
+    let prompt_id = if settings.google_oauth_token.is_some() {
+        "default_meeting_notes_with_actions"
+    } else {
+        "default_meeting_summary"
+    };
+
+    let summary_opt =
+        crate::actions::run_specific_llm_prompt(&settings, prompt_id, &labeled_transcript).await;
+
+    // Save the new summary in history. Pass None for diarization_json so COALESCE keeps the existing value.
+    history_manager
+        .update_transcription(
+            id,
+            labeled_transcript,
+            summary_opt,
+            Some(prompt_id.to_string()),
+            None,
+        )
+        .map(|_| ())
+        .map_err(|e| e.to_string())
 }
