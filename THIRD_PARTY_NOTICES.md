@@ -4,7 +4,7 @@ This application relies on the following third-party components, licenses, and a
 
 | Package/Asset | License | Source URL | Commercial Redistribution Status | Action Taken |
 |---|---|---|---|---|
-| Cooper Lt BT Font | Commercial | Unknown | NOT APPROVED | Removed |
+| Averia Serif Libre Font | OFL-1.1 | Unknown | APPROVED | Added to replace Cooper Lt BT |
 | Geist Font | OFL-1.1 | https://github.com/vercel/geist-font | APPROVED | Retained |
 | tauri-nspanel | MIT | https://github.com/ahkohd/tauri-nspanel | APPROVED | Retained |
 | rdev | MIT | https://github.com/rustdesk-org/rdev | APPROVED | Retained |

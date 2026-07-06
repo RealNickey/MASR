@@ -60,6 +60,44 @@
 
 
 
+
+@font-face {
+  font-family: "Averia Serif Libre";
+  src: url("/src/assets/fonts/Averia_Serif_Libre/AveriaSerifLibre-Light.ttf") format("truetype");
+  font-weight: 300;
+  font-style: normal;
+}
+@font-face {
+  font-family: "Averia Serif Libre";
+  src: url("/src/assets/fonts/Averia_Serif_Libre/AveriaSerifLibre-LightItalic.ttf") format("truetype");
+  font-weight: 300;
+  font-style: italic;
+}
+@font-face {
+  font-family: "Averia Serif Libre";
+  src: url("/src/assets/fonts/Averia_Serif_Libre/AveriaSerifLibre-Regular.ttf") format("truetype");
+  font-weight: 400;
+  font-style: normal;
+}
+@font-face {
+  font-family: "Averia Serif Libre";
+  src: url("/src/assets/fonts/Averia_Serif_Libre/AveriaSerifLibre-Italic.ttf") format("truetype");
+  font-weight: 400;
+  font-style: italic;
+}
+@font-face {
+  font-family: "Averia Serif Libre";
+  src: url("/src/assets/fonts/Averia_Serif_Libre/AveriaSerifLibre-Bold.ttf") format("truetype");
+  font-weight: 700;
+  font-style: normal;
+}
+@font-face {
+  font-family: "Averia Serif Libre";
+  src: url("/src/assets/fonts/Averia_Serif_Libre/AveriaSerifLibre-BoldItalic.ttf") format("truetype");
+  font-weight: 700;
+  font-style: italic;
+}
+
 @theme {
   /* Strict Dark Mode Palette adapted from the stone-warm atelier design language */
   --color-warm-bone: #0a0908; /* Canvas background - deep warm bone dark */
@@ -88,7 +126,7 @@
 
   /* Typography Families */
   --font-geist: "Geist", ui-sans-serif, system-ui, -apple-system, sans-serif;
-  --font-cooper-ltbt: "Playfair Display", serif;
+  --font-cooper-ltbt: "Averia Serif Libre", "Playfair Display", serif;
   --font-geist-mono: "Geist Mono", ui-monospace, monospace;
 }
 
