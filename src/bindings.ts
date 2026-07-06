@@ -863,14 +863,6 @@ async askMeetingQuestion(transcript: string, question: string) : Promise<Result<
     else return { status: "error", error: e  as any };
 }
 },
-async showPrimaryWindowCommand() : Promise<Result<null, string>> {
-    try {
-    return { status: "ok", data: await TAURI_INVOKE("show_primary_window_command") };
-} catch (e) {
-    if(e instanceof Error) throw e;
-    else return { status: "error", error: e  as any };
-}
-},
 async connectGoogleFeatures(features: GoogleFeature[]) : Promise<Result<string, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("connect_google_features", { features }) };
@@ -944,6 +936,14 @@ async setMeetingCalendarPromptsEnabled(enabled: boolean) : Promise<Result<null, 
 async sendMeetingFollowUp(recipients: string[], summary: string, actionItems: string[]) : Promise<Result<null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("send_meeting_follow_up", { recipients, summary, actionItems }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async showPrimaryWindowCommand() : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("show_primary_window_command") };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
