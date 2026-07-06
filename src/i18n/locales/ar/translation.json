@@ -180,7 +180,7 @@
           },
           "meeting": {
             "name": "Meeting Mode",
-            "description": "Continuous recording mode that pastes an English summary."
+            "description": "Continuous recording mode that pastes a summary."
           }
         },
         "errors": {
@@ -725,7 +725,7 @@
     "addMoreFiles": "Add more files",
     "action": "Action:",
     "summarizeAsMeeting": "Summarize as Meeting",
-    "summarizeAsMeetingDesc": "Transcribes and summarizes to English (Meetings tab)",
+    "summarizeAsMeetingDesc": "Transcribes and summarizes (Meetings tab)",
     "plainTranscribe": "Plain Transcribe",
     "plainTranscribeDesc": "Basic Malayalam transcription (History tab)",
     "startTranscription": "Start Transcription"

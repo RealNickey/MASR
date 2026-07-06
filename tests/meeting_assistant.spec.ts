@@ -223,4 +223,33 @@ test.describe("Meeting Assistant", () => {
     );
     await expect(calendarToggle).toBeDisabled();
   });
+
+  test("output_language=english does not translate meeting transcript output", async ({
+    page,
+  }) => {
+    await setMockState(page, {
+      outputLanguage: "English",
+      historyEntries: [
+        {
+          id: 8,
+          file_name: "meeting_malayalam.wav",
+          timestamp: Math.floor(Date.now() / 1000),
+          saved: false,
+          title: "Jun 22, 2026, 11:00 AM",
+          transcription_text: "നമസ്കാരം (Namaskaram)",
+          post_processed_text: "Meeting summary output.",
+          post_process_prompt: "default_meeting_summary",
+          post_process_requested: true,
+        },
+      ],
+    });
+
+    await page.reload();
+    await page.getByText("Meetings").click();
+    await expect(page.getByText("Meeting summary output.")).toBeVisible();
+
+    // Switch to Transcript tab to verify the transcript is still original Malayalam
+    await page.getByRole("button", { name: "Transcript" }).click();
+    await expect(page.getByText("നമസ്കാരം (Namaskaram)")).toBeVisible();
+  });
 });
