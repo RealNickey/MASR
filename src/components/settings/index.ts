@@ -5,7 +5,6 @@ export { DebugSettings } from "./debug/DebugSettings";
 export { HistorySettings } from "./history/HistorySettings";
 export { AboutSettings } from "./about/AboutSettings";
 export { PostProcessingSettings } from "./post-processing/PostProcessingSettings";
-export { ModelsSettings } from "./models/ModelsSettings";
 export { MeetingsSettings } from "./meetings/MeetingsSettings";
 
 // Individual setting components
@@ -19,7 +18,6 @@ export { ShowOverlay } from "./ShowOverlay";
 export { GlobalShortcutInput } from "./GlobalShortcutInput";
 export { HandyKeysShortcutInput } from "./HandyKeysShortcutInput";
 export { ShortcutInput } from "./ShortcutInput";
-export { TranslateToEnglish } from "./TranslateToEnglish";
 export { CustomWords } from "./CustomWords";
 export { OutputLanguageSelector } from "./OutputLanguageSelector";
 export { PostProcessingSettingsApi } from "./PostProcessingSettingsApi";

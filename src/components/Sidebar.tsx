@@ -20,7 +20,6 @@ import {
   DebugSettings,
   AboutSettings,
   PostProcessingSettings,
-  ModelsSettings,
 } from "./settings";
 
 export type SidebarSection = keyof typeof SECTIONS_CONFIG;
@@ -45,12 +44,6 @@ export const SECTIONS_CONFIG = {
     labelKey: "sidebar.general",
     icon: Sliders,
     component: GeneralSettings,
-    enabled: () => true,
-  },
-  models: {
-    labelKey: "sidebar.models",
-    icon: Cpu,
-    component: ModelsSettings,
     enabled: () => true,
   },
   advanced: {
