@@ -46,9 +46,15 @@ export interface MockState {
     actionItems: string[];
   } | null;
   outputLanguage: string;
+  hasModelsAvailable: boolean;
+  selectedModel: string;
 }
 
-export async function setupMocks(page: Page, initialGoogleConnected = false) {
+export async function setupMocks(
+  page: Page,
+  initialGoogleConnected = false,
+  initialStateOverrides?: Partial<MockState>,
+) {
   page.on("console", (msg) => {
     console.log(`[Browser Console] ${msg.type()}: ${msg.text()}`);
   });
@@ -57,7 +63,7 @@ export async function setupMocks(page: Page, initialGoogleConnected = false) {
   });
 
   // Inject mock state and Tauri invoke mocks before the page loads.
-  await page.addInitScript((connected) => {
+  await page.addInitScript(([connected, overrides]) => {
     // 1. Initialize Mock State from sessionStorage if available, otherwise default
     const saved = sessionStorage.getItem("__MOCK_STATE__");
     const state = saved
@@ -97,7 +103,13 @@ export async function setupMocks(page: Page, initialGoogleConnected = false) {
           ],
           lastFollowUp: null,
           outputLanguage: "malayalam",
+          hasModelsAvailable: true,
+          selectedModel: "small",
         };
+
+    if (overrides) {
+      Object.assign(state, overrides);
+    }
 
     // Save/Sync state helper
     const saveState = () => {
@@ -105,7 +117,7 @@ export async function setupMocks(page: Page, initialGoogleConnected = false) {
     };
 
     // Save initial state if not already saved
-    if (!saved) {
+    if (!saved || overrides) {
       saveState();
     }
 
@@ -240,7 +252,15 @@ export async function setupMocks(page: Page, initialGoogleConnected = false) {
 
         // Mock models check & listing
         if (cmd === "has_any_models_available") {
-          return true;
+          return state.hasModelsAvailable;
+        }
+        if (
+          cmd === "change_selected_model_setting" ||
+          cmd === "set_active_model"
+        ) {
+          state.selectedModel = args.modelId || args.model_id;
+          saveState();
+          return null;
         }
         if (cmd === "get_available_models") {
           return [
@@ -327,7 +347,7 @@ export async function setupMocks(page: Page, initialGoogleConnected = false) {
             start_hidden: false,
             autostart_enabled: false,
             update_checks_enabled: false,
-            selected_model: "small",
+            selected_model: state.selectedModel,
             always_on_microphone: false,
             selected_microphone: "Default",
             clamshell_microphone: "Default",
@@ -618,7 +638,7 @@ export async function setupMocks(page: Page, initialGoogleConnected = false) {
       plugins: {},
       convertFileSrc: (src: string) => src,
     };
-  }, initialGoogleConnected);
+  }, [initialGoogleConnected, initialStateOverrides]);
 }
 
 export async function getMockState(page: Page): Promise<MockState> {

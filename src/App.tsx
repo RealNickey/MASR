@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, useCallback } from "react";
 import { toast, Toaster } from "sonner";
 import { useTranslation } from "react-i18next";
 import { listen } from "@tauri-apps/api/event";
@@ -17,7 +17,6 @@ import { LocalFileTranscriber } from "./components/LocalFileTranscriber";
 import { useSettings } from "./hooks/useSettings";
 import { useMeetingSummaryFallbackToast } from "./hooks/useMeetingSummaryFallbackToast";
 import { useSettingsStore } from "./stores/settingsStore";
-import { useModelStore } from "./stores/modelStore";
 import { commands } from "@/bindings";
 import { getLanguageDirection, initializeRTL } from "@/lib/utils/rtl";
 
@@ -250,41 +249,6 @@ function App() {
     };
   }, []);
 
-  const {
-    models,
-    downloadModel,
-    downloadingModels,
-    verifyingModels,
-    extractingModels,
-  } = useModelStore();
-
-  useEffect(() => {
-    if (models.length > 0) {
-      const thega = models.find((m) => m.id === "thegav1");
-      const parakeet = models.find((m) => m.id === "parakeet-tdt-0.6b-v3");
-
-      if (
-        thega &&
-        !thega.is_downloaded &&
-        !(thega.id in downloadingModels) &&
-        !(thega.id in verifyingModels) &&
-        !(thega.id in extractingModels)
-      ) {
-        downloadModel("thegav1");
-      }
-
-      if (
-        parakeet &&
-        !parakeet.is_downloaded &&
-        !(parakeet.id in downloadingModels) &&
-        !(parakeet.id in verifyingModels) &&
-        !(parakeet.id in extractingModels)
-      ) {
-        downloadModel("parakeet-tdt-0.6b-v3");
-      }
-    }
-  }, [models, downloadingModels, verifyingModels, extractingModels, downloadModel]);
-
   const revealMainWindowForPermissions = async () => {
     try {
       await commands.showMainWindowCommand();
@@ -351,26 +315,26 @@ function App() {
     }
   };
 
-  const handleAccessibilityComplete = () => {
+  const handleAccessibilityComplete = useCallback(() => {
     setOnboardingStep(isOnboardingPreview ? "language" : (isReturningUser ? "done" : "language"));
-  };
+  }, [isOnboardingPreview, isReturningUser]);
 
-  const handleLanguageComplete = () => {
+  const handleLanguageComplete = useCallback(() => {
     setOnboardingStep("done");
     if (isOnboardingPreview) {
       setIsOnboardingPreview(false);
     }
-  };
+  }, [isOnboardingPreview]);
 
-  const handleExitOnboardingPreview = () => {
+  const handleExitOnboardingPreview = useCallback(() => {
     setIsOnboardingPreview(false);
     setOnboardingStep("done");
-  };
+  }, []);
 
-  const handleTriggerOnboarding = () => {
+  const handleTriggerOnboarding = useCallback(() => {
     setIsOnboardingPreview(true);
     setOnboardingStep("accessibility");
-  };
+  }, []);
 
   // Still checking onboarding status
   if (onboardingStep === null) {
