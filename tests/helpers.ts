@@ -46,6 +46,11 @@ export interface MockState {
     actionItems: string[];
   } | null;
   outputLanguage: string;
+  updateAvailable: boolean;
+  updateVersion: string;
+  downloadShouldFail: boolean;
+  installShouldFail: boolean;
+  relaunchCalled: boolean;
 }
 
 export async function setupMocks(page: Page, initialGoogleConnected = false) {
@@ -97,6 +102,11 @@ export async function setupMocks(page: Page, initialGoogleConnected = false) {
           ],
           lastFollowUp: null,
           outputLanguage: "malayalam",
+          updateAvailable: false,
+          updateVersion: "0.9.0",
+          downloadShouldFail: false,
+          installShouldFail: false,
+          relaunchCalled: false,
         };
 
     // Save/Sync state helper
@@ -200,6 +210,10 @@ export async function setupMocks(page: Page, initialGoogleConnected = false) {
     // 2. Mock Tauri IPC layer
     (window as any).__TAURI_INTERNALS__ = {
       transformCallback,
+      metadata: {
+        currentWindow: { label: "primary" },
+        currentWebview: { label: "primary" }
+      },
       invoke: async (cmd: string, args?: any) => {
         console.log(`[Mock IPC invoke] ${cmd}`, args);
         const state = (window as any).__MOCK_STATE__;
@@ -213,6 +227,22 @@ export async function setupMocks(page: Page, initialGoogleConnected = false) {
           }
           listeners.get(event).push(handler);
           return handler;
+        }
+
+        // Mock event emitting command
+        if (cmd === "plugin:event|emit") {
+          const { event, payload } = args;
+          const listeners = (window as any).__TAURI_EVENT_LISTENERS__;
+          if (listeners && listeners.has(event)) {
+            const handlerIds = listeners.get(event);
+            for (const handlerId of handlerIds) {
+              const callback = (window as any).__TAURI_CALLBACKS__.get(handlerId);
+              if (callback) {
+                callback({ event, payload, id: handlerId });
+              }
+            }
+          }
+          return null;
         }
 
         // Mock permission endpoints
@@ -326,7 +356,7 @@ export async function setupMocks(page: Page, initialGoogleConnected = false) {
             sound_theme: "marimba",
             start_hidden: false,
             autostart_enabled: false,
-            update_checks_enabled: false,
+            update_checks_enabled: true,
             selected_model: "small",
             always_on_microphone: false,
             selected_microphone: "Default",
@@ -610,6 +640,79 @@ export async function setupMocks(page: Page, initialGoogleConnected = false) {
           } else {
             throw "Failed to send follow-up email/tasks";
           }
+        }
+
+        // Mock updater commands
+        if (cmd === "plugin:updater|check") {
+          if (state.updateAvailable) {
+            return {
+              rid: 42,
+              currentVersion: "0.8.3",
+              version: state.updateVersion || "0.9.0",
+              date: "2026-07-07",
+              body: "Aggressive updates description",
+              rawJson: {}
+            };
+          }
+          return null;
+        }
+
+        if (cmd === "plugin:updater|download") {
+          if (state.downloadShouldFail) {
+            throw new Error("Download failed mock error");
+          }
+          const channelStr = args?.onEvent;
+          if (channelStr && typeof channelStr === "string" && channelStr.startsWith("__CHANNEL__:")) {
+            const callbackId = parseInt(channelStr.split(":")[1], 10);
+            const cb = (window as any).__TAURI_CALLBACKS__.get(callbackId);
+            if (cb) {
+              setTimeout(() => {
+                cb({ index: 0, message: { event: "Started", data: { contentLength: 100 } } });
+                cb({ index: 1, message: { event: "Progress", data: { chunkLength: 50 } } });
+                cb({ index: 2, message: { event: "Progress", data: { chunkLength: 50 } } });
+                cb({ index: 3, message: { event: "Finished" } });
+                cb({ index: 4, end: true });
+              }, 10);
+            }
+          }
+          return 99; // downloadedBytesRid
+        }
+
+        if (cmd === "plugin:updater|install") {
+          if (state.installShouldFail) {
+            throw new Error("Install failed mock error");
+          }
+          return null;
+        }
+
+        if (cmd === "plugin:updater|download_and_install") {
+          if (state.downloadShouldFail || state.installShouldFail) {
+            throw new Error("Download/Install failed mock error");
+          }
+          const channelStr = args?.onEvent;
+          if (channelStr && typeof channelStr === "string" && channelStr.startsWith("__CHANNEL__:")) {
+            const callbackId = parseInt(channelStr.split(":")[1], 10);
+            const cb = (window as any).__TAURI_CALLBACKS__.get(callbackId);
+            if (cb) {
+              setTimeout(() => {
+                cb({ index: 0, message: { event: "Started", data: { contentLength: 100 } } });
+                cb({ index: 1, message: { event: "Progress", data: { chunkLength: 100 } } });
+                cb({ index: 2, message: { event: "Finished" } });
+                cb({ index: 3, end: true });
+              }, 10);
+            }
+          }
+          return null;
+        }
+
+        if (cmd === "plugin:process|restart") {
+          state.relaunchCalled = true;
+          saveState();
+          return null;
+        }
+
+        if (cmd === "is_portable") {
+          return false;
         }
 
         // Fallback or unmocked commands

@@ -1,12 +1,13 @@
 import React, { useState, useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
-import { check } from "@tauri-apps/plugin-updater";
-import { relaunch } from "@tauri-apps/plugin-process";
-import { listen } from "@tauri-apps/api/event";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { ProgressBar } from "../shared";
-import { useSettings } from "../../hooks/useSettings";
 import { commands } from "../../bindings";
+import {
+  subscribeToUpdateState,
+  triggerManualUpdateCheck,
+  GlobalUpdateState,
+} from "./GlobalUpdatePrompt";
 
 interface UpdateCheckerProps {
   className?: string;
@@ -14,68 +15,23 @@ interface UpdateCheckerProps {
 
 const UpdateChecker: React.FC<UpdateCheckerProps> = ({ className = "" }) => {
   const { t } = useTranslation();
-  // Update checking state
-  const [isChecking, setIsChecking] = useState(false);
-  const [updateAvailable, setUpdateAvailable] = useState(false);
-  const [isInstalling, setIsInstalling] = useState(false);
-  const [downloadProgress, setDownloadProgress] = useState(0);
+  
+  const [updateState, setUpdateState] = useState<GlobalUpdateState | null>(null);
   const [showUpToDate, setShowUpToDate] = useState(false);
-  const [showPortableUpdateDialog, setShowPortableUpdateDialog] =
-    useState(false);
-
-  const { settings, isLoading } = useSettings();
-  const settingsLoaded = !isLoading && settings !== null;
-  const updateChecksEnabled = settings?.update_checks_enabled ?? false;
-
-  const upToDateTimeoutRef = useRef<ReturnType<typeof setTimeout>>();
+  const [showPortableUpdateDialog, setShowPortableUpdateDialog] = useState(false);
+  
+  const wasCheckingRef = useRef(false);
   const isManualCheckRef = useRef(false);
-  const downloadedBytesRef = useRef(0);
-  const contentLengthRef = useRef(0);
+  const upToDateTimeoutRef = useRef<ReturnType<typeof setTimeout>>();
 
   useEffect(() => {
-    // Wait for settings to load before doing anything
-    if (!settingsLoaded) return;
-
-    if (!updateChecksEnabled) {
-      if (upToDateTimeoutRef.current) {
-        clearTimeout(upToDateTimeoutRef.current);
-      }
-      setIsChecking(false);
-      setUpdateAvailable(false);
-      setShowUpToDate(false);
-      return;
-    }
-
-    checkForUpdates();
-
-    // Listen for update check events
-    const updateUnlisten = listen("check-for-updates", () => {
-      handleManualUpdateCheck();
-    });
-
-    return () => {
-      if (upToDateTimeoutRef.current) {
-        clearTimeout(upToDateTimeoutRef.current);
-      }
-      updateUnlisten.then((fn) => fn());
-    };
-  }, [settingsLoaded, updateChecksEnabled]);
-
-  // Update checking functions
-  const checkForUpdates = async () => {
-    if (!updateChecksEnabled || isChecking) return;
-
-    try {
-      setIsChecking(true);
-      const update = await check();
-
-      if (update) {
-        setUpdateAvailable(true);
-        setShowUpToDate(false);
-      } else {
-        setUpdateAvailable(false);
-
-        if (isManualCheckRef.current) {
+    // Subscribe to global update state
+    const unsubscribe = subscribeToUpdateState((state) => {
+      setUpdateState(state);
+      
+      // Handle "Up to date" transient message for manual checks
+      if (wasCheckingRef.current && !state.isChecking) {
+        if (!state.updateAvailable && isManualCheckRef.current) {
           setShowUpToDate(true);
           if (upToDateTimeoutRef.current) {
             clearTimeout(upToDateTimeoutRef.current);
@@ -84,103 +40,85 @@ const UpdateChecker: React.FC<UpdateCheckerProps> = ({ className = "" }) => {
             setShowUpToDate(false);
           }, 3000);
         }
+        isManualCheckRef.current = false;
       }
-    } catch (error) {
-      console.error("Failed to check for updates:", error);
-    } finally {
-      setIsChecking(false);
-      isManualCheckRef.current = false;
-    }
-  };
+      
+      wasCheckingRef.current = state.isChecking;
+    });
 
-  const handleManualUpdateCheck = () => {
-    if (!updateChecksEnabled) return;
+    return () => {
+      unsubscribe();
+      if (upToDateTimeoutRef.current) {
+        clearTimeout(upToDateTimeoutRef.current);
+      }
+    };
+  }, []);
+
+  const handleManualCheck = () => {
     isManualCheckRef.current = true;
-    checkForUpdates();
+    triggerManualUpdateCheck();
   };
 
-  const installUpdate = async () => {
-    if (!updateChecksEnabled) return;
-
+  const handleAction = async () => {
     const portable = await commands.isPortable();
     if (portable) {
       setShowPortableUpdateDialog(true);
       return;
     }
 
-    try {
-      setIsInstalling(true);
-      setDownloadProgress(0);
-      downloadedBytesRef.current = 0;
-      contentLengthRef.current = 0;
-      const update = await check();
-
-      if (!update) {
-        console.log("No update available during install attempt");
-        return;
-      }
-
-      await update.downloadAndInstall((event) => {
-        switch (event.event) {
-          case "Started":
-            downloadedBytesRef.current = 0;
-            contentLengthRef.current = event.data.contentLength ?? 0;
-            break;
-          case "Progress":
-            downloadedBytesRef.current += event.data.chunkLength;
-            const progress =
-              contentLengthRef.current > 0
-                ? Math.round(
-                    (downloadedBytesRef.current / contentLengthRef.current) *
-                      100,
-                  )
-                : 0;
-            setDownloadProgress(Math.min(progress, 100));
-            break;
-        }
-      });
-      await relaunch();
-    } catch (error) {
-      console.error("Failed to install update:", error);
-    } finally {
-      setIsInstalling(false);
-      setDownloadProgress(0);
-      downloadedBytesRef.current = 0;
-      contentLengthRef.current = 0;
+    if (updateState?.updateReady) {
+      // Trigger update choice modal again by dispatching event, 
+      // or we can just run triggerManualUpdateCheck which will trigger another check & show prompt.
+      triggerManualUpdateCheck();
+    } else {
+      handleManualCheck();
     }
   };
 
-  // Update status functions
   const getUpdateStatusText = () => {
-    if (!updateChecksEnabled) {
-      return t("footer.updateCheckingDisabled");
+    if (!updateState) return t("footer.checkForUpdates");
+    
+    if (updateState.isChecking) {
+      return t("footer.checkingUpdates");
     }
-    if (isInstalling) {
-      return downloadProgress > 0 && downloadProgress < 100
-        ? t("footer.downloading", {
-            progress: downloadProgress.toString().padStart(3),
-          })
-        : downloadProgress === 100
-          ? t("footer.installing")
-          : t("footer.preparing");
+    
+    if (updateState.isDownloading) {
+      const progress = updateState.downloadProgress;
+      if (progress > 0 && progress < 100) {
+        return t("footer.downloading", {
+          progress: progress.toString().padStart(3),
+        });
+      }
+      return progress === 100 ? t("footer.installing") : t("footer.preparing");
     }
-    if (isChecking) return t("footer.checkingUpdates");
-    if (showUpToDate) return t("footer.upToDate");
-    if (updateAvailable) return t("footer.updateAvailableShort");
+
+    if (showUpToDate) {
+      return t("footer.upToDate");
+    }
+
+    if (updateState.updateReady) {
+      return t("footer.updateAvailableShort");
+    }
+
+    if (updateState.updateAvailable) {
+      return t("footer.updateAvailableShort");
+    }
+
     return t("footer.checkForUpdates");
   };
 
-  const getUpdateStatusAction = () => {
-    if (!updateChecksEnabled) return undefined;
-    if (updateAvailable && !isInstalling) return installUpdate;
-    if (!isChecking && !isInstalling && !updateAvailable)
-      return handleManualUpdateCheck;
-    return undefined;
-  };
+  const isChecking = updateState?.isChecking ?? false;
+  const isDownloading = updateState?.isDownloading ?? false;
+  const updateAvailable = updateState?.updateAvailable ?? false;
+  const updateReady = updateState?.updateReady ?? false;
+  const downloadProgress = updateState?.downloadProgress ?? 0;
 
-  const isUpdateDisabled = !updateChecksEnabled || isChecking || isInstalling;
-  const isUpdateClickable =
-    !isUpdateDisabled && (updateAvailable || (!isChecking && !showUpToDate));
+  const isUpdateDisabled = isChecking || isDownloading;
+  
+  // Can click if not currently checking/downloading and:
+  // - we have an update ready, OR
+  // - we are not checking and not currently showing "Up to date"
+  const isUpdateClickable = !isUpdateDisabled && (updateReady || (!isChecking && !showUpToDate));
 
   return (
     <>
@@ -195,13 +133,13 @@ const UpdateChecker: React.FC<UpdateCheckerProps> = ({ className = "" }) => {
             </p>
             <div className="flex gap-2 justify-end">
               <button
-                className="px-3 py-1.5 text-sm rounded border border-border hover:bg-border/50 transition-colors"
+                className="px-3 py-1.5 text-sm rounded border border-border hover:bg-border/50 transition-colors cursor-pointer"
                 onClick={() => setShowPortableUpdateDialog(false)}
               >
                 {t("common.close")}
               </button>
               <button
-                className="px-3 py-1.5 text-sm rounded bg-logo-primary text-white hover:bg-logo-primary/80 transition-colors"
+                className="px-3 py-1.5 text-sm rounded bg-logo-primary text-white hover:bg-logo-primary/80 transition-colors cursor-pointer"
                 onClick={() => {
                   openUrl("https://thegai.app");
                   setShowPortableUpdateDialog(false);
@@ -216,10 +154,10 @@ const UpdateChecker: React.FC<UpdateCheckerProps> = ({ className = "" }) => {
       <div className={`flex items-center gap-3 ${className}`}>
         {isUpdateClickable ? (
           <button
-            onClick={getUpdateStatusAction()}
+            onClick={handleAction}
             disabled={isUpdateDisabled}
-            className={`transition-colors disabled:opacity-50 tabular-nums ${
-              updateAvailable
+            className={`transition-colors disabled:opacity-50 tabular-nums cursor-pointer ${
+              updateAvailable || updateReady
                 ? "text-logo-primary hover:text-logo-primary/80 font-medium"
                 : "text-text/60 hover:text-text/80"
             }`}
@@ -232,7 +170,7 @@ const UpdateChecker: React.FC<UpdateCheckerProps> = ({ className = "" }) => {
           </span>
         )}
 
-        {isInstalling && downloadProgress > 0 && downloadProgress < 100 && (
+        {isDownloading && downloadProgress > 0 && downloadProgress < 100 && (
           <ProgressBar
             progress={[
               {

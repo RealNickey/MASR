@@ -14,6 +14,7 @@ import { MeetingsView } from "./MeetingsView";
 import { getLanguageDirection, initializeRTL } from "@/lib/utils/rtl";
 import { useMeetingSummaryFallbackToast } from "@/hooks/useMeetingSummaryFallbackToast";
 import { motion, AnimatePresence } from "framer-motion";
+import { GlobalUpdatePrompt } from "@/components/update-checker/GlobalUpdatePrompt";
 
 type PrimaryTab = "meetings" | "transcription";
 
@@ -129,6 +130,7 @@ function PrimaryApp() {
           },
         }}
       />
+      <GlobalUpdatePrompt />
       <div className="flex h-full flex-col">
         <header className="border-b border-stone-mist bg-orange-off-white/95 px-6 py-4 backdrop-blur">
           <div className="mx-auto flex w-full max-w-6xl flex-col items-center gap-3">

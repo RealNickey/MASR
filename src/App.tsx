@@ -19,6 +19,7 @@ import { useMeetingSummaryFallbackToast } from "./hooks/useMeetingSummaryFallbac
 import { useSettingsStore } from "./stores/settingsStore";
 import { commands } from "@/bindings";
 import { getLanguageDirection, initializeRTL } from "@/lib/utils/rtl";
+import { GlobalUpdatePrompt } from "@/components/update-checker/GlobalUpdatePrompt";
 
 type OnboardingStep = "accessibility" | "model" | "done";
 
@@ -381,6 +382,7 @@ function App() {
           },
         }}
       />
+      <GlobalUpdatePrompt />
       {/* Main content area that takes remaining space */}
       <div className="flex-1 flex overflow-hidden">
         <Sidebar
