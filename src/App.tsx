@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, useCallback } from "react";
 import { toast, Toaster } from "sonner";
 import { useTranslation } from "react-i18next";
 import { listen } from "@tauri-apps/api/event";
@@ -11,7 +11,7 @@ import { ModelStateEvent, RecordingErrorEvent } from "./lib/types/events";
 import "./App.css";
 import AccessibilityPermissions from "./components/AccessibilityPermissions";
 import Footer from "./components/footer";
-import Onboarding, { AccessibilityOnboarding } from "./components/onboarding";
+import { AccessibilityOnboarding, LanguageOnboarding } from "./components/onboarding";
 import { Sidebar, SidebarSection, SECTIONS_CONFIG } from "./components/Sidebar";
 import { LocalFileTranscriber } from "./components/LocalFileTranscriber";
 import { useSettings } from "./hooks/useSettings";
@@ -21,12 +21,12 @@ import { commands } from "@/bindings";
 import { getLanguageDirection, initializeRTL } from "@/lib/utils/rtl";
 import { GlobalUpdatePrompt } from "@/components/update-checker/GlobalUpdatePrompt";
 
-type OnboardingStep = "accessibility" | "model" | "done";
+type OnboardingStep = "accessibility" | "language" | "done";
 
 const renderSettingsContent = (section: SidebarSection, simulateProd: boolean) => {
   const ActiveComponent =
     SECTIONS_CONFIG[section]?.component || SECTIONS_CONFIG.general.component;
-  return <ActiveComponent {...(section === "advanced" ? { simulateProd } : {})} />;
+  return <ActiveComponent {...(section === "advanced" || section === "general" ? { simulateProd } : {})} />;
 };
 
 function App() {
@@ -316,29 +316,26 @@ function App() {
     }
   };
 
-  const handleAccessibilityComplete = () => {
-    // Returning users already have models, skip to main app
-    // New users need to select a model
-    setOnboardingStep(isOnboardingPreview ? "model" : (isReturningUser ? "done" : "model"));
-  };
+  const handleAccessibilityComplete = useCallback(() => {
+    setOnboardingStep(isOnboardingPreview ? "language" : (isReturningUser ? "done" : "language"));
+  }, [isOnboardingPreview, isReturningUser]);
 
-  const handleModelSelected = () => {
-    // Transition to main app - user has started a download
+  const handleLanguageComplete = useCallback(() => {
     setOnboardingStep("done");
     if (isOnboardingPreview) {
       setIsOnboardingPreview(false);
     }
-  };
+  }, [isOnboardingPreview]);
 
-  const handleExitOnboardingPreview = () => {
+  const handleExitOnboardingPreview = useCallback(() => {
     setIsOnboardingPreview(false);
     setOnboardingStep("done");
-  };
+  }, []);
 
-  const handleTriggerOnboarding = () => {
+  const handleTriggerOnboarding = useCallback(() => {
     setIsOnboardingPreview(true);
     setOnboardingStep("accessibility");
-  };
+  }, []);
 
   // Still checking onboarding status
   if (onboardingStep === null) {
@@ -355,10 +352,10 @@ function App() {
     );
   }
 
-  if (onboardingStep === "model") {
+  if (onboardingStep === "language") {
     return (
-      <Onboarding
-        onModelSelected={handleModelSelected}
+      <LanguageOnboarding
+        onComplete={handleLanguageComplete}
         isPreview={isOnboardingPreview}
         onExitPreview={handleExitOnboardingPreview}
       />

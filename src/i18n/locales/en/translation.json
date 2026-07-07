@@ -125,6 +125,11 @@
         "checkFailed": "Failed to check permissions. Please try again.",
         "requestFailed": "Failed to request permission. Please try again."
       }
+    },
+    "language": {
+      "title": "Select Transcription Language",
+      "subtitle": "Choose your primary language for basic speech-to-text. Meetings will always use Malayalam.",
+      "continue": "Continue"
     }
   },
   "modelSelector": {
@@ -203,6 +208,10 @@
         "searchPlaceholder": "Search languages...",
         "noResults": "No languages found",
         "auto": "Auto"
+      },
+      "transcriptLanguage": {
+        "title": "Transcript Language",
+        "description": "Select the language for basic transcription. Continuous meeting transcription will always use Malayalam."
       },
       "pushToTalk": {
         "label": "Push To Talk",
