@@ -681,7 +681,14 @@
     "checkForUpdates": "Check for updates",
     "portableUpdateTitle": "Manual update required",
     "portableUpdateMessage": "Portable installs cannot be updated automatically. To update: download the latest NSIS installer from GitHub Releases, install it to the same folder, then copy your Data/ folder (settings, models, recordings) from the old version to the new one.",
-    "portableUpdateButton": "Open GitHub Releases"
+    "portableUpdateButton": "Open GitHub Releases",
+    "updateReady": "Update Ready",
+    "updateReadyDescription": "{{appName}} v{{version}} is ready to install. You're on v{{current}}.",
+    "updateNow": "Update Now",
+    "updateOnNextLaunch": "Update on Next Launch",
+    "installingUpdate": "Installing update...",
+    "downloadFailed": "Download failed. Click to retry.",
+    "updateNowError": "Install failed. Please restart the app manually."
   },
   "common": {
     "loading": "Loading...",
