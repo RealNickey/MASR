@@ -1,4 +1,4 @@
- 
+//hi 
 import React from "react";
 
 const ThegAiTextLogo = ({
