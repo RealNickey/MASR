@@ -4,7 +4,7 @@ import { toast } from "sonner";
 import type { ModelInfo } from "@/bindings";
 import type { ModelCardStatus } from "./ModelCard";
 import ModelCard from "./ModelCard";
-import ThegAiTextLogo from "../icons/ThegAiTextLogo";
+import { Logo } from "../Logo";
 import { useModelStore } from "../../stores/modelStore";
 
 interface OnboardingProps {
@@ -114,7 +114,7 @@ const Onboarding: React.FC<OnboardingProps> = ({
         </button>
       )}
       <div className="flex flex-col items-center gap-2 shrink-0">
-        <ThegAiTextLogo width={200} />
+        <Logo size="lg" className="mb-2" />
         <p className="text-text/70 max-w-md font-medium mx-auto">
           {t("onboarding.subtitle")}
         </p>

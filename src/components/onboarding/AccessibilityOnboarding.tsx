@@ -10,7 +10,7 @@ import {
 import { toast } from "sonner";
 import { commands } from "@/bindings";
 import { useSettingsStore } from "@/stores/settingsStore";
-import ThegAiTextLogo from "../icons/ThegAiTextLogo";
+import { Logo } from "../Logo";
 import { Keyboard, Mic, Check, Loader2 } from "lucide-react";
 
 interface AccessibilityOnboardingProps {
@@ -350,8 +350,8 @@ const AccessibilityOnboarding: React.FC<AccessibilityOnboardingProps> = ({
           {t("onboarding.exitPreview")}
         </button>
       )}
-      <div className="flex flex-col items-center gap-2">
-        <ThegAiTextLogo width={200} />
+      <div className="flex flex-col items-center gap-2 shrink-0">
+        <Logo size="lg" className="mb-2" />
       </div>
 
       <div className="max-w-md w-full flex flex-col items-center gap-4">

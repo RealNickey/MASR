@@ -1,5 +1,5 @@
 import React from "react";
-import logo from "../assets/logo.png";
+import { Logo } from "./Logo";
 import { useTranslation } from "react-i18next";
 import {
   Cog,
@@ -130,16 +130,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   return (
     <div className="flex flex-col w-44 h-full border-e border-stone-mist bg-orange-off-white items-center px-3 py-4 select-none justify-between">
       <div className="flex flex-col w-full items-center flex-1 overflow-hidden">
-        <div className="flex items-center justify-center gap-2 mb-6 mt-2 shrink-0">
-          <img
-            src={logo}
-            alt="Logo"
-            className="h-7 w-7 object-contain select-none"
-          />
-          <span className="text-xl font-bold text-charcoal font-cooper tracking-wide">
-            Thegai
-          </span>
-        </div>
+        <Logo size="sm" className="mb-6 mt-2 shrink-0 justify-center" />
         <div className="flex-1 flex flex-col w-full items-center gap-1.5 pt-4 border-t border-stone-mist overflow-y-auto scrollbar-none">
           {availableSections.map((section) => {
             const Icon = section.icon;

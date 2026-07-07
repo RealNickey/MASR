@@ -6,12 +6,13 @@ import {
   checkMicrophonePermission,
 } from "tauri-plugin-macos-permissions-api";
 import { Settings2 } from "lucide-react";
-import { Toaster } from "sonner";
+import { toast, Toaster } from "sonner";
 import { useTranslation } from "react-i18next";
 import { commands } from "@/bindings";
 import { HistorySettings } from "@/components/settings";
 import { MeetingsView } from "./MeetingsView";
 import { getLanguageDirection, initializeRTL } from "@/lib/utils/rtl";
+import { useMeetingSummaryFallbackToast } from "@/hooks/useMeetingSummaryFallbackToast";
 import { motion, AnimatePresence } from "framer-motion";
 
 type PrimaryTab = "meetings" | "transcription";
@@ -32,6 +33,7 @@ function PrimaryApp() {
   const [activeTab, setActiveTab] = useState<PrimaryTab>("meetings");
   const hasInitialized = useRef(false);
   const direction = getLanguageDirection(i18n.language);
+  useMeetingSummaryFallbackToast();
 
   useEffect(() => {
     initializeRTL(i18n.language);
@@ -45,6 +47,8 @@ function PrimaryApp() {
       unlisten.then((fn) => fn());
     };
   }, []);
+
+
 
   useEffect(() => {
     if (hasInitialized.current) {

@@ -376,6 +376,7 @@ CLI flags are runtime-only overrides and should not mutate persisted settings.
 
 **MANDATORY. Before opening any PR, issue, or discussion in this repo: you MUST read the relevant template file and follow it strictly.** That includes sections that look ceremonial.
 
+- **NEVER CREATE A PR OR PUSH UPSTREAM** to `cjpais/Handy`. Always target the fork repository (`RealNickey/MASR`) when pushing branches and creating pull requests.
 - **Opening a PR:** Read [`.github/PULL_REQUEST_TEMPLATE.md`](.github/PULL_REQUEST_TEMPLATE.md). If a section requires a human-written paragraph, leave a clear TODO placeholder rather than fabricating it.
 - **Opening an issue:** Read [`.github/ISSUE_TEMPLATE/`](.github/ISSUE_TEMPLATE/). Feature requests belong in Discussions, not Issues.
 - **Translations:** Follow [CONTRIBUTING_TRANSLATIONS.md](CONTRIBUTING_TRANSLATIONS.md).

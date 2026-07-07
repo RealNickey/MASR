@@ -7,6 +7,7 @@ fn main() {
     tauri_build::build()
 }
 
+
 /// Generate tray menu translations from frontend locale files.
 ///
 /// Source of truth: src/i18n/locales/*/translation.json
