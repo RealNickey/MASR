@@ -15,6 +15,7 @@ import Onboarding, { AccessibilityOnboarding } from "./components/onboarding";
 import { Sidebar, SidebarSection, SECTIONS_CONFIG } from "./components/Sidebar";
 import { LocalFileTranscriber } from "./components/LocalFileTranscriber";
 import { useSettings } from "./hooks/useSettings";
+import { useMeetingSummaryFallbackToast } from "./hooks/useMeetingSummaryFallbackToast";
 import { useSettingsStore } from "./stores/settingsStore";
 import { commands } from "@/bindings";
 import { getLanguageDirection, initializeRTL } from "@/lib/utils/rtl";
@@ -44,6 +45,7 @@ function App() {
   >("idle");
   const [droppedFiles, setDroppedFiles] = useState<string[]>([]);
   const { settings, updateSetting } = useSettings();
+  useMeetingSummaryFallbackToast();
   const direction = getLanguageDirection(i18n.language);
   const refreshAudioDevices = useSettingsStore(
     (state) => state.refreshAudioDevices,
@@ -203,29 +205,7 @@ function App() {
     };
   }, [t]);
 
-  // Listen for meeting summary fallback events to show a toast in dev mode
-  useEffect(() => {
-    const unlisten = listen<{
-      failed_model: string;
-      failed_provider: string;
-      error: string;
-      next_model: string | null;
-      next_provider: string | null;
-    }>("meeting-summary-fallback", (event) => {
-      if (import.meta.env.DEV) {
-        const { failed_model, failed_provider, error, next_model, next_provider } = event.payload;
-        const description = next_model
-          ? `Model ${failed_model} (${failed_provider}) failed: ${error}. Retrying with ${next_model} (${next_provider})...`
-          : `Model ${failed_model} (${failed_provider}) failed: ${error}. No more models in fallback chain.`;
-        toast.warning("Meeting Summary Fallback", {
-          description,
-        });
-      }
-    });
-    return () => {
-      unlisten.then((fn) => fn());
-    };
-  }, []);
+
 
   // Listen for recording state changes to display meeting recording indicator
   useEffect(() => {

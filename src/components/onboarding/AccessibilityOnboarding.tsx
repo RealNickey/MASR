@@ -10,7 +10,7 @@ import {
 import { toast } from "sonner";
 import { commands } from "@/bindings";
 import { useSettingsStore } from "@/stores/settingsStore";
-import logo from "../../assets/logo.png";
+import { Logo } from "../Logo";
 import { Keyboard, Mic, Check, Loader2 } from "lucide-react";
 
 interface AccessibilityOnboardingProps {
@@ -351,16 +351,7 @@ const AccessibilityOnboarding: React.FC<AccessibilityOnboardingProps> = ({
         </button>
       )}
       <div className="flex flex-col items-center gap-2 shrink-0">
-        <div className="flex items-center gap-3 select-none mb-2">
-          <img
-            src={logo}
-            alt="Logo"
-            className="h-10 w-10 object-contain"
-          />
-          <span className="text-3xl font-bold text-charcoal font-cooper tracking-wide">
-            Thegai
-          </span>
-        </div>
+        <Logo size="lg" className="mb-2" />
       </div>
 
       <div className="max-w-md w-full flex flex-col items-center gap-4">

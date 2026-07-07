@@ -4,7 +4,7 @@ import { toast } from "sonner";
 import type { ModelInfo } from "@/bindings";
 import type { ModelCardStatus } from "./ModelCard";
 import ModelCard from "./ModelCard";
-import logo from "../../assets/logo.png";
+import { Logo } from "../Logo";
 import { useModelStore } from "../../stores/modelStore";
 
 interface OnboardingProps {
@@ -114,16 +114,7 @@ const Onboarding: React.FC<OnboardingProps> = ({
         </button>
       )}
       <div className="flex flex-col items-center gap-2 shrink-0">
-        <div className="flex items-center gap-3 select-none mb-2">
-          <img
-            src={logo}
-            alt="Logo"
-            className="h-10 w-10 object-contain"
-          />
-          <span className="text-3xl font-bold text-charcoal font-cooper tracking-wide">
-            Thegai
-          </span>
-        </div>
+        <Logo size="lg" className="mb-2" />
         <p className="text-text/70 max-w-md font-medium mx-auto">
           {t("onboarding.subtitle")}
         </p>

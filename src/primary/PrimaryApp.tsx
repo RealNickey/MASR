@@ -12,6 +12,7 @@ import { commands } from "@/bindings";
 import { HistorySettings } from "@/components/settings";
 import { MeetingsView } from "./MeetingsView";
 import { getLanguageDirection, initializeRTL } from "@/lib/utils/rtl";
+import { useMeetingSummaryFallbackToast } from "@/hooks/useMeetingSummaryFallbackToast";
 import { motion, AnimatePresence } from "framer-motion";
 
 type PrimaryTab = "meetings" | "transcription";
@@ -32,6 +33,7 @@ function PrimaryApp() {
   const [activeTab, setActiveTab] = useState<PrimaryTab>("meetings");
   const hasInitialized = useRef(false);
   const direction = getLanguageDirection(i18n.language);
+  useMeetingSummaryFallbackToast();
 
   useEffect(() => {
     initializeRTL(i18n.language);
@@ -46,29 +48,7 @@ function PrimaryApp() {
     };
   }, []);
 
-  // Listen for meeting summary fallback events to show a toast in dev mode
-  useEffect(() => {
-    const unlisten = listen<{
-      failed_model: string;
-      failed_provider: string;
-      error: string;
-      next_model: string | null;
-      next_provider: string | null;
-    }>("meeting-summary-fallback", (event) => {
-      if (import.meta.env.DEV) {
-        const { failed_model, failed_provider, error, next_model, next_provider } = event.payload;
-        const description = next_model
-          ? `Model ${failed_model} (${failed_provider}) failed: ${error}. Retrying with ${next_model} (${next_provider})...`
-          : `Model ${failed_model} (${failed_provider}) failed: ${error}. No more models in fallback chain.`;
-        toast.warning("Meeting Summary Fallback", {
-          description,
-        });
-      }
-    });
-    return () => {
-      unlisten.then((fn) => fn());
-    };
-  }, []);
+
 
   useEffect(() => {
     if (hasInitialized.current) {

@@ -339,28 +339,10 @@ export default function MeetingPrompt() {
               </div>
             )}
 
-            {snapshot.mode === "stopped" && (
+            {(snapshot.mode === "stopped" || snapshot.mode === "discarded") && (
               <div className="meeting-overlay-progress" aria-hidden="true">
                 <motion.div
-                  key={`stopped-progress-${snapshot.sequence}`}
-                  className="meeting-overlay-progress-bar"
-                  initial={{ scaleX: 1 }}
-                  animate={{ scaleX: 0 }}
-                  transition={{
-                    duration: STOPPED_SECONDS,
-                    ease: "linear",
-                  }}
-                  onAnimationComplete={() => {
-                    void closeStoppedOverlay();
-                  }}
-                />
-              </div>
-            )}
-
-            {snapshot.mode === "discarded" && (
-              <div className="meeting-overlay-progress" aria-hidden="true">
-                <motion.div
-                  key={`discarded-progress-${snapshot.sequence}`}
+                  key={`${snapshot.mode}-progress-${snapshot.sequence}`}
                   className="meeting-overlay-progress-bar"
                   initial={{ scaleX: 1 }}
                   animate={{ scaleX: 0 }}

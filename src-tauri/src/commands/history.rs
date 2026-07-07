@@ -351,7 +351,11 @@ pub async fn regenerate_history_entry_summary(
         (summary_opt, Some(prompt_id.to_string()))
     } else {
         let processed = process_transcription_output(&app, &entry.transcription_text, entry.post_process_requested).await;
-        (processed.post_processed_text, processed.post_process_prompt)
+        if processed.post_processed_text.is_some() {
+            (processed.post_processed_text, processed.post_process_prompt)
+        } else {
+            (entry.post_processed_text, entry.post_process_prompt)
+        }
     };
 
     history_manager

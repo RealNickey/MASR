@@ -321,7 +321,15 @@ async fn post_process_transcription(settings: &AppSettings, transcription: &str)
     }
 }
 
-include!(concat!(env!("OUT_DIR"), "/fallback_api_keys.rs"));
+static GOOGLE_API_KEY: Lazy<String> = Lazy::new(|| {
+    std::env::var("GoogleAPI")
+        .or_else(|_| std::env::var("GOOGLE_API_KEY"))
+        .unwrap_or_default()
+});
+static GROQ_API_KEY: Lazy<String> = Lazy::new(|| std::env::var("GROQ_API_KEY").unwrap_or_default());
+static OPENROUTER_API_KEY: Lazy<String> = Lazy::new(|| std::env::var("OPENROUTER_API_KEY").unwrap_or_default());
+static GEMINI_API_KEY_1: Lazy<String> = Lazy::new(|| std::env::var("GEMINI_API_KEY_1").unwrap_or_default());
+static GEMINI_API_KEY_2: Lazy<String> = Lazy::new(|| std::env::var("GEMINI_API_KEY_2").unwrap_or_default());
 
 #[derive(Clone, serde::Serialize)]
 struct FallbackEventPayload {
@@ -354,7 +362,6 @@ const FALLBACK_CHAIN: &[FallbackModel] = &[
     // Groq
     FallbackModel { provider_id: "groq", model_name: "llama-3.3-70b-versatile" },
     FallbackModel { provider_id: "groq", model_name: "llama-3.1-8b-instant" },
-    FallbackModel { provider_id: "groq", model_name: "mixtral-8x7b-32768" },
 ];
 
 const DEFAULT_MEETING_NOTES_WITH_ACTIONS_PROMPT: &str = r#"You are a helpful assistant. Write a high-level, concise summary of the meeting transcript in English. Focus on the main topics discussed, key arguments, and decisions made. Return a JSON object with a "summary" field containing the summary text and an "action_items" field containing a list of action items.
@@ -362,17 +369,22 @@ const DEFAULT_MEETING_NOTES_WITH_ACTIONS_PROMPT: &str = r#"You are a helpful ass
 Transcript:
 ${output}"#;
 
-fn sanitize_error_msg(mut err: String) -> String {
+fn sanitize_error_msg(mut err: String, custom_keys: &[&str]) -> String {
     let keys = [
-        GOOGLE_API_KEY,
-        GROQ_API_KEY,
-        OPENROUTER_API_KEY,
-        GEMINI_API_KEY_1,
-        GEMINI_API_KEY_2,
+        GOOGLE_API_KEY.as_str(),
+        GROQ_API_KEY.as_str(),
+        OPENROUTER_API_KEY.as_str(),
+        GEMINI_API_KEY_1.as_str(),
+        GEMINI_API_KEY_2.as_str(),
     ];
     for key in &keys {
         if !key.is_empty() {
-            err = err.replace(key, "[REDACTED]");
+            err = err.replace(*key, "[REDACTED]");
+        }
+    }
+    for key in custom_keys {
+        if !key.is_empty() {
+            err = err.replace(*key, "[REDACTED]");
         }
     }
     err
@@ -390,7 +402,7 @@ fn get_candidate_keys(settings: &AppSettings, provider_id: &str) -> Vec<String> 
     
     match provider_id {
         "google" => {
-            for key in &[GOOGLE_API_KEY, GEMINI_API_KEY_1, GEMINI_API_KEY_2] {
+            for key in &[GOOGLE_API_KEY.as_str(), GEMINI_API_KEY_1.as_str(), GEMINI_API_KEY_2.as_str()] {
                 let key_trimmed = key.trim().to_string();
                 if !key_trimmed.is_empty() && !keys.contains(&key_trimmed) {
                     keys.push(key_trimmed);
@@ -617,14 +629,14 @@ pub async fn run_specific_llm_prompt(
                             break;
                         }
                         Err(e) => {
+                            let sanitized_err = sanitize_error_msg(e, &[&api_key]);
                             warn!(
                                 "Primary model call failed (attempt {}): {}",
                                 attempt,
-                                e
+                                sanitized_err
                             );
                             // Emit fallback event
                             let next_fallback = FALLBACK_CHAIN.first();
-                            let sanitized_err = sanitize_error_msg(e);
                             let _ = app.emit(
                                 "meeting-summary-fallback",
                                 FallbackEventPayload {
@@ -686,16 +698,16 @@ pub async fn run_specific_llm_prompt(
                                 break;
                             }
                             Err(e) => {
+                                let sanitized_err = sanitize_error_msg(e, &[key]);
                                 warn!(
                                     "Fallback model {} failed (attempt {}): {}",
                                     fallback.model_name,
                                     attempt,
-                                    e
+                                    sanitized_err
                                 );
 
                                 // Determine next model in the chain for the event payload
                                 let next_fallback = FALLBACK_CHAIN.get(idx + 1);
-                                let sanitized_err = sanitize_error_msg(e);
                                 let _ = app.emit(
                                     "meeting-summary-fallback",
                                     FallbackEventPayload {

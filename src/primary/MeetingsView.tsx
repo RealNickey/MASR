@@ -240,6 +240,7 @@ const CopySummaryButton: React.FC<CopySummaryButtonProps> = ({
   isCopied,
   title,
 }) => {
+  const { t } = useTranslation();
   const [isHovered, setIsHovered] = useState(false);
 
   return (
@@ -269,7 +270,7 @@ const CopySummaryButton: React.FC<CopySummaryButtonProps> = ({
           transition={{ type: "spring", stiffness: 350, damping: 20 }}
           className="overflow-hidden whitespace-nowrap text-xs font-semibold"
         >
-          {isCopied ? "Copied!" : "Copy Summary"}
+          {isCopied ? t("settings.meetings.copiedState") : t("settings.meetings.copySummary")}
         </motion.span>
       </div>
     </motion.button>
@@ -285,6 +286,7 @@ const SendFollowUpButton: React.FC<SendFollowUpButtonProps> = ({
   onClick,
   title,
 }) => {
+  const { t } = useTranslation();
   const [isHovered, setIsHovered] = useState(false);
 
   return (
@@ -310,7 +312,7 @@ const SendFollowUpButton: React.FC<SendFollowUpButtonProps> = ({
           transition={{ type: "spring", stiffness: 350, damping: 20 }}
           className="overflow-hidden whitespace-nowrap text-xs font-semibold"
         >
-          Send Follow-up
+          {t("settings.meetings.sendFollowUp")}
         </motion.span>
       </div>
     </motion.button>
@@ -328,6 +330,7 @@ const RegenerateButton: React.FC<RegenerateButtonProps> = ({
   isRegenerating,
   title,
 }) => {
+  const { t } = useTranslation();
   const [isHovered, setIsHovered] = useState(false);
 
   return (
@@ -354,7 +357,7 @@ const RegenerateButton: React.FC<RegenerateButtonProps> = ({
           transition={{ type: "spring", stiffness: 350, damping: 20 }}
           className="overflow-hidden whitespace-nowrap text-xs font-semibold"
         >
-          {isRegenerating ? "Regenerating..." : "Regenerate"}
+          {isRegenerating ? t("settings.meetings.regenerating") : t("settings.meetings.regenerate")}
         </motion.span>
       </div>
     </motion.button>
@@ -370,13 +373,16 @@ const HoldToDeleteButton: React.FC<HoldToDeleteButtonProps> = ({
   onDelete,
   title,
 }) => {
+  const { t } = useTranslation();
   const [isHovered, setIsHovered] = useState(false);
   const [isHolding, setIsHolding] = useState(false);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   const progressRef = useRef<HTMLDivElement>(null);
+  const isPointerActiveRef = useRef(false);
 
   const startHold = (e: React.PointerEvent) => {
     if (e.button !== 0) return; // Only trigger for left-click/tap
+    isPointerActiveRef.current = true;
     setIsHolding(true);
     
     if (progressRef.current) {
@@ -401,6 +407,23 @@ const HoldToDeleteButton: React.FC<HoldToDeleteButtonProps> = ({
       progressRef.current.style.transition = "clip-path 200ms ease-out";
       progressRef.current.style.clipPath = "inset(0 100% 0 0)";
     }
+
+    setTimeout(() => {
+      isPointerActiveRef.current = false;
+    }, 100);
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      onDelete();
+    }
+  };
+
+  const handleClick = (e: React.MouseEvent) => {
+    if (!isPointerActiveRef.current) {
+      onDelete();
+    }
   };
 
   useEffect(() => {
@@ -420,6 +443,8 @@ const HoldToDeleteButton: React.FC<HoldToDeleteButtonProps> = ({
       }}
       onPointerEnter={() => setIsHovered(true)}
       onPointerCancel={endHold}
+      onKeyDown={handleKeyDown}
+      onClick={handleClick}
       className="relative overflow-hidden p-2 rounded-xl text-bark-grey hover:text-alarm-red hover:bg-alarm-red/10 border border-stone-mist/40 shadow-sm transition-colors flex items-center justify-center cursor-pointer select-none"
       title={title}
       style={{ touchAction: "none" }}
@@ -448,7 +473,7 @@ const HoldToDeleteButton: React.FC<HoldToDeleteButtonProps> = ({
           transition={{ type: "spring", stiffness: 350, damping: 20 }}
           className="overflow-hidden whitespace-nowrap text-xs font-semibold"
         >
-          {isHolding ? "Keep holding..." : "Hold to Delete"}
+          {isHolding ? t("settings.meetings.keepHolding") : t("settings.meetings.holdToDelete")}
         </motion.span>
       </div>
     </motion.button>
@@ -803,13 +828,13 @@ export const MeetingsView: React.FC = () => {
     try {
       const result = await commands.regenerateHistoryEntrySummary(id);
       if (result.status === "ok") {
-        toast.success("Summary regenerated successfully!");
+        toast.success(t("settings.meetings.regenerateSuccess"));
       } else {
-        toast.error("Failed to regenerate summary: " + result.error);
+        toast.error(t("settings.meetings.regenerateError") + ": " + result.error);
       }
     } catch (error: any) {
       console.error("Failed to regenerate summary:", error);
-      toast.error("Failed to regenerate summary");
+      toast.error(t("settings.meetings.regenerateError"));
     } finally {
       setIsRegenerating(false);
     }
@@ -1195,7 +1220,7 @@ export const MeetingsView: React.FC = () => {
                 <RegenerateButton
                   onRegenerate={() => handleRegenerate(selectedMeeting.id)}
                   isRegenerating={isRegenerating}
-                  title="Regenerate summary"
+                  title={t("settings.meetings.regenerateSummaryTitle")}
                 />
                 <HoldToDeleteButton
                   onDelete={() => deleteMeeting(selectedMeeting.id)}
