@@ -11,21 +11,22 @@ import { ModelStateEvent, RecordingErrorEvent } from "./lib/types/events";
 import "./App.css";
 import AccessibilityPermissions from "./components/AccessibilityPermissions";
 import Footer from "./components/footer";
-import Onboarding, { AccessibilityOnboarding } from "./components/onboarding";
+import { AccessibilityOnboarding, LanguageOnboarding } from "./components/onboarding";
 import { Sidebar, SidebarSection, SECTIONS_CONFIG } from "./components/Sidebar";
 import { LocalFileTranscriber } from "./components/LocalFileTranscriber";
 import { useSettings } from "./hooks/useSettings";
 import { useMeetingSummaryFallbackToast } from "./hooks/useMeetingSummaryFallbackToast";
 import { useSettingsStore } from "./stores/settingsStore";
+import { useModelStore } from "./stores/modelStore";
 import { commands } from "@/bindings";
 import { getLanguageDirection, initializeRTL } from "@/lib/utils/rtl";
 
-type OnboardingStep = "accessibility" | "model" | "done";
+type OnboardingStep = "accessibility" | "language" | "done";
 
 const renderSettingsContent = (section: SidebarSection, simulateProd: boolean) => {
   const ActiveComponent =
     SECTIONS_CONFIG[section]?.component || SECTIONS_CONFIG.general.component;
-  return <ActiveComponent {...(section === "advanced" ? { simulateProd } : {})} />;
+  return <ActiveComponent {...(section === "advanced" || section === "general" ? { simulateProd } : {})} />;
 };
 
 function App() {
@@ -249,6 +250,41 @@ function App() {
     };
   }, []);
 
+  const {
+    models,
+    downloadModel,
+    downloadingModels,
+    verifyingModels,
+    extractingModels,
+  } = useModelStore();
+
+  useEffect(() => {
+    if (models.length > 0) {
+      const thega = models.find((m) => m.id === "thegav1");
+      const parakeet = models.find((m) => m.id === "parakeet-tdt-0.6b-v3");
+
+      if (
+        thega &&
+        !thega.is_downloaded &&
+        !(thega.id in downloadingModels) &&
+        !(thega.id in verifyingModels) &&
+        !(thega.id in extractingModels)
+      ) {
+        downloadModel("thegav1");
+      }
+
+      if (
+        parakeet &&
+        !parakeet.is_downloaded &&
+        !(parakeet.id in downloadingModels) &&
+        !(parakeet.id in verifyingModels) &&
+        !(parakeet.id in extractingModels)
+      ) {
+        downloadModel("parakeet-tdt-0.6b-v3");
+      }
+    }
+  }, [models, downloadingModels, verifyingModels, extractingModels, downloadModel]);
+
   const revealMainWindowForPermissions = async () => {
     try {
       await commands.showMainWindowCommand();
@@ -316,13 +352,10 @@ function App() {
   };
 
   const handleAccessibilityComplete = () => {
-    // Returning users already have models, skip to main app
-    // New users need to select a model
-    setOnboardingStep(isOnboardingPreview ? "model" : (isReturningUser ? "done" : "model"));
+    setOnboardingStep(isOnboardingPreview ? "language" : (isReturningUser ? "done" : "language"));
   };
 
-  const handleModelSelected = () => {
-    // Transition to main app - user has started a download
+  const handleLanguageComplete = () => {
     setOnboardingStep("done");
     if (isOnboardingPreview) {
       setIsOnboardingPreview(false);
@@ -354,10 +387,10 @@ function App() {
     );
   }
 
-  if (onboardingStep === "model") {
+  if (onboardingStep === "language") {
     return (
-      <Onboarding
-        onModelSelected={handleModelSelected}
+      <LanguageOnboarding
+        onComplete={handleLanguageComplete}
         isPreview={isOnboardingPreview}
         onExitPreview={handleExitOnboardingPreview}
       />

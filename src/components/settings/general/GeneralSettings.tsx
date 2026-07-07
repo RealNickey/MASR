@@ -13,12 +13,17 @@ import { useSettings } from "../../../hooks/useSettings";
 import { VolumeSlider } from "../VolumeSlider";
 import { MuteWhileRecording } from "../MuteWhileRecording";
 import { ModelSettingsCard } from "./ModelSettingsCard";
+import { TranscriptLanguageSelector } from "./TranscriptLanguageSelector";
 
-export const GeneralSettings: React.FC = () => {
+export const GeneralSettings: React.FC<{ simulateProd?: boolean }> = ({
+  simulateProd = false,
+}) => {
   const { t } = useTranslation();
   const { audioFeedbackEnabled, getSetting } = useSettings();
   const pushToTalk = getSetting("push_to_talk");
   const isLinux = type() === "linux";
+  const isRealProd = !import.meta.env.DEV;
+  const isSimulatingOrRealProd = isRealProd || simulateProd;
 
   return (
     <div className="max-w-2xl w-full mx-auto space-y-6">
@@ -55,6 +60,7 @@ export const GeneralSettings: React.FC = () => {
           >
             <ShortcutInput shortcutId="transcribe" grouped={true} />
             <PushToTalk descriptionMode="tooltip" grouped={true} />
+            <TranscriptLanguageSelector descriptionMode="tooltip" grouped={true} />
             <OutputLanguageSelector descriptionMode="tooltip" grouped={true} />
             <ShortcutInput shortcutId="meeting" grouped={true} />
             {/* Cancel shortcut is hidden with push-to-talk (release key cancels) and on Linux (dynamic shortcut instability) */}
@@ -66,7 +72,7 @@ export const GeneralSettings: React.FC = () => {
       </div>
 
       {/* Model settings (renders only if supports translation/language selection) */}
-      <ModelSettingsCard />
+      {!isSimulatingOrRealProd && <ModelSettingsCard />}
 
       {/* Group 2: Audio Hardware */}
       <div className="relative group">
