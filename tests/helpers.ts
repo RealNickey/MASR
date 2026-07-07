@@ -210,6 +210,10 @@ export async function setupMocks(page: Page, initialGoogleConnected = false) {
     // 2. Mock Tauri IPC layer
     (window as any).__TAURI_INTERNALS__ = {
       transformCallback,
+      metadata: {
+        currentWindow: { label: "primary" },
+        currentWebview: { label: "primary" }
+      },
       invoke: async (cmd: string, args?: any) => {
         console.log(`[Mock IPC invoke] ${cmd}`, args);
         const state = (window as any).__MOCK_STATE__;
@@ -223,6 +227,22 @@ export async function setupMocks(page: Page, initialGoogleConnected = false) {
           }
           listeners.get(event).push(handler);
           return handler;
+        }
+
+        // Mock event emitting command
+        if (cmd === "plugin:event|emit") {
+          const { event, payload } = args;
+          const listeners = (window as any).__TAURI_EVENT_LISTENERS__;
+          if (listeners && listeners.has(event)) {
+            const handlerIds = listeners.get(event);
+            for (const handlerId of handlerIds) {
+              const callback = (window as any).__TAURI_CALLBACKS__.get(handlerId);
+              if (callback) {
+                callback({ event, payload, id: handlerId });
+              }
+            }
+          }
+          return null;
         }
 
         // Mock permission endpoints
@@ -336,7 +356,7 @@ export async function setupMocks(page: Page, initialGoogleConnected = false) {
             sound_theme: "marimba",
             start_hidden: false,
             autostart_enabled: false,
-            update_checks_enabled: false,
+            update_checks_enabled: true,
             selected_model: "small",
             always_on_microphone: false,
             selected_microphone: "Default",
