@@ -1,6 +1,7 @@
 import { Page } from "@playwright/test";
 
 export interface MockState {
+  hasModelsAvailable: boolean;
   gmailTasksConnected: boolean;
   calendarConnected: boolean;
   oauthClientConfigured: boolean;
@@ -73,6 +74,7 @@ export async function setupMocks(
     const state = saved
       ? JSON.parse(saved)
       : {
+          hasModelsAvailable: true,
           gmailTasksConnected: connected,
           calendarConnected: false,
           oauthClientConfigured: true,
@@ -374,7 +376,7 @@ export async function setupMocks(
             sound_theme: "marimba",
             start_hidden: false,
             autostart_enabled: false,
-            update_checks_enabled: false,
+            update_checks_enabled: true,
             selected_model: state.selectedModel,
             always_on_microphone: false,
             selected_microphone: "Default",
