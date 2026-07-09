@@ -3,10 +3,10 @@ fn main() {
     build_apple_intelligence_bridge();
 
     generate_tray_translations();
+    generate_obfuscated_keys();
 
     tauri_build::build()
 }
-
 
 /// Generate tray menu translations from frontend locale files.
 ///
@@ -252,4 +252,58 @@ fn build_apple_intelligence_bridge() {
     }
 
     println!("cargo:rustc-link-arg=-Wl,-rpath,/usr/lib/swift");
+}
+
+fn generate_obfuscated_keys() {
+    use std::fs;
+    use std::path::Path;
+
+    let out_dir = std::env::var("OUT_DIR").unwrap();
+    let keys = vec![
+        ("GOOGLE_API_KEY", vec!["GOOGLE_API_KEY", "GoogleAPI"]),
+        ("GROQ_API_KEY", vec!["GROQ_API_KEY"]),
+        ("OPENROUTER_API_KEY", vec!["OPENROUTER_API_KEY"]),
+        ("GEMINI_API_KEY_1", vec!["GEMINI_API_KEY_1"]),
+        ("GEMINI_API_KEY_2", vec!["GEMINI_API_KEY_2"]),
+    ];
+
+    for (_, env_vars) in &keys {
+        for var in env_vars {
+            println!("cargo:rerun-if-env-changed={var}");
+        }
+    }
+
+    let mut out = String::from("// Auto-generated key obfuscation - do not edit\n\n");
+    let xor_key: &[u8] = &[0x5A, 0xA5, 0x3F, 0xC3, 0x7E, 0xBD, 0x12, 0x9B];
+    
+    out.push_str(&format!("#[allow(dead_code)]\nconst XOR_KEY: &[u8] = &{:?};\n\n", xor_key));
+    out.push_str(r#"
+#[allow(dead_code)]
+fn deobfuscate(encoded: &[u8]) -> Option<String> {
+    if encoded.is_empty() {
+        return None;
+    }
+    let mut decoded = Vec::with_capacity(encoded.len());
+    for (i, &b) in encoded.iter().enumerate() {
+        decoded.push(b ^ XOR_KEY[i % XOR_KEY.len()]);
+    }
+    String::from_utf8(decoded).ok()
+}
+"#);
+
+    for (name, env_vars) in keys {
+        let val = env_vars.iter()
+            .find_map(|&var| std::env::var(var).ok())
+            .unwrap_or_default();
+
+        if val.is_empty() {
+            out.push_str(&format!("pub static OBFUSCATED_{name}: Lazy<Option<String>> = Lazy::new(|| None);\n"));
+        } else {
+            let bytes = val.as_bytes();
+            let obfuscated: Vec<u8> = bytes.iter().enumerate().map(|(i, &b)| b ^ xor_key[i % xor_key.len()]).collect();
+            out.push_str(&format!("pub static OBFUSCATED_{name}: Lazy<Option<String>> = Lazy::new(|| deobfuscate(&{:?}));\n", obfuscated));
+        }
+    }
+
+    fs::write(Path::new(&out_dir).join("obfuscated_keys.rs"), out).unwrap();
 }

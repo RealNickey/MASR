@@ -974,7 +974,7 @@ impl ModelManager {
             return Ok(());
         };
         match Self::compute_sha256(path) {
-            Ok(actual) if actual == expected => {
+            Ok(actual) if actual.eq_ignore_ascii_case(expected) => {
                 info!("SHA256 verified for model {}", model_id);
                 Ok(())
             }
@@ -1640,6 +1640,21 @@ mod tests {
         assert!(
             ModelManager::verify_sha256(&path, Some(&actual), "test_model").is_ok(),
             "should pass when hash matches"
+        );
+        assert!(
+            path.exists(),
+            "file must be kept on successful verification"
+        );
+    }
+
+    #[test]
+    fn test_verify_sha256_passes_on_case_mismatched_hash() {
+        let (_dir, path) = write_temp_file(b"hello world");
+        let actual = ModelManager::compute_sha256(&path).unwrap();
+        let uppercase_hash = actual.to_uppercase();
+        assert!(
+            ModelManager::verify_sha256(&path, Some(&uppercase_hash), "test_model").is_ok(),
+            "should pass when hash matches case-insensitively"
         );
         assert!(
             path.exists(),

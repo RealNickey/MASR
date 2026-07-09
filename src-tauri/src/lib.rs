@@ -226,7 +226,11 @@ fn initialize_core_logic(app_handle: &AppHandle) {
                         break;
                     }
                     Err(e) => {
-                        log::error!("Failed to download model {}, retrying in 5 seconds: {}", model_id, e);
+                        log::error!(
+                            "Failed to download model {}, retrying in 5 seconds: {}",
+                            model_id,
+                            e
+                        );
                         tokio::time::sleep(std::time::Duration::from_secs(5)).await;
                     }
                 }

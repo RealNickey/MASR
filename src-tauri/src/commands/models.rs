@@ -1,5 +1,5 @@
 use crate::managers::model::{ModelInfo, ModelManager};
-use crate::managers::transcription::{ModelStateEvent, TranscriptionManager};
+use crate::managers::transcription::{ModelStateEvent, TranscriptionManager, LoadModelStatus};
 use crate::settings::{get_settings, write_settings, ModelUnloadTimeout};
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter, Manager, State};
@@ -144,11 +144,17 @@ pub fn switch_active_model(app: &AppHandle, model_id: &str) -> Result<(), String
     }
 
     // Load the model. On failure, revert the persisted selection.
-    if let Err(e) = transcription_manager.load_model(model_id) {
-        let mut settings = get_settings(app);
-        settings.selected_model = old_model;
-        write_settings(app, settings);
-        return Err(e.to_string());
+    match transcription_manager.load_model(model_id) {
+        Ok(LoadModelStatus::WaitingForDownload) => {
+            log::info!("Model {} is currently downloading. Selection updated.", model_id);
+        }
+        Ok(LoadModelStatus::Loaded) => {}
+        Err(e) => {
+            let mut settings = get_settings(app);
+            settings.selected_model = old_model;
+            write_settings(app, settings);
+            return Err(e.to_string());
+        }
     }
 
     Ok(())
@@ -156,7 +162,10 @@ pub fn switch_active_model(app: &AppHandle, model_id: &str) -> Result<(), String
 
 #[tauri::command]
 #[specta::specta]
-pub fn change_selected_model_setting(app_handle: AppHandle, model_id: String) -> Result<(), String> {
+pub fn change_selected_model_setting(
+    app_handle: AppHandle,
+    model_id: String,
+) -> Result<(), String> {
     let mut settings = get_settings(&app_handle);
     settings.selected_model = model_id;
     write_settings(&app_handle, settings);

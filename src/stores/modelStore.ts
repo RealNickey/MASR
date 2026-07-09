@@ -4,7 +4,8 @@ import { produce } from "immer";
 import { listen } from "@tauri-apps/api/event";
 import { commands, type ModelInfo } from "@/bindings";
 import { toast } from "sonner";
-
+import { isProductionLike } from "@/utils/isProductionLike";
+import i18n from "@/i18n";
 interface DownloadProgress {
   model_id: string;
   downloaded: number;
@@ -350,7 +351,12 @@ export const useModelStore = create<ModelsStore>()(
               state.error = error;
             }),
           );
-          toast.error(error);
+          const isSimulatingOrRealProd = isProductionLike();
+          if (isSimulatingOrRealProd) {
+            toast.error(i18n.t("errors.modelLoadFailedGeneric"));
+          } else {
+            toast.error(error);
+          }
         },
       );
 

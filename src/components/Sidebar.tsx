@@ -87,6 +87,7 @@ export const SECTIONS_CONFIG = {
     icon: FlaskConical,
     component: DebugSettings,
     enabled: (settings) => settings?.debug_mode ?? false,
+    isProdHidden: true,
   },
   about: {
     labelKey: "sidebar.about",
