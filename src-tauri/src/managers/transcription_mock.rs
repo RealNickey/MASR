@@ -17,6 +17,12 @@ pub struct ModelStateEvent {
     pub error: Option<String>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LoadModelStatus {
+    Loaded,
+    WaitingForDownload,
+}
+
 /// RAII guard that is a no-op in the mock — mirrors the real `LoadingGuard`.
 pub struct LoadingGuard;
 
@@ -47,8 +53,12 @@ impl TranscriptionManager {
 
     pub fn maybe_unload_immediately(&self, _context: &str) {}
 
-    pub fn load_model(&self, _model_id: &str) -> Result<()> {
-        Ok(())
+    pub fn load_model(&self, _model_id: &str) -> Result<LoadModelStatus> {
+        Ok(LoadModelStatus::Loaded)
+    }
+
+    pub fn load_model_if_different(&self, _model_id: &str) -> Result<LoadModelStatus> {
+        Ok(LoadModelStatus::Loaded)
     }
 
     pub fn initiate_model_load(&self) {}

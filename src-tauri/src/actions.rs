@@ -1238,8 +1238,10 @@ impl ShortcutAction for TranscribeAction {
 
                     // Transcribe concurrently with WAV save
                     let transcription_time = Instant::now();
-                    let transcription_result = tm.transcribe(samples);
-
+                    let tm_clone = tm.clone();
+                    let transcription_result = tauri::async_runtime::spawn_blocking(move || {
+                        tm_clone.transcribe(samples)
+                    }).await.unwrap_or_else(|e| Err(anyhow::anyhow!("Transcription task panicked: {}", e)));
                     // Await WAV save and verify
                     let wav_saved = match wav_handle.await {
                         Ok(Ok(())) => {
@@ -1528,6 +1530,7 @@ impl ShortcutAction for MeetingAction {
 
                     let tm_clone = tm.clone();
                     let samples_for_transcribe = samples.clone();
+                    let ah_clone = ah.clone();
                     let transcribe_handle = tauri::async_runtime::spawn_blocking(move || {
                         if let Err(e) = tm_clone.load_model_if_different("thegav1") {
                             error!(
@@ -1537,12 +1540,18 @@ impl ShortcutAction for MeetingAction {
                             return Err(anyhow::anyhow!("Failed to load ThegaV1 model: {}", e));
                         }
                         let res = tm_clone.transcribe(samples_for_transcribe);
-                        if let Err(e) = tm_clone.unload_model() {
-                            warn!(
-                                "Failed to unload ThegaV1 model after meeting transcription: {}",
-                                e
-                            );
+                        
+                        // Load back the correct model if different from "thegav1"
+                        let settings = get_settings(&ah_clone);
+                        let selected_model = settings.selected_model.clone();
+                        if selected_model != "thegav1" && !selected_model.is_empty() {
+                            if let Err(e) = tm_clone.load_model_if_different(&selected_model) {
+                                warn!("Failed to load back selected model {} after meeting transcription: {}", selected_model, e);
+                            }
+                        } else {
+                            tm_clone.maybe_unload_immediately("meeting transcription");
                         }
+                        
                         res
                     });
 
