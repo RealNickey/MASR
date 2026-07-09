@@ -1170,8 +1170,11 @@ impl ShortcutAction for TranscribeAction {
 
                     // Transcribe concurrently with WAV save
                     let transcription_time = Instant::now();
-                    let transcription_result = tm.transcribe(samples);
-
+                    let tm_clone = tm.clone();
+                    let samples_for_transcribe = samples.clone();
+                    let transcription_result = tauri::async_runtime::spawn_blocking(move || {
+                        tm_clone.transcribe(samples_for_transcribe)
+                    }).await.unwrap_or_else(|e| Err(anyhow::anyhow!("Transcription task panicked: {}", e)));
                     // Await WAV save and verify
                     let wav_saved = match wav_handle.await {
                         Ok(Ok(())) => {

@@ -15,6 +15,7 @@ import { getLanguageDirection, initializeRTL } from "@/lib/utils/rtl";
 import { useMeetingSummaryFallbackToast } from "@/hooks/useMeetingSummaryFallbackToast";
 import { motion, AnimatePresence } from "framer-motion";
 import { GlobalUpdatePrompt } from "@/components/update-checker/GlobalUpdatePrompt";
+import logo from "@/assets/logo.png";
 
 type PrimaryTab = "meetings" | "transcription";
 
@@ -136,7 +137,7 @@ function PrimaryApp() {
           <div className="mx-auto flex w-full max-w-6xl flex-col items-center gap-3">
             <div className="flex items-center gap-2">
               <img
-                src="/src/assets/logo.png"
+                src={logo}
                 alt="Logo"
                 className="h-6 w-6 object-contain select-none"
               />

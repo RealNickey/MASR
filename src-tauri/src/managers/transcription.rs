@@ -267,23 +267,66 @@ impl TranscriptionManager {
             },
         );
 
-        let model_info = self
+        let mut model_info = self
             .model_manager
             .get_model_info(model_id)
             .ok_or_else(|| anyhow::anyhow!("Model not found: {}", model_id))?;
 
         if !model_info.is_downloaded {
-            let error_msg = "Model not downloaded";
-            let _ = self.app_handle.emit(
-                "model-state-changed",
-                ModelStateEvent {
-                    event_type: "loading_failed".to_string(),
-                    model_id: Some(model_id.to_string()),
-                    model_name: Some(model_info.name.clone()),
-                    error: Some(error_msg.to_string()),
-                },
-            );
-            return Err(anyhow::anyhow!(error_msg));
+            if model_info.is_downloading {
+                // Wait for the download to finish (up to 5 minutes)
+                let mut elapsed_secs = 0;
+                let timeout_secs = 300;
+                loop {
+                    if elapsed_secs >= timeout_secs {
+                        let error_msg = "Model download timed out";
+                        let _ = self.app_handle.emit(
+                            "model-state-changed",
+                            ModelStateEvent {
+                                event_type: "loading_failed".to_string(),
+                                model_id: Some(model_id.to_string()),
+                                model_name: Some(model_info.name.clone()),
+                                error: Some(error_msg.to_string()),
+                            },
+                        );
+                        return Err(anyhow::anyhow!(error_msg));
+                    }
+                    std::thread::sleep(std::time::Duration::from_secs(1));
+                    elapsed_secs += 1;
+                    if let Some(info) = self.model_manager.get_model_info(model_id) {
+                        if info.is_downloaded {
+                            model_info = info;
+                            break;
+                        } else if !info.is_downloading {
+                            let error_msg = "Model download failed or was cancelled";
+                            let _ = self.app_handle.emit(
+                                "model-state-changed",
+                                ModelStateEvent {
+                                    event_type: "loading_failed".to_string(),
+                                    model_id: Some(model_id.to_string()),
+                                    model_name: Some(info.name.clone()),
+                                    error: Some(error_msg.to_string()),
+                                },
+                            );
+                            return Err(anyhow::anyhow!(error_msg));
+                        }
+                    } else {
+                        return Err(anyhow::anyhow!("Model not found: {}", model_id));
+                    }
+                }
+            } else {
+                let error_msg = "Model not downloaded";
+                let _ = self.app_handle.emit(
+                    "model-state-changed",
+                    ModelStateEvent {
+                        event_type: "loading_failed".to_string(),
+                        model_id: Some(model_id.to_string()),
+                        model_name: Some(model_info.name.clone()),
+                        error: Some(error_msg.to_string()),
+                    },
+                );
+                return Err(anyhow::anyhow!(error_msg));
+            }
         }
 
         let model_path = self.model_manager.get_model_path(model_id)?;
@@ -442,18 +485,27 @@ impl TranscriptionManager {
         self.load_model(model_id)
     }
 
-    /// Kicks off the model loading in a background thread if it's not already loaded
+    /// Kicks off the model loading in a background thread if it's not already loaded or if the loaded model is different
     pub fn initiate_model_load(&self) {
+        let settings = get_settings(&self.app_handle);
+        let selected_model = settings.selected_model.clone();
+
         let mut is_loading = self.is_loading.lock().unwrap();
-        if *is_loading || self.is_model_loaded() {
+        if *is_loading {
             return;
+        }
+
+        if self.is_model_loaded() {
+            let current = self.current_model_id.lock().unwrap();
+            if current.as_deref() == Some(selected_model.as_str()) {
+                return;
+            }
         }
 
         *is_loading = true;
         let self_clone = self.clone();
         thread::spawn(move || {
-            let settings = get_settings(&self_clone.app_handle);
-            if let Err(e) = self_clone.load_model(&settings.selected_model) {
+            if let Err(e) = self_clone.load_model(&selected_model) {
                 error!("Failed to load model: {}", e);
             }
             let mut is_loading = self_clone.is_loading.lock().unwrap();
