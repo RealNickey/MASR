@@ -325,14 +325,18 @@ async fn post_process_transcription(settings: &AppSettings, transcription: &str)
 
 include!(concat!(env!("OUT_DIR"), "/obfuscated_keys.rs"));
 
+fn resolve_google_api_key(obfuscated: Option<String>, env_google_api: Option<String>, env_google_api_key: Option<String>) -> String {
+    obfuscated.unwrap_or_else(|| {
+        env_google_api.or(env_google_api_key).unwrap_or_default()
+    })
+}
+
 static GOOGLE_API_KEY: Lazy<String> = Lazy::new(|| {
-    OBFUSCATED_GOOGLE_API_KEY
-        .clone()
-        .unwrap_or_else(|| {
-            std::env::var("GoogleAPI")
-                .or_else(|_| std::env::var("GOOGLE_API_KEY"))
-                .unwrap_or_default()
-        })
+    resolve_google_api_key(
+        OBFUSCATED_GOOGLE_API_KEY.clone(),
+        std::env::var("GoogleAPI").ok(),
+        std::env::var("GOOGLE_API_KEY").ok(),
+    )
 });
 static GROQ_API_KEY: Lazy<String> = Lazy::new(|| {
     OBFUSCATED_GROQ_API_KEY
@@ -1721,12 +1725,11 @@ mod tests {
     #[test]
     fn test_deobfuscate_recovers_original_string() {
         let original = "test-api-key-12345";
-        let xor_key = &[0x5A, 0xA5, 0x3F, 0xC3, 0x7E, 0xBD, 0x12, 0x9B];
         let obfuscated: Vec<u8> = original
             .as_bytes()
             .iter()
             .enumerate()
-            .map(|(i, &b)| b ^ xor_key[i % xor_key.len()])
+            .map(|(i, &b)| b ^ XOR_KEY[i % XOR_KEY.len()])
             .collect();
         
         let recovered = deobfuscate(&obfuscated);
@@ -1740,13 +1743,7 @@ mod tests {
 
     #[test]
     fn test_runtime_environment_fallback() {
-        std::env::set_var("GoogleAPI", "runtime-fallback-key-test");
-        let fallback_result = OBFUSCATED_GOOGLE_API_KEY.clone().unwrap_or_else(|| {
-            std::env::var("GoogleAPI")
-                .or_else(|_| std::env::var("GOOGLE_API_KEY"))
-                .unwrap_or_default()
-        });
+        let fallback_result = resolve_google_api_key(None, Some("runtime-fallback-key-test".to_string()), None);
         assert_eq!(fallback_result, "runtime-fallback-key-test");
-        std::env::remove_var("GoogleAPI");
     }
 }

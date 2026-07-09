@@ -460,7 +460,6 @@ impl TranscriptionManager {
 
         *is_loading = true;
         let self_clone = self.clone();
-        let selected_model = selected_model.clone();
         thread::spawn(move || {
             if let Err(e) = self_clone.load_model_if_different(&selected_model) {
                 error!("Failed to load model: {}", e);

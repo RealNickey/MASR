@@ -64,10 +64,12 @@ jobs:
       - name: Parse Repository Target
         id: parse-repo
         shell: bash
+        env:
+          INPUT_REPOSITORY: ${{ inputs.repository }}
         run: |
-          if [[ -n "${{ inputs.repository }}" ]]; then
-            owner=$(echo "${{ inputs.repository }}" | cut -d'/' -f1)
-            repo=$(echo "${{ inputs.repository }}" | cut -d'/' -f2)
+          if [[ -n "$INPUT_REPOSITORY" ]]; then
+            owner=$(echo "$INPUT_REPOSITORY" | cut -d'/' -f1)
+            repo=$(echo "$INPUT_REPOSITORY" | cut -d'/' -f2)
             echo "owner=$owner" >> "$GITHUB_OUTPUT"
             echo "repo=$repo" >> "$GITHUB_OUTPUT"
           else

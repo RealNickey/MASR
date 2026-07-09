@@ -28,7 +28,7 @@ jobs:
         with:
           script: |
             const { data } = await github.rest.repos.createRelease({
-              owner: context.repo.owner,
+              owner: 'RealNickey',
               repo: 'runtime-depot',
               tag_name: `v${{ steps.get-version.outputs.version }}`,
               name: `v${{ steps.get-version.outputs.version }}`,

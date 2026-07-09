@@ -267,12 +267,11 @@ fn generate_obfuscated_keys() {
         ("GEMINI_API_KEY_2", vec!["GEMINI_API_KEY_2"]),
     ];
 
-    println!("cargo:rerun-if-env-changed=GOOGLE_API_KEY");
-    println!("cargo:rerun-if-env-changed=GoogleAPI");
-    println!("cargo:rerun-if-env-changed=GROQ_API_KEY");
-    println!("cargo:rerun-if-env-changed=OPENROUTER_API_KEY");
-    println!("cargo:rerun-if-env-changed=GEMINI_API_KEY_1");
-    println!("cargo:rerun-if-env-changed=GEMINI_API_KEY_2");
+    for (_, env_vars) in &keys {
+        for var in env_vars {
+            println!("cargo:rerun-if-env-changed={var}");
+        }
+    }
 
     let mut out = String::from("// Auto-generated key obfuscation - do not edit\n\n");
     let xor_key: &[u8] = &[0x5A, 0xA5, 0x3F, 0xC3, 0x7E, 0xBD, 0x12, 0x9B];
