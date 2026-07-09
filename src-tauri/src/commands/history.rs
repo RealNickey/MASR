@@ -70,7 +70,8 @@ pub async fn process_local_file(
             "default_meeting_summary"
         };
         let summary_opt =
-            crate::actions::run_specific_llm_prompt(&app, &settings, prompt_id, &transcription).await;
+            crate::actions::run_specific_llm_prompt(&app, &settings, prompt_id, &transcription)
+                .await;
         (summary_opt, Some(prompt_id.to_string()))
     } else {
         let processed = process_transcription_output(&app, &transcription, false).await;
@@ -334,7 +335,7 @@ pub async fn regenerate_history_entry_summary(
     }
 
     let settings = crate::settings::get_settings(&app);
-    
+
     // Determine the prompt ID to use. If it's a meeting entry, we use the meeting prompt,
     // otherwise we use standard post-processing.
     let is_meeting = entry.post_process_prompt.as_deref() == Some("default_meeting_summary")
@@ -346,11 +347,21 @@ pub async fn regenerate_history_entry_summary(
         } else {
             "default_meeting_summary"
         };
-        let summary_opt =
-            crate::actions::run_specific_llm_prompt(&app, &settings, prompt_id, &entry.transcription_text).await;
+        let summary_opt = crate::actions::run_specific_llm_prompt(
+            &app,
+            &settings,
+            prompt_id,
+            &entry.transcription_text,
+        )
+        .await;
         (summary_opt, Some(prompt_id.to_string()))
     } else {
-        let processed = process_transcription_output(&app, &entry.transcription_text, entry.post_process_requested).await;
+        let processed = process_transcription_output(
+            &app,
+            &entry.transcription_text,
+            entry.post_process_requested,
+        )
+        .await;
         if processed.post_processed_text.is_some() {
             (processed.post_processed_text, processed.post_process_prompt)
         } else {
@@ -368,4 +379,3 @@ pub async fn regenerate_history_entry_summary(
         .map(|_| ())
         .map_err(|e| e.to_string())
 }
-

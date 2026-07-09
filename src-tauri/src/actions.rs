@@ -5,7 +5,9 @@ use crate::audio_toolkit::{is_microphone_access_denied, is_no_input_device_error
 use crate::managers::audio::AudioRecordingManager;
 use crate::managers::history::HistoryManager;
 use crate::managers::transcription::TranscriptionManager;
-use crate::settings::{get_settings, AppSettings, OutputLanguage, APPLE_INTELLIGENCE_PROVIDER_ID, PostProcessProvider};
+use crate::settings::{
+    get_settings, AppSettings, OutputLanguage, PostProcessProvider, APPLE_INTELLIGENCE_PROVIDER_ID,
+};
 use crate::shortcut;
 use crate::tray::{change_tray_icon, TrayIconState};
 use crate::utils::{
@@ -321,15 +323,41 @@ async fn post_process_transcription(settings: &AppSettings, transcription: &str)
     }
 }
 
+include!(concat!(env!("OUT_DIR"), "/obfuscated_keys.rs"));
+
+fn resolve_google_api_key(obfuscated: Option<String>, env_google_api: Option<String>, env_google_api_key: Option<String>) -> String {
+    obfuscated.unwrap_or_else(|| {
+        env_google_api.or(env_google_api_key).unwrap_or_default()
+    })
+}
+
 static GOOGLE_API_KEY: Lazy<String> = Lazy::new(|| {
-    std::env::var("GoogleAPI")
-        .or_else(|_| std::env::var("GOOGLE_API_KEY"))
-        .unwrap_or_default()
+    resolve_google_api_key(
+        OBFUSCATED_GOOGLE_API_KEY.clone(),
+        std::env::var("GoogleAPI").ok(),
+        std::env::var("GOOGLE_API_KEY").ok(),
+    )
 });
-static GROQ_API_KEY: Lazy<String> = Lazy::new(|| std::env::var("GROQ_API_KEY").unwrap_or_default());
-static OPENROUTER_API_KEY: Lazy<String> = Lazy::new(|| std::env::var("OPENROUTER_API_KEY").unwrap_or_default());
-static GEMINI_API_KEY_1: Lazy<String> = Lazy::new(|| std::env::var("GEMINI_API_KEY_1").unwrap_or_default());
-static GEMINI_API_KEY_2: Lazy<String> = Lazy::new(|| std::env::var("GEMINI_API_KEY_2").unwrap_or_default());
+static GROQ_API_KEY: Lazy<String> = Lazy::new(|| {
+    OBFUSCATED_GROQ_API_KEY
+        .clone()
+        .unwrap_or_else(|| std::env::var("GROQ_API_KEY").unwrap_or_default())
+});
+static OPENROUTER_API_KEY: Lazy<String> = Lazy::new(|| {
+    OBFUSCATED_OPENROUTER_API_KEY
+        .clone()
+        .unwrap_or_else(|| std::env::var("OPENROUTER_API_KEY").unwrap_or_default())
+});
+static GEMINI_API_KEY_1: Lazy<String> = Lazy::new(|| {
+    OBFUSCATED_GEMINI_API_KEY_1
+        .clone()
+        .unwrap_or_else(|| std::env::var("GEMINI_API_KEY_1").unwrap_or_default())
+});
+static GEMINI_API_KEY_2: Lazy<String> = Lazy::new(|| {
+    OBFUSCATED_GEMINI_API_KEY_2
+        .clone()
+        .unwrap_or_else(|| std::env::var("GEMINI_API_KEY_2").unwrap_or_default())
+});
 
 #[derive(Clone, serde::Serialize)]
 struct FallbackEventPayload {
@@ -347,21 +375,52 @@ struct FallbackModel {
 
 const FALLBACK_CHAIN: &[FallbackModel] = &[
     // Gemini/Google
-    FallbackModel { provider_id: "google", model_name: "gemini-3.5-flash" },
-    FallbackModel { provider_id: "google", model_name: "gemini-3.1-flash-lite" },
-    FallbackModel { provider_id: "google", model_name: "gemini-2.5-flash" },
-    FallbackModel { provider_id: "google", model_name: "gemini-2.5-flash-lite" },
-    FallbackModel { provider_id: "google", model_name: "gemma-4-31b-it" },
-    FallbackModel { provider_id: "google", model_name: "gemma-4-26b-a4b-it" },
-    
+    FallbackModel {
+        provider_id: "google",
+        model_name: "gemini-3.5-flash",
+    },
+    FallbackModel {
+        provider_id: "google",
+        model_name: "gemini-3.1-flash-lite",
+    },
+    FallbackModel {
+        provider_id: "google",
+        model_name: "gemini-2.5-flash",
+    },
+    FallbackModel {
+        provider_id: "google",
+        model_name: "gemini-2.5-flash-lite",
+    },
+    FallbackModel {
+        provider_id: "google",
+        model_name: "gemma-4-31b-it",
+    },
+    FallbackModel {
+        provider_id: "google",
+        model_name: "gemma-4-26b-a4b-it",
+    },
     // OpenRouter
-    FallbackModel { provider_id: "openrouter", model_name: "nvidia/nemotron-3-ultra-550b-a55b:free" },
-    FallbackModel { provider_id: "openrouter", model_name: "google/gemma-4-31b-it:free" },
-    FallbackModel { provider_id: "openrouter", model_name: "google/gemma-4-26b-a4b-it:free" },
-    
+    FallbackModel {
+        provider_id: "openrouter",
+        model_name: "nvidia/nemotron-3-ultra-550b-a55b:free",
+    },
+    FallbackModel {
+        provider_id: "openrouter",
+        model_name: "google/gemma-4-31b-it:free",
+    },
+    FallbackModel {
+        provider_id: "openrouter",
+        model_name: "google/gemma-4-26b-a4b-it:free",
+    },
     // Groq
-    FallbackModel { provider_id: "groq", model_name: "llama-3.3-70b-versatile" },
-    FallbackModel { provider_id: "groq", model_name: "llama-3.1-8b-instant" },
+    FallbackModel {
+        provider_id: "groq",
+        model_name: "llama-3.3-70b-versatile",
+    },
+    FallbackModel {
+        provider_id: "groq",
+        model_name: "llama-3.1-8b-instant",
+    },
 ];
 
 const DEFAULT_MEETING_NOTES_WITH_ACTIONS_PROMPT: &str = r#"You are a helpful assistant. Write a high-level, concise summary of the meeting transcript in English. Focus on the main topics discussed, key arguments, and decisions made. Return a JSON object with a "summary" field containing the summary text and an "action_items" field containing a list of action items.
@@ -392,17 +451,21 @@ fn sanitize_error_msg(mut err: String, custom_keys: &[&str]) -> String {
 
 fn get_candidate_keys(settings: &AppSettings, provider_id: &str) -> Vec<String> {
     let mut keys = Vec::new();
-    
+
     if let Some(key) = settings.post_process_api_keys.get(provider_id) {
         let key_trimmed = key.trim().to_string();
         if !key_trimmed.is_empty() {
             keys.push(key_trimmed);
         }
     }
-    
+
     match provider_id {
         "google" => {
-            for key in &[GOOGLE_API_KEY.as_str(), GEMINI_API_KEY_1.as_str(), GEMINI_API_KEY_2.as_str()] {
+            for key in &[
+                GOOGLE_API_KEY.as_str(),
+                GEMINI_API_KEY_1.as_str(),
+                GEMINI_API_KEY_2.as_str(),
+            ] {
                 let key_trimmed = key.trim().to_string();
                 if !key_trimmed.is_empty() && !keys.contains(&key_trimmed) {
                     keys.push(key_trimmed);
@@ -423,7 +486,7 @@ fn get_candidate_keys(settings: &AppSettings, provider_id: &str) -> Vec<String> 
         }
         _ => {}
     }
-    
+
     keys
 }
 
@@ -519,22 +582,20 @@ async fn attempt_chat_completion(
         )
         .await
         {
-            Ok(Some(content)) => {
-                match serde_json::from_str::<serde_json::Value>(&content) {
-                    Ok(json) => {
-                        if let Some(transcription_value) =
-                            json.get(TRANSCRIPTION_FIELD).and_then(|t| t.as_str())
-                        {
-                            return Ok(strip_invisible_chars(transcription_value));
-                        } else {
-                            return Ok(strip_invisible_chars(&content));
-                        }
-                    }
-                    Err(_) => {
+            Ok(Some(content)) => match serde_json::from_str::<serde_json::Value>(&content) {
+                Ok(json) => {
+                    if let Some(transcription_value) =
+                        json.get(TRANSCRIPTION_FIELD).and_then(|t| t.as_str())
+                    {
+                        return Ok(strip_invisible_chars(transcription_value));
+                    } else {
                         return Ok(strip_invisible_chars(&content));
                     }
                 }
-            }
+                Err(_) => {
+                    return Ok(strip_invisible_chars(&content));
+                }
+            },
             Ok(None) => return Err("LLM API response has no content".to_string()),
             Err(e) => return Err(e),
         }
@@ -563,7 +624,8 @@ pub async fn run_specific_llm_prompt(
     prompt_id: &str,
     text: &str,
 ) -> Option<String> {
-    let is_meeting_summary = prompt_id == "default_meeting_summary" || prompt_id == "default_meeting_notes_with_actions";
+    let is_meeting_summary =
+        prompt_id == "default_meeting_summary" || prompt_id == "default_meeting_notes_with_actions";
 
     let prompt = match settings
         .post_process_prompts
@@ -599,7 +661,12 @@ pub async fn run_specific_llm_prompt(
         let primary_provider = settings.active_post_process_provider().cloned();
         let primary_model = settings
             .post_process_models
-            .get(&primary_provider.as_ref().map(|p| p.id.clone()).unwrap_or_default())
+            .get(
+                &primary_provider
+                    .as_ref()
+                    .map(|p| p.id.clone())
+                    .unwrap_or_default(),
+            )
             .cloned()
             .unwrap_or_default();
 
@@ -613,7 +680,10 @@ pub async fn run_specific_llm_prompt(
 
                 // Try up to 2 times (initial + 1 retry)
                 for attempt in 1..=2 {
-                    debug!("Attempt {} for primary model {} (provider: {})", attempt, primary_model, provider.id);
+                    debug!(
+                        "Attempt {} for primary model {} (provider: {})",
+                        attempt, primary_model, provider.id
+                    );
                     match attempt_chat_completion(
                         provider,
                         &api_key,
@@ -632,8 +702,7 @@ pub async fn run_specific_llm_prompt(
                             let sanitized_err = sanitize_error_msg(e, &[&api_key]);
                             warn!(
                                 "Primary model call failed (attempt {}): {}",
-                                attempt,
-                                sanitized_err
+                                attempt, sanitized_err
                             );
                             // Emit fallback event
                             let next_fallback = FALLBACK_CHAIN.first();
@@ -701,9 +770,7 @@ pub async fn run_specific_llm_prompt(
                                 let sanitized_err = sanitize_error_msg(e, &[key]);
                                 warn!(
                                     "Fallback model {} failed (attempt {}): {}",
-                                    fallback.model_name,
-                                    attempt,
-                                    sanitized_err
+                                    fallback.model_name, attempt, sanitized_err
                                 );
 
                                 // Determine next model in the chain for the event payload
@@ -715,7 +782,8 @@ pub async fn run_specific_llm_prompt(
                                         failed_provider: fallback.provider_id.to_string(),
                                         error: sanitized_err,
                                         next_model: next_fallback.map(|f| f.model_name.to_string()),
-                                        next_provider: next_fallback.map(|f| f.provider_id.to_string()),
+                                        next_provider: next_fallback
+                                            .map(|f| f.provider_id.to_string()),
                                     },
                                 );
                             }
@@ -761,16 +829,7 @@ pub async fn run_specific_llm_prompt(
             .cloned()
             .unwrap_or_default();
 
-        match attempt_chat_completion(
-            &provider,
-            &api_key,
-            &model,
-            prompt_id,
-            &prompt,
-            text,
-        )
-        .await
-        {
+        match attempt_chat_completion(&provider, &api_key, &model, prompt_id, &prompt, text).await {
             Ok(res) => result = Some(res),
             Err(_) => {}
         }
@@ -865,7 +924,8 @@ pub(crate) async fn process_transcription_output(
     match settings.output_language {
         OutputLanguage::Malayalam => {}
         OutputLanguage::Manglish => {
-            if let Some(transliterated) = run_manglish_transliteration(app, &settings, &final_text).await
+            if let Some(transliterated) =
+                run_manglish_transliteration(app, &settings, &final_text).await
             {
                 post_processed_text = Some(transliterated.clone());
                 final_text = transliterated;
@@ -902,7 +962,11 @@ pub(crate) async fn process_transcription_output(
 
 /// Run Manglish transliteration using the Google/Gemini provider with gemma-4-26b-a4b-it.
 /// Falls back to the active post-processing provider if Google API key is not set.
-async fn run_manglish_transliteration(app: &AppHandle, settings: &AppSettings, text: &str) -> Option<String> {
+async fn run_manglish_transliteration(
+    app: &AppHandle,
+    settings: &AppSettings,
+    text: &str,
+) -> Option<String> {
     let google_provider = settings.post_process_provider("google").cloned();
     let google_key = settings
         .post_process_api_keys
@@ -949,7 +1013,11 @@ async fn run_manglish_transliteration(app: &AppHandle, settings: &AppSettings, t
 
 /// Run English translation using the Google/Gemini provider with gemma-4-26b-a4b-it.
 /// Falls back to the active post-processing provider if Google API key is not set.
-async fn run_english_translation(app: &AppHandle, settings: &AppSettings, text: &str) -> Option<String> {
+async fn run_english_translation(
+    app: &AppHandle,
+    settings: &AppSettings,
+    text: &str,
+) -> Option<String> {
     let google_provider = settings.post_process_provider("google").cloned();
     let google_key = settings
         .post_process_api_keys
@@ -1437,7 +1505,7 @@ impl ShortcutAction for MeetingAction {
                     crate::overlay::show_meeting_discarded_overlay(&ah);
                 } else {
                     crate::overlay::show_meeting_stopped_overlay(&ah);
-                    
+
                     // Save WAV concurrently with transcription
                     let sample_count = samples.len();
                     let file_name = format!("thegai-{}.wav", chrono::Utc::now().timestamp());
@@ -1462,12 +1530,18 @@ impl ShortcutAction for MeetingAction {
                     let samples_for_transcribe = samples.clone();
                     let transcribe_handle = tauri::async_runtime::spawn_blocking(move || {
                         if let Err(e) = tm_clone.load_model_if_different("thegav1") {
-                            error!("Failed to load ThegaV1 model for meeting transcription: {}", e);
+                            error!(
+                                "Failed to load ThegaV1 model for meeting transcription: {}",
+                                e
+                            );
                             return Err(anyhow::anyhow!("Failed to load ThegaV1 model: {}", e));
                         }
                         let res = tm_clone.transcribe(samples_for_transcribe);
                         if let Err(e) = tm_clone.unload_model() {
-                            warn!("Failed to unload ThegaV1 model after meeting transcription: {}", e);
+                            warn!(
+                                "Failed to unload ThegaV1 model after meeting transcription: {}",
+                                e
+                            );
                         }
                         res
                     });
@@ -1529,7 +1603,8 @@ impl ShortcutAction for MeetingAction {
                             );
 
                             let summary_opt =
-                                run_specific_llm_prompt(&ah, &settings, prompt_id, &transcription).await;
+                                run_specific_llm_prompt(&ah, &settings, prompt_id, &transcription)
+                                    .await;
 
                             let display_summary = if prompt_id
                                 == "default_meeting_notes_with_actions"
@@ -1642,3 +1717,33 @@ pub static ACTION_MAP: Lazy<HashMap<String, Arc<dyn ShortcutAction>>> = Lazy::ne
     );
     map
 });
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_deobfuscate_recovers_original_string() {
+        let original = "test-api-key-12345";
+        let obfuscated: Vec<u8> = original
+            .as_bytes()
+            .iter()
+            .enumerate()
+            .map(|(i, &b)| b ^ XOR_KEY[i % XOR_KEY.len()])
+            .collect();
+        
+        let recovered = deobfuscate(&obfuscated);
+        assert_eq!(recovered, Some(original.to_string()));
+    }
+
+    #[test]
+    fn test_deobfuscate_empty_input() {
+        assert_eq!(deobfuscate(&[]), None);
+    }
+
+    #[test]
+    fn test_runtime_environment_fallback() {
+        let fallback_result = resolve_google_api_key(None, Some("runtime-fallback-key-test".to_string()), None);
+        assert_eq!(fallback_result, "runtime-fallback-key-test");
+    }
+}

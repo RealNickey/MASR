@@ -156,7 +156,10 @@ pub fn switch_active_model(app: &AppHandle, model_id: &str) -> Result<(), String
 
 #[tauri::command]
 #[specta::specta]
-pub fn change_selected_model_setting(app_handle: AppHandle, model_id: String) -> Result<(), String> {
+pub fn change_selected_model_setting(
+    app_handle: AppHandle,
+    model_id: String,
+) -> Result<(), String> {
     let mut settings = get_settings(&app_handle);
     settings.selected_model = model_id;
     write_settings(&app_handle, settings);

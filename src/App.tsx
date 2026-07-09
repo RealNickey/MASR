@@ -20,6 +20,7 @@ import { useSettingsStore } from "./stores/settingsStore";
 import { commands } from "@/bindings";
 import { getLanguageDirection, initializeRTL } from "@/lib/utils/rtl";
 import { GlobalUpdatePrompt } from "@/components/update-checker/GlobalUpdatePrompt";
+import { isProductionLike } from "@/utils/isProductionLike";
 
 type OnboardingStep = "accessibility" | "language" | "done";
 
@@ -57,10 +58,7 @@ function App() {
   const hasCompletedPostOnboardingInit = useRef(false);
 
   const [simulateProd, setSimulateProd] = useState<boolean>(() => {
-    if (import.meta.env.DEV) {
-      return localStorage.getItem("thegai_dev_simulate_prod") === "true";
-    }
-    return false;
+    return isProductionLike();
   });
 
   const handleToggleSimulateProd = () => {
@@ -73,8 +71,7 @@ function App() {
 
   // Automatically redirect to general if a hidden section becomes active in prod mode
   useEffect(() => {
-    const isRealProd = !import.meta.env.DEV;
-    const isSimulatingOrRealProd = isRealProd || simulateProd;
+    const isSimulatingOrRealProd = isProductionLike();
     const hiddenSections = ["models", "history", "meetings", "postprocessing"];
     if (isSimulatingOrRealProd && hiddenSections.includes(currentSection)) {
       setCurrentSection("general");
@@ -176,21 +173,26 @@ function App() {
   useEffect(() => {
     const unlisten = listen<ModelStateEvent>("model-state-changed", (event) => {
       if (event.payload.event_type === "loading_failed") {
-        toast.error(
-          t("errors.modelLoadFailed", {
-            model:
-              event.payload.model_name || t("errors.modelLoadFailedUnknown"),
-          }),
-          {
-            description: event.payload.error,
-          },
-        );
+        const isSimulatingOrRealProd = isProductionLike();
+        if (isSimulatingOrRealProd) {
+          toast.error(t("errors.modelLoadFailedGeneric"));
+        } else {
+          toast.error(
+            t("errors.modelLoadFailed", {
+              model:
+                event.payload.model_name || t("errors.modelLoadFailedUnknown"),
+            }),
+            {
+              description: event.payload.error,
+            },
+          );
+        }
       }
     });
     return () => {
       unlisten.then((fn) => fn());
     };
-  }, [t]);
+  }, [t, simulateProd]);
 
   // Listen for meeting-summary events to navigate to the Meetings tab
   useEffect(() => {

@@ -392,7 +392,10 @@ impl TranscriptionManager {
                 }
                 #[cfg(not(target_os = "windows"))]
                 {
-                    let error_msg = format!("Malayalam ASR model {} is not supported on this operating system.", model_id);
+                    let error_msg = format!(
+                        "Malayalam ASR model {} is not supported on this operating system.",
+                        model_id
+                    );
                     emit_loading_failed(&error_msg);
                     return Err(anyhow::anyhow!(error_msg));
                 }
@@ -442,18 +445,23 @@ impl TranscriptionManager {
         self.load_model(model_id)
     }
 
-    /// Kicks off the model loading in a background thread if it's not already loaded
+    /// Kicks off the model loading in a background thread if the selected model is not already active.
     pub fn initiate_model_load(&self) {
+        let settings = get_settings(&self.app_handle);
+        let selected_model = settings.selected_model;
+        if !should_reload_for_selected_model(self.get_current_model().as_deref(), &selected_model) {
+            return;
+        }
+
         let mut is_loading = self.is_loading.lock().unwrap();
-        if *is_loading || self.is_model_loaded() {
+        if *is_loading {
             return;
         }
 
         *is_loading = true;
         let self_clone = self.clone();
         thread::spawn(move || {
-            let settings = get_settings(&self_clone.app_handle);
-            if let Err(e) = self_clone.load_model(&settings.selected_model) {
+            if let Err(e) = self_clone.load_model_if_different(&selected_model) {
                 error!("Failed to load model: {}", e);
             }
             let mut is_loading = self_clone.is_loading.lock().unwrap();
@@ -667,7 +675,7 @@ impl TranscriptionManager {
                             .map(|text| transcribe_rs::TranscriptionResult {
                                 text,
                                 segments: Some(Vec::new()),
-                             })
+                            })
                             .map_err(|e| {
                                 anyhow::anyhow!("Malayalam ASR transcription failed: {}", e)
                             }),
@@ -773,6 +781,36 @@ impl TranscriptionManager {
         self.maybe_unload_immediately("transcription");
 
         Ok(final_result)
+    }
+}
+
+fn should_reload_for_selected_model(current_model_id: Option<&str>, selected_model: &str) -> bool {
+    !selected_model.is_empty() && current_model_id != Some(selected_model)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::should_reload_for_selected_model;
+
+    #[test]
+    fn reloads_when_selected_model_differs_from_loaded_model() {
+        assert!(should_reload_for_selected_model(
+            Some("thegav1"),
+            "parakeet-tdt-0.6b-v3"
+        ));
+    }
+
+    #[test]
+    fn does_not_reload_when_selected_model_is_already_loaded() {
+        assert!(!should_reload_for_selected_model(
+            Some("parakeet-tdt-0.6b-v3"),
+            "parakeet-tdt-0.6b-v3"
+        ));
+    }
+
+    #[test]
+    fn does_not_reload_when_no_model_is_selected() {
+        assert!(!should_reload_for_selected_model(Some("thegav1"), ""));
     }
 }
 
