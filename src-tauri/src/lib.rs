@@ -204,37 +204,40 @@ fn initialize_core_logic(app_handle: &AppHandle) {
 
         let default_models = vec!["thegav1", "parakeet-tdt-0.6b-v3"];
         for model_id in default_models {
-            loop {
-                // Check if model is already downloaded or actively downloading.
-                let is_downloaded = {
-                    let models = mm.get_available_models();
-                    models
-                        .iter()
-                        .any(|m| m.id == model_id && (m.is_downloaded || m.is_downloading))
-                };
+            let mm_clone = mm.clone();
+            tauri::async_runtime::spawn(async move {
+                loop {
+                    // Check if model is already downloaded or actively downloading.
+                    let is_downloaded = {
+                        let models = mm_clone.get_available_models();
+                        models
+                            .iter()
+                            .any(|m| m.id == model_id && (m.is_downloaded || m.is_downloading))
+                    };
 
-                if is_downloaded {
-                    log::info!("Model {} is already present or downloading", model_id);
-                    break;
-                }
-
-                log::info!("Starting background auto-download of model {}", model_id);
-                // download_model handles resumption automatically if a partial file exists.
-                match mm.download_model(model_id).await {
-                    Ok(_) => {
-                        log::info!("Successfully downloaded model {}", model_id);
+                    if is_downloaded {
+                        log::info!("Model {} is already present or downloading", model_id);
                         break;
                     }
-                    Err(e) => {
-                        log::error!(
-                            "Failed to download model {}, retrying in 5 seconds: {}",
-                            model_id,
-                            e
-                        );
-                        tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+
+                    log::info!("Starting background auto-download of model {}", model_id);
+                    // download_model handles resumption automatically if a partial file exists.
+                    match mm_clone.download_model(model_id).await {
+                        Ok(_) => {
+                            log::info!("Successfully downloaded model {}", model_id);
+                            break;
+                        }
+                        Err(e) => {
+                            log::error!(
+                                "Failed to download model {}, retrying in 5 seconds: {}",
+                                model_id,
+                                e
+                            );
+                            tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+                        }
                     }
                 }
-            }
+            });
         }
     });
 
