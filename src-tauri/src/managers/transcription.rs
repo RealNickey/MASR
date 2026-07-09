@@ -537,10 +537,13 @@ impl TranscriptionManager {
                         error!("Failed waiting for model download: {}", e);
                         return;
                     }
-                    // Re-acquire loading lock and run load_model
-                    if let Some(_guard) = self_clone.try_start_loading() {
-                        if let Err(e) = self_clone.load_model(&selected_model) {
-                            error!("Failed to load model after download: {}", e);
+                    // Re-acquire loading lock and run load_model only if this model is still selected
+                    let current_settings = get_settings(&self_clone.app_handle);
+                    if current_settings.selected_model == selected_model {
+                        if let Some(_guard) = self_clone.try_start_loading() {
+                            if let Err(e) = self_clone.load_model(&selected_model) {
+                                error!("Failed to load model after download: {}", e);
+                            }
                         }
                     }
                 }
