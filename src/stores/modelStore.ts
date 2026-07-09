@@ -350,7 +350,12 @@ export const useModelStore = create<ModelsStore>()(
               state.error = error;
             }),
           );
-          toast.error(error);
+          const isSimulatingOrRealProd = !import.meta.env.DEV || localStorage.getItem("thegai_dev_simulate_prod") === "true";
+          if (isSimulatingOrRealProd) {
+            toast.error("Failed to download required application files. Please check your internet connection.");
+          } else {
+            toast.error(error);
+          }
         },
       );
 

@@ -1,0 +1,7 @@
+# cargo-audit configuration file
+
+[advisories]
+ignore = [
+    "RUSTSEC-2026-0194", # Quadratic run time in quick-xml (vulnerable version is build-time/local-only dependency wayland-scanner)
+    "RUSTSEC-2026-0195", # Memory exhaustion DoS in quick-xml (vulnerable version is build-time/local-only dependency wayland-scanner)
+]

@@ -414,7 +414,7 @@
         },
         "appleIntelligence": {
           "title": "Apple Intelligence",
-          "description": "Runs fully on-device. No API key or network access is required.",
+          "description": "Integrated helper service. No API key is required.",
           "requirements": "Requires an Apple Silicon Mac running macOS Tahoe (26.0) or later. Apple Intelligence must be enabled in System Settings.",
           "unavailable": "Apple Intelligence is not available on this device. Requires an Apple Silicon Mac running macOS Tahoe (26.0) or later with Apple Intelligence enabled in System Settings."
         },
@@ -556,7 +556,7 @@
       "transcriptTab": "Transcript",
       "assistant": {
         "localToggle": "Meeting Assistant",
-        "localDescription": "Detect active meeting windows locally and show a prompt to start meeting mode.",
+        "localDescription": "Detect active meeting windows and show a prompt to start meeting mode.",
         "calendarToggle": "Calendar Prompts",
         "calendarDescription": "Prompt five minutes before a Google Calendar meeting with conference details.",
         "leadTitle": "Prompt Lead Time",
@@ -566,7 +566,7 @@
         "calendarConnected": "Connected for meeting reminders",
         "calendarDisconnected": "Connect Google Calendar for meeting reminders",
         "calendarSource": "Google Calendar",
-        "localSource": "local detection",
+        "localSource": "system detection",
         "promptBody": "Start meeting mode for this {{source}} prompt.",
         "openMeeting": "Open Meeting",
         "dismiss": "Dismiss",
@@ -684,7 +684,7 @@
         "whisper": {
           "title": "Whisper.cpp",
           "description": "High-performance inference of OpenAI's Whisper automatic speech recognition model",
-          "details": "ThegAi uses Whisper.cpp for fast, local speech-to-text processing. Thanks to the amazing work by Georgi Gerganov and contributors."
+          "details": "ThegAi uses high-performance inference libraries. Thanks to the open-source community."
         }
       }
     }
@@ -755,6 +755,7 @@
     "recordingFailed": "Failed to start recording: {{error}}",
     "modelLoadFailed": "Failed to load model: {{model}}",
     "modelLoadFailedUnknown": "unknown model",
+    "modelLoadFailedGeneric": "Failed to process audio. Please restart the app.",
     "pasteFailedTitle": "Failed to Paste Text",
     "pasteFailed": "Text could not be pasted into the active application.",
     "askFailed": "Failed to get an answer from the AI. Please check your connection and LLM settings."

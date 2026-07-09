@@ -1,9 +1,10 @@
 [package]
 name = "thegai"
-version = "0.8.3"
+version = "0.0.1"
 description = "ThegAi"
 authors = ["Aswin Jimson"]
 edition = "2021"
+publish = false
 license = "Proprietary"
 default-run = "thegai"
 
@@ -23,9 +24,9 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 # name = "cli"
 # path = "src/audio_toolkit/bin/cli.rs"
 
-[[bin]]
-name = "benchmark"
-path = "src/bin/benchmark.rs"
+# [[bin]]
+# name = "benchmark"
+# path = "src/bin/benchmark.rs"
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
@@ -72,7 +73,7 @@ natural = "0.5.0"
 regex = "1"
 chrono = "0.4"
 rusqlite = { version = "0.37", features = ["bundled"] }
-tar = "0.4.44"
+tar = "0.4.45"
 flate2 = "1.0"
 sha2 = "0.10"
 base64 = "0.22"

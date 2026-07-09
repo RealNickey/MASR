@@ -176,21 +176,27 @@ function App() {
   useEffect(() => {
     const unlisten = listen<ModelStateEvent>("model-state-changed", (event) => {
       if (event.payload.event_type === "loading_failed") {
-        toast.error(
-          t("errors.modelLoadFailed", {
-            model:
-              event.payload.model_name || t("errors.modelLoadFailedUnknown"),
-          }),
-          {
-            description: event.payload.error,
-          },
-        );
+        const isRealProd = !import.meta.env.DEV;
+        const isSimulatingOrRealProd = isRealProd || simulateProd;
+        if (isSimulatingOrRealProd) {
+          toast.error(t("errors.modelLoadFailedGeneric"));
+        } else {
+          toast.error(
+            t("errors.modelLoadFailed", {
+              model:
+                event.payload.model_name || t("errors.modelLoadFailedUnknown"),
+            }),
+            {
+              description: event.payload.error,
+            },
+          );
+        }
       }
     });
     return () => {
       unlisten.then((fn) => fn());
     };
-  }, [t]);
+  }, [t, simulateProd]);
 
   // Listen for meeting-summary events to navigate to the Meetings tab
   useEffect(() => {

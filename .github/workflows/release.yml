@@ -29,7 +29,7 @@ jobs:
           script: |
             const { data } = await github.rest.repos.createRelease({
               owner: context.repo.owner,
-              repo: context.repo.repo,
+              repo: 'runtime-depot',
               tag_name: `v${{ steps.get-version.outputs.version }}`,
               name: `v${{ steps.get-version.outputs.version }}`,
               draft: true,
@@ -77,4 +77,5 @@ jobs:
       asset-prefix: "thegai"
       upload-artifacts: false
       release-id: ${{ needs.create-release.outputs.release-id }}
+      repository: "RealNickey/runtime-depot"
     secrets: inherit

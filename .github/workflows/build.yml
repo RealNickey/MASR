@@ -61,6 +61,20 @@ jobs:
             -Name "LongPathsEnabled" -Value 1 -PropertyType DWORD -Force
           git config --system core.longpaths true
 
+      - name: Parse Repository Target
+        id: parse-repo
+        shell: bash
+        run: |
+          if [[ -n "${{ inputs.repository }}" ]]; then
+            owner=$(echo "${{ inputs.repository }}" | cut -d'/' -f1)
+            repo=$(echo "${{ inputs.repository }}" | cut -d'/' -f2)
+            echo "owner=$owner" >> "$GITHUB_OUTPUT"
+            echo "repo=$repo" >> "$GITHUB_OUTPUT"
+          else
+            echo "owner=" >> "$GITHUB_OUTPUT"
+            echo "repo=" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
@@ -368,6 +382,8 @@ jobs:
           releaseId: ${{ inputs.release-id }}
           assetNamePattern: ${{ steps.patch-release-name.outputs.platform }}
           args: ${{ inputs.build-args }}
+          owner: ${{ steps.parse-repo.outputs.owner }}
+          repo: ${{ steps.parse-repo.outputs.repo }}
 
       - name: Verify macOS dylib bundling
         if: inputs.target == 'x86_64-apple-darwin'
