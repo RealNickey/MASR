@@ -1,5 +1,4 @@
 import React from "react";
-import { useTranslation } from "react-i18next";
 import type { ModelInfo } from "@/bindings";
 import {
   getTranslatedModelName,
@@ -17,7 +16,6 @@ const ModelDropdown: React.FC<ModelDropdownProps> = ({
   currentModelId,
   onModelSelect,
 }) => {
-  const { t } = useTranslation();
   const downloadedModels = models.filter((m) => m.is_downloaded);
 
   const handleModelClick = (modelId: string) => {
@@ -49,20 +47,20 @@ const ModelDropdown: React.FC<ModelDropdownProps> = ({
               <div className="flex items-center justify-between">
                 <div>
                   <div className="text-sm text-text/80">
-                    {getTranslatedModelName(model, t)}
+                    {getTranslatedModelName(model)}
                     {model.is_custom && (
                       <span className="ms-1.5 text-[10px] font-medium text-text/40 uppercase">
-                        {t("modelSelector.custom")}
+                        {"Custom"}
                       </span>
                     )}
                   </div>
                   <div className="text-xs text-text/40 italic pe-4">
-                    {getTranslatedModelDescription(model, t)}
+                    {getTranslatedModelDescription(model)}
                   </div>
                 </div>
                 {currentModelId === model.id && (
                   <div className="text-xs text-logo-primary">
-                    {t("modelSelector.active")}
+                    {"Active"}
                   </div>
                 )}
               </div>
@@ -71,7 +69,7 @@ const ModelDropdown: React.FC<ModelDropdownProps> = ({
         </div>
       ) : (
         <div className="px-3 py-2 text-sm text-text/60">
-          {t("modelSelector.noModelsAvailable")}
+          {"No models available"}
         </div>
       )}
     </div>

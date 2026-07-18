@@ -1,5 +1,4 @@
 import React from "react";
-import { useTranslation } from "react-i18next";
 import { useSettings } from "../../hooks/useSettings";
 import { Input } from "../ui/Input";
 import { SettingContainer } from "../ui/SettingContainer";
@@ -13,7 +12,6 @@ export const HistoryLimit: React.FC<HistoryLimitProps> = ({
   descriptionMode = "inline",
   grouped = false,
 }) => {
-  const { t } = useTranslation();
   const { getSetting, updateSetting, isUpdating } = useSettings();
 
   const historyLimit = getSetting("history_limit") ?? 5;
@@ -27,8 +25,8 @@ export const HistoryLimit: React.FC<HistoryLimitProps> = ({
 
   return (
     <SettingContainer
-      title={t("settings.debug.historyLimit.title")}
-      description={t("settings.debug.historyLimit.description")}
+      title={"History Limit"}
+      description={"Maximum number of history entries to keep"}
       descriptionMode={descriptionMode}
       grouped={grouped}
       layout="horizontal"
@@ -44,7 +42,7 @@ export const HistoryLimit: React.FC<HistoryLimitProps> = ({
           className="w-20"
         />
         <span className="text-sm text-text">
-          {t("settings.debug.historyLimit.entries")}
+          {"entries"}
         </span>
       </div>
     </SettingContainer>

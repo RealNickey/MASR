@@ -1,5 +1,4 @@
 import React, { useEffect, useState } from "react";
-import { Trans, useTranslation } from "react-i18next";
 import { RefreshCcw } from "lucide-react";
 import { commands } from "@/bindings";
 
@@ -22,7 +21,6 @@ import { usePostProcessProviderState } from "../PostProcessingSettingsApi/usePos
 import { useSettings } from "../../../hooks/useSettings";
 
 const PostProcessingSettingsApiComponent: React.FC = () => {
-  const { t } = useTranslation();
   const state = usePostProcessProviderState();
   const [testResult, setTestResult] = useState<{
     status: "success" | "error";
@@ -41,12 +39,12 @@ const PostProcessingSettingsApiComponent: React.FC = () => {
       if (result.status === "ok") {
         setTestResult({
           status: "success",
-          message: t("settings.postProcessing.api.testSuccess"),
+          message: "Connection successful!",
         });
       } else {
         setTestResult({
           status: "error",
-          message: result.error || t("settings.postProcessing.api.testFailed"),
+          message: result.error || "Connection failed",
         });
       }
     } catch (e: any) {
@@ -55,7 +53,7 @@ const PostProcessingSettingsApiComponent: React.FC = () => {
         message:
           e?.message ||
           String(e) ||
-          t("settings.postProcessing.api.testFailed"),
+          "Connection failed",
       });
     } finally {
       setIsTesting(false);
@@ -110,8 +108,8 @@ const PostProcessingSettingsApiComponent: React.FC = () => {
   return (
     <>
       <SettingContainer
-        title={t("settings.postProcessing.api.provider.title")}
-        description={t("settings.postProcessing.api.provider.description")}
+        title={"Provider"}
+        description={"Select an OpenAI-compatible provider."}
         descriptionMode="tooltip"
         layout="horizontal"
         grouped={true}
@@ -128,15 +126,15 @@ const PostProcessingSettingsApiComponent: React.FC = () => {
       {state.isAppleProvider ? (
         state.appleIntelligenceUnavailable ? (
           <Alert variant="error" contained>
-            {t("settings.postProcessing.api.appleIntelligence.unavailable")}
+            {"Apple Intelligence is not available on this device. Requires an Apple Silicon Mac running macOS Tahoe (26.0) or later with Apple Intelligence enabled in System Settings."}
           </Alert>
         ) : null
       ) : (
         <>
           {state.selectedProvider?.allow_base_url_edit && (
             <SettingContainer
-              title={t("settings.postProcessing.api.baseUrl.title")}
-              description={t("settings.postProcessing.api.baseUrl.description")}
+              title={"Base URL"}
+              description={"API base URL for the selected provider. Only custom and Ollama providers can be edited."}
               descriptionMode="tooltip"
               layout="horizontal"
               grouped={true}
@@ -145,9 +143,7 @@ const PostProcessingSettingsApiComponent: React.FC = () => {
                 <BaseUrlField
                   value={state.baseUrl}
                   onBlur={state.handleBaseUrlChange}
-                  placeholder={t(
-                    "settings.postProcessing.api.baseUrl.placeholder",
-                  )}
+                  placeholder={"https://api.openai.com/v1"}
                   disabled={state.isBaseUrlUpdating}
                   className="min-w-[380px]"
                 />
@@ -157,10 +153,8 @@ const PostProcessingSettingsApiComponent: React.FC = () => {
 
           {state.isOllamaProvider && (
             <SettingContainer
-              title={t("settings.postProcessing.api.ollama.statusTitle")}
-              description={t(
-                "settings.postProcessing.api.ollama.statusDescription",
-              )}
+              title={"Ollama Status"}
+              description={"Connection status and model count for your local Ollama instance."}
               descriptionMode="tooltip"
               layout="horizontal"
               grouped={true}
@@ -169,22 +163,22 @@ const PostProcessingSettingsApiComponent: React.FC = () => {
                 <div className="flex items-center gap-2">
                   <div className="flex items-center gap-2 min-w-[320px]">
                     <span className="text-sm text-neutral-400">
-                      {t("settings.postProcessing.api.ollama.connectionStatus")}
+                      {"Connection"}
                       :
                     </span>
                     {isCheckingOllama ? (
                       <span className="text-sm font-medium text-blue-400 animate-pulse">
-                        {t("settings.postProcessing.api.ollama.checking")}
+                        {"Checking..."}
                       </span>
                     ) : ollamaStatus?.connected ? (
                       <span className="text-sm font-medium text-emerald-500 flex items-center gap-1.5">
                         <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
-                        {t("settings.postProcessing.api.ollama.connected")}
+                        {"Connected"}
                       </span>
                     ) : (
                       <span className="text-sm font-medium text-rose-500 flex items-center gap-1.5">
                         <span className="w-2.5 h-2.5 rounded-full bg-rose-500" />
-                        {t("settings.postProcessing.api.ollama.disconnected")}
+                        {"Disconnected"}
                       </span>
                     )}
                   </div>
@@ -203,15 +197,12 @@ const PostProcessingSettingsApiComponent: React.FC = () => {
                   <div className="mt-1">
                     {ollamaStatus.connected ? (
                       <Alert variant="success" contained>
-                        {t(
-                          "settings.postProcessing.api.ollama.successMessage",
-                          { count: ollamaStatus.modelCount },
-                        )}
+                        {`Successfully connected to Ollama! Found ${(ollamaStatus.modelCount)} available models.`}
                       </Alert>
                     ) : (
                       <Alert variant="error" contained>
                         {ollamaStatus.error ||
-                          t("settings.postProcessing.api.ollama.errorMessage")}
+                          "Failed to connect to Ollama. Make sure Ollama is running locally."}
                       </Alert>
                     )}
                   </div>
@@ -222,8 +213,8 @@ const PostProcessingSettingsApiComponent: React.FC = () => {
 
           {!state.isOllamaProvider && (
             <SettingContainer
-              title={t("settings.postProcessing.api.apiKey.title")}
-              description={t("settings.postProcessing.api.apiKey.description")}
+              title={"API Key"}
+              description={"API key for the selected provider."}
               descriptionMode="tooltip"
               layout="horizontal"
               grouped={true}
@@ -233,9 +224,7 @@ const PostProcessingSettingsApiComponent: React.FC = () => {
                   <ApiKeyField
                     value={state.apiKey}
                     onBlur={state.handleApiKeyChange}
-                    placeholder={t(
-                      "settings.postProcessing.api.apiKey.placeholder",
-                    )}
+                    placeholder={"sk-..."}
                     disabled={state.isApiKeyUpdating}
                     className="min-w-[320px]"
                   />
@@ -245,9 +234,7 @@ const PostProcessingSettingsApiComponent: React.FC = () => {
                     variant="secondary"
                     size="md"
                   >
-                    {isTesting
-                      ? t("settings.postProcessing.api.testing") || "Testing..."
-                      : t("settings.postProcessing.api.testButton")}
+                    {isTesting ? "Testing..." : "Test Connection"}
                   </Button>
                 </div>
                 {testResult && (
@@ -265,13 +252,13 @@ const PostProcessingSettingsApiComponent: React.FC = () => {
 
       {!state.isAppleProvider && (
         <SettingContainer
-          title={t("settings.postProcessing.api.model.title")}
+          title={"Model"}
           description={
             state.isCustomProvider
-              ? t("settings.postProcessing.api.model.descriptionCustom")
+              ? "Provide the model identifier expected by your custom endpoint."
               : state.isOllamaProvider
-                ? t("settings.postProcessing.api.model.descriptionOllama")
-                : t("settings.postProcessing.api.model.descriptionDefault")
+                ? "Choose a local Ollama model from the auto-detected list."
+                : "Choose a model exposed by the selected provider."
           }
           descriptionMode="tooltip"
           layout="stacked"
@@ -285,10 +272,8 @@ const PostProcessingSettingsApiComponent: React.FC = () => {
               isLoading={state.isFetchingModels}
               placeholder={
                 state.modelOptions.length > 0
-                  ? t(
-                      "settings.postProcessing.api.model.placeholderWithOptions",
-                    )
-                  : t("settings.postProcessing.api.model.placeholderNoOptions")
+                  ? "Search or select a model"
+                  : "Type a model name"
               }
               onSelect={state.handleModelSelect}
               onCreate={state.handleModelCreate}
@@ -298,7 +283,7 @@ const PostProcessingSettingsApiComponent: React.FC = () => {
             <ResetButton
               onClick={state.handleRefreshModels}
               disabled={state.isFetchingModels}
-              ariaLabel={t("settings.postProcessing.api.model.refreshModels")}
+              ariaLabel={"Refresh models"}
               className="flex h-10 w-10 items-center justify-center"
             >
               <RefreshCcw
@@ -313,7 +298,6 @@ const PostProcessingSettingsApiComponent: React.FC = () => {
 };
 
 const PostProcessingSettingsPromptsComponent: React.FC = () => {
-  const { t } = useTranslation();
   const { getSetting, updateSetting, isUpdating, refreshSettings } =
     useSettings();
   const [isCreating, setIsCreating] = useState(false);
@@ -418,10 +402,8 @@ const PostProcessingSettingsPromptsComponent: React.FC = () => {
 
   return (
     <SettingContainer
-      title={t("settings.postProcessing.prompts.selectedPrompt.title")}
-      description={t(
-        "settings.postProcessing.prompts.selectedPrompt.description",
-      )}
+      title={"Selected Prompt"}
+      description="Select a template for refining transcriptions or create a new one. Use {{transcript}} inside the prompt text to reference the captured transcript."
       descriptionMode="tooltip"
       layout="stacked"
       grouped={true}
@@ -437,8 +419,8 @@ const PostProcessingSettingsPromptsComponent: React.FC = () => {
             onSelect={(value) => handlePromptSelect(value)}
             placeholder={
               prompts.length === 0
-                ? t("settings.postProcessing.prompts.noPrompts")
-                : t("settings.postProcessing.prompts.selectPrompt")
+                ? "No prompts available"
+                : "Select a prompt"
             }
             disabled={
               isUpdating("post_process_selected_prompt_id") || isCreating
@@ -452,7 +434,7 @@ const PostProcessingSettingsPromptsComponent: React.FC = () => {
             disabled={isCreating}
             className="shrink-0"
           >
-            {t("settings.postProcessing.prompts.createNew")}
+            {"Create New Prompt"}
           </Button>
         </div>
 
@@ -460,35 +442,28 @@ const PostProcessingSettingsPromptsComponent: React.FC = () => {
           <div className="space-y-3">
             <div className="space-y-2 flex flex-col">
               <label className="text-sm font-semibold">
-                {t("settings.postProcessing.prompts.promptLabel")}
+                {"Prompt Label"}
               </label>
               <Input
                 type="text"
                 value={draftName}
                 onChange={(e) => setDraftName(e.target.value)}
-                placeholder={t(
-                  "settings.postProcessing.prompts.promptLabelPlaceholder",
-                )}
+                placeholder={"Enter prompt name"}
                 variant="compact"
               />
             </div>
 
             <div className="space-y-2 flex flex-col">
               <label className="text-sm font-semibold">
-                {t("settings.postProcessing.prompts.promptInstructions")}
+                {"Prompt Instructions"}
               </label>
               <Textarea
                 value={draftText}
                 onChange={(e) => setDraftText(e.target.value)}
-                placeholder={t(
-                  "settings.postProcessing.prompts.promptInstructionsPlaceholder",
-                )}
+                placeholder="Write the instructions to run after transcription. Example: Improve grammar and clarity for the following text: {{transcript}}"
               />
               <p className="text-xs text-mid-gray/70">
-                <Trans
-                  i18nKey="settings.postProcessing.prompts.promptTip"
-                  components={{ code: <code /> }}
-                />
+                Use <code>{"{{transcript}}"}</code> in your prompt to insert the transcript.
               </p>
             </div>
 
@@ -499,7 +474,7 @@ const PostProcessingSettingsPromptsComponent: React.FC = () => {
                 size="md"
                 disabled={!draftName.trim() || !draftText.trim() || !isDirty}
               >
-                {t("settings.postProcessing.prompts.updatePrompt")}
+                {"Update Prompt"}
               </Button>
               <Button
                 onClick={() => handleDeletePrompt(selectedPromptId)}
@@ -507,7 +482,7 @@ const PostProcessingSettingsPromptsComponent: React.FC = () => {
                 size="md"
                 disabled={!selectedPromptId || prompts.length <= 1}
               >
-                {t("settings.postProcessing.prompts.deletePrompt")}
+                {"Delete Prompt"}
               </Button>
             </div>
           </div>
@@ -517,8 +492,8 @@ const PostProcessingSettingsPromptsComponent: React.FC = () => {
           <div className="p-3 bg-mid-gray/5 rounded-md border border-mid-gray/20">
             <p className="text-sm text-mid-gray">
               {hasPrompts
-                ? t("settings.postProcessing.prompts.selectToEdit")
-                : t("settings.postProcessing.prompts.createFirst")}
+                ? "Select a prompt above to view and edit its details."
+                : "Click 'Create New Prompt' above to create your first post-processing prompt."}
             </p>
           </div>
         )}
@@ -527,35 +502,28 @@ const PostProcessingSettingsPromptsComponent: React.FC = () => {
           <div className="space-y-3">
             <div className="space-y-2 block flex flex-col">
               <label className="text-sm font-semibold text-text">
-                {t("settings.postProcessing.prompts.promptLabel")}
+                {"Prompt Label"}
               </label>
               <Input
                 type="text"
                 value={draftName}
                 onChange={(e) => setDraftName(e.target.value)}
-                placeholder={t(
-                  "settings.postProcessing.prompts.promptLabelPlaceholder",
-                )}
+                placeholder={"Enter prompt name"}
                 variant="compact"
               />
             </div>
 
             <div className="space-y-2 flex flex-col">
               <label className="text-sm font-semibold">
-                {t("settings.postProcessing.prompts.promptInstructions")}
+                {"Prompt Instructions"}
               </label>
               <Textarea
                 value={draftText}
                 onChange={(e) => setDraftText(e.target.value)}
-                placeholder={t(
-                  "settings.postProcessing.prompts.promptInstructionsPlaceholder",
-                )}
+                placeholder="Write the instructions to run after transcription. Example: Improve grammar and clarity for the following text: {{transcript}}"
               />
               <p className="text-xs text-mid-gray/70">
-                <Trans
-                  i18nKey="settings.postProcessing.prompts.promptTip"
-                  components={{ code: <code /> }}
-                />
+                Use <code>{"{{transcript}}"}</code> in your prompt to insert the transcript.
               </p>
             </div>
 
@@ -566,14 +534,14 @@ const PostProcessingSettingsPromptsComponent: React.FC = () => {
                 size="md"
                 disabled={!draftName.trim() || !draftText.trim()}
               >
-                {t("settings.postProcessing.prompts.createPrompt")}
+                {"Create Prompt"}
               </Button>
               <Button
                 onClick={handleCancelCreate}
                 variant="secondary"
                 size="md"
               >
-                {t("settings.postProcessing.prompts.cancel")}
+                {"Cancel"}
               </Button>
             </div>
           </div>
@@ -594,15 +562,14 @@ export const PostProcessingSettingsPrompts = React.memo(
 PostProcessingSettingsPrompts.displayName = "PostProcessingSettingsPrompts";
 
 export const PostProcessingSettings: React.FC = () => {
-  const { t } = useTranslation();
 
   return (
     <div className="max-w-3xl w-full mx-auto space-y-6">
-      <SettingsGroup title={t("settings.postProcessing.api.title")}>
+      <SettingsGroup title={"API (OpenAI Compatible)"}>
         <PostProcessingSettingsApi />
       </SettingsGroup>
 
-      <SettingsGroup title={t("settings.postProcessing.prompts.title")}>
+      <SettingsGroup title={"Prompt"}>
         <PostProcessingSettingsPrompts />
       </SettingsGroup>
     </div>

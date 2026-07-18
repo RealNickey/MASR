@@ -1,6 +1,5 @@
 import { useEffect, useState, useRef, useCallback } from "react";
 import { toast, Toaster } from "sonner";
-import { useTranslation } from "react-i18next";
 import { listen } from "@tauri-apps/api/event";
 import { platform } from "@tauri-apps/plugin-os";
 import {
@@ -21,7 +20,6 @@ import { useSettings } from "./hooks/useSettings";
 import { useMeetingSummaryFallbackToast } from "./hooks/useMeetingSummaryFallbackToast";
 import { useSettingsStore } from "./stores/settingsStore";
 import { commands } from "@/bindings";
-import { getLanguageDirection, initializeRTL } from "@/lib/utils/rtl";
 import { GlobalUpdatePrompt } from "@/components/update-checker/GlobalUpdatePrompt";
 import { isProductionLike } from "@/utils/isProductionLike";
 
@@ -43,7 +41,6 @@ const renderSettingsContent = (
 };
 
 function App() {
-  const { t, i18n } = useTranslation();
   const [onboardingStep, setOnboardingStep] = useState<OnboardingStep | null>(
     null,
   );
@@ -60,7 +57,6 @@ function App() {
   const [droppedFiles, setDroppedFiles] = useState<string[]>([]);
   const { settings, updateSetting } = useSettings();
   useMeetingSummaryFallbackToast();
-  const direction = getLanguageDirection(i18n.language);
   const refreshAudioDevices = useSettingsStore(
     (state) => state.refreshAudioDevices,
   );
@@ -94,10 +90,6 @@ function App() {
     checkOnboardingStatus();
   }, []);
 
-  // Initialize RTL direction when language changes
-  useEffect(() => {
-    initializeRTL(i18n.language);
-  }, [i18n.language]);
 
   // Initialize Enigo, shortcuts, and refresh audio devices when main app loads
   useEffect(() => {
@@ -146,25 +138,23 @@ function App() {
 
       if (error_type === "microphone_permission_denied") {
         const currentPlatform = platform();
-        const platformKey = `errors.micPermissionDenied.${currentPlatform}`;
-        const description = t(platformKey, {
-          defaultValue: t("errors.micPermissionDenied.generic"),
-        });
-        toast.error(t("errors.micPermissionDeniedTitle"), { description });
+        const description =
+          "Microphone access was denied by the operating system. Please grant microphone permission in your system settings.";
+        toast.error("Microphone Access Denied", { description });
       } else if (error_type === "no_input_device") {
-        toast.error(t("errors.noInputDeviceTitle"), {
-          description: t("errors.noInputDevice"),
+        toast.error("No Microphone Found", {
+          description: "No audio input device was detected. Please connect a microphone or headset and try again.",
         });
       } else {
         toast.error(
-          t("errors.recordingFailed", { error: detail ?? "Unknown error" }),
+          `Failed to start recording: ${(detail ?? "Unknown error")}`,
         );
       }
     });
     return () => {
       unlisten.then((fn) => fn());
     };
-  }, [t]);
+  }, []);
 
   // Listen for paste failures and show a toast.
   // The technical error detail is logged to thegai.log on the Rust side
@@ -172,14 +162,14 @@ function App() {
   // so we show a localized, user-friendly message here instead of the raw error.
   useEffect(() => {
     const unlisten = listen("paste-error", () => {
-      toast.error(t("errors.pasteFailedTitle"), {
-        description: t("errors.pasteFailed"),
+      toast.error("Failed to Paste Text", {
+        description: "Text could not be pasted into the active application.",
       });
     });
     return () => {
       unlisten.then((fn) => fn());
     };
-  }, [t]);
+  }, []);
 
   // Listen for model loading failures and show a toast
   useEffect(() => {
@@ -187,13 +177,10 @@ function App() {
       if (event.payload.event_type === "loading_failed") {
         const isSimulatingOrRealProd = isProductionLike();
         if (isSimulatingOrRealProd) {
-          toast.error(t("errors.modelLoadFailedGeneric"));
+          toast.error("Failed to process audio. Please restart the app.");
         } else {
           toast.error(
-            t("errors.modelLoadFailed", {
-              model:
-                event.payload.model_name || t("errors.modelLoadFailedUnknown"),
-            }),
+            `Failed to load model: ${event.payload.model_name || "unknown model"}`,
             {
               description: event.payload.error,
             },
@@ -204,21 +191,21 @@ function App() {
     return () => {
       unlisten.then((fn) => fn());
     };
-  }, [t, simulateProd]);
+  }, [simulateProd]);
 
   // Listen for meeting-summary events to navigate to the Meetings tab
   useEffect(() => {
     const unlisten = listen<{ summary: string; transcript: string }>(
       "meeting-summary",
       (event) => {
-        toast.success(t("settings.meetings.toastSuccess"));
+        toast.success("Meeting summary generated!");
         setCurrentSection("meetings");
       },
     );
     return () => {
       unlisten.then((fn) => fn());
     };
-  }, [t]);
+  }, []);
 
   // Listen for recording state changes to display meeting recording indicator
   useEffect(() => {
@@ -395,7 +382,7 @@ function App() {
 
   return (
     <div
-      dir={direction}
+      dir="ltr"
       className="h-screen flex flex-col select-none cursor-default"
     >
       <Toaster

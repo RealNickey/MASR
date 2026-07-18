@@ -1,5 +1,4 @@
 import React, { useState } from "react";
-import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { useSettings } from "../../hooks/useSettings";
 import { Input } from "../ui/Input";
@@ -13,7 +12,6 @@ interface CustomWordsProps {
 
 export const CustomWords: React.FC<CustomWordsProps> = React.memo(
   ({ descriptionMode = "tooltip", grouped = false }) => {
-    const { t } = useTranslation();
     const { getSetting, updateSetting, isUpdating } = useSettings();
     const [newWord, setNewWord] = useState("");
     const customWords = getSetting("custom_words") || [];
@@ -28,9 +26,7 @@ export const CustomWords: React.FC<CustomWordsProps> = React.memo(
       ) {
         if (customWords.includes(sanitizedWord)) {
           toast.error(
-            t("settings.advanced.customWords.duplicate", {
-              word: sanitizedWord,
-            }),
+            `"${(sanitizedWord)}" already exists`,
           );
           return;
         }
@@ -56,8 +52,8 @@ export const CustomWords: React.FC<CustomWordsProps> = React.memo(
     return (
       <>
         <SettingContainer
-          title={t("settings.advanced.customWords.title")}
-          description={t("settings.advanced.customWords.description")}
+          title={"Custom Words"}
+          description={"Add words that are often misheard or misspelled during transcription. The system will automatically correct similar-sounding words to match your list."}
           descriptionMode={descriptionMode}
           grouped={grouped}
         >
@@ -68,7 +64,7 @@ export const CustomWords: React.FC<CustomWordsProps> = React.memo(
               value={newWord}
               onChange={(e) => setNewWord(e.target.value)}
               onKeyDown={handleKeyPress}
-              placeholder={t("settings.advanced.customWords.placeholder")}
+              placeholder={"Add a word"}
               variant="compact"
               disabled={isUpdating("custom_words")}
             />
@@ -83,7 +79,7 @@ export const CustomWords: React.FC<CustomWordsProps> = React.memo(
               variant="primary"
               size="md"
             >
-              {t("settings.advanced.customWords.add")}
+              {"Add"}
             </Button>
           </div>
         </SettingContainer>
@@ -99,7 +95,7 @@ export const CustomWords: React.FC<CustomWordsProps> = React.memo(
                 variant="secondary"
                 size="sm"
                 className="inline-flex items-center gap-1 cursor-pointer"
-                aria-label={t("settings.advanced.customWords.remove", { word })}
+                aria-label={`Remove ${(word)}`}
               >
                 <span>{word}</span>
                 <svg

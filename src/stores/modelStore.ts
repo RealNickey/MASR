@@ -5,7 +5,6 @@ import { listen } from "@tauri-apps/api/event";
 import { commands, type ModelInfo } from "@/bindings";
 import { toast } from "sonner";
 import { isProductionLike } from "@/utils/isProductionLike";
-import i18n from "@/i18n";
 interface DownloadProgress {
   model_id: string;
   downloaded: number;
@@ -353,7 +352,7 @@ export const useModelStore = create<ModelsStore>()(
           );
           const isSimulatingOrRealProd = isProductionLike();
           if (isSimulatingOrRealProd) {
-            toast.error(i18n.t("errors.modelLoadFailedGeneric"));
+            toast.error("Failed to process audio. Please restart the app.");
           } else {
             toast.error(error);
           }

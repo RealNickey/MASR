@@ -1,5 +1,4 @@
 import { type FC, useEffect, useState } from "react";
-import { useTranslation } from "react-i18next";
 import { SettingContainer } from "../ui/SettingContainer";
 import { Dropdown, type DropdownOption } from "../ui/Dropdown";
 import { useSettings } from "../../hooks/useSettings";
@@ -55,7 +54,6 @@ export const AccelerationSelector: FC<AccelerationSelectorProps> = ({
   descriptionMode = "tooltip",
   grouped = false,
 }) => {
-  const { t } = useTranslation();
   const { getSetting, updateSetting, isUpdating } = useSettings();
   const { models, currentModel } = useModelStore();
 
@@ -68,7 +66,7 @@ export const AccelerationSelector: FC<AccelerationSelectorProps> = ({
       const opts: DropdownOption[] = [
         {
           value: "auto",
-          label: t("settings.advanced.acceleration.gpuDevice.auto"),
+          label: "Auto",
         },
       ];
 
@@ -97,7 +95,7 @@ export const AccelerationSelector: FC<AccelerationSelectorProps> = ({
         })),
       );
     });
-  }, [t]);
+  }, []);
 
   const currentAccelerator = getSetting("whisper_accelerator") ?? "auto";
   const currentGpuDevice = getSetting("whisper_gpu_device") ?? -1;
@@ -122,8 +120,8 @@ export const AccelerationSelector: FC<AccelerationSelectorProps> = ({
     <>
       {showWhisperAcceleration && (
         <SettingContainer
-          title={t("settings.advanced.acceleration.whisper.title")}
-          description={t("settings.advanced.acceleration.whisper.description")}
+          title={"Whisper Acceleration"}
+          description={"Hardware acceleration for Whisper models. Auto uses GPU if available (Metal on macOS, Vulkan on Windows/Linux)."}
           descriptionMode={descriptionMode}
           grouped={grouped}
           layout="horizontal"
@@ -141,8 +139,8 @@ export const AccelerationSelector: FC<AccelerationSelectorProps> = ({
       )}
       {ortOptions.length > 2 && (
         <SettingContainer
-          title={t("settings.advanced.acceleration.ort.title")}
-          description={t("settings.advanced.acceleration.ort.description")}
+          title={"ONNX Acceleration"}
+          description={"Hardware acceleration for ONNX models (Parakeet, Canary, Moonshine, etc.). DirectML on Windows is experimental. Models may fail to transcribe."}
           descriptionMode={descriptionMode}
           grouped={grouped}
           layout="horizontal"

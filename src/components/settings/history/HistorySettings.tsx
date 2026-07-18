@@ -2,7 +2,6 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { readFile } from "@tauri-apps/plugin-fs";
 import { Check, Copy, FolderOpen, RotateCcw, Star, Trash2 } from "lucide-react";
-import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import {
   commands,
@@ -81,7 +80,6 @@ const OpenRecordingsButton: React.FC<OpenRecordingsButtonProps> = ({
 );
 
 export const HistorySettings: React.FC = () => {
-  const { t } = useTranslation();
   const osType = useOsType();
   const [entries, setEntries] = useState<HistoryEntry[]>([]);
   const [loading, setLoading] = useState(true);
@@ -264,7 +262,7 @@ export const HistorySettings: React.FC = () => {
         animate={{ opacity: 1 }}
         className="px-4 py-8 text-center text-text/60"
       >
-        {t("settings.history.loading")}
+        {"Loading history..."}
       </motion.div>
     );
   } else if (entries.length === 0) {
@@ -275,7 +273,7 @@ export const HistorySettings: React.FC = () => {
         transition={{ duration: 0.3 }}
         className="px-4 py-8 text-center text-text/60"
       >
-        {t("settings.history.empty")}
+        {"No transcriptions yet. Start recording to build your history!"}
       </motion.div>
     );
   } else {
@@ -326,12 +324,12 @@ export const HistorySettings: React.FC = () => {
         <div className="px-4 flex items-center justify-between">
           <div>
             <h2 className="text-xs font-medium text-mid-gray uppercase tracking-wide">
-              {t("settings.history.title")}
+              {"History"}
             </h2>
           </div>
           <OpenRecordingsButton
             onClick={openRecordingsFolder}
-            label={t("settings.history.openFolder")}
+            label={"Open Recordings Folder"}
           />
         </div>
         <div className="bg-background border border-mid-gray/20 rounded-lg overflow-visible">
@@ -359,7 +357,6 @@ const HistoryEntryComponent: React.FC<HistoryEntryProps> = ({
   deleteAudio,
   retryTranscription,
 }) => {
-  const { t, i18n } = useTranslation();
   const [showCopied, setShowCopied] = useState(false);
   const [retrying, setRetrying] = useState(false);
 
@@ -385,7 +382,7 @@ const HistoryEntryComponent: React.FC<HistoryEntryProps> = ({
       await deleteAudio(entry.id);
     } catch (error) {
       console.error("Failed to delete entry:", error);
-      toast.error(t("settings.history.deleteError"));
+      toast.error("Failed to delete entry. Please try again.");
     }
   };
 
@@ -395,13 +392,13 @@ const HistoryEntryComponent: React.FC<HistoryEntryProps> = ({
       await retryTranscription(entry.id);
     } catch (error) {
       console.error("Failed to re-transcribe:", error);
-      toast.error(t("settings.history.retranscribeError"));
+      toast.error("Failed to re-transcribe. Please try again.");
     } finally {
       setRetrying(false);
     }
   };
 
-  const formattedDate = formatDateTime(String(entry.timestamp), i18n.language);
+  const formattedDate = formatDateTime(String(entry.timestamp), "en");
 
   return (
     <div className="px-4 py-2 pb-5 flex flex-col gap-3">
@@ -411,7 +408,7 @@ const HistoryEntryComponent: React.FC<HistoryEntryProps> = ({
           <IconButton
             onClick={handleCopyText}
             disabled={!hasTranscription || retrying}
-            title={t("settings.history.copyToClipboard")}
+            title={"Copy transcription to clipboard"}
           >
             {showCopied ? (
               <Check width={16} height={16} />
@@ -425,8 +422,8 @@ const HistoryEntryComponent: React.FC<HistoryEntryProps> = ({
             active={entry.saved}
             title={
               entry.saved
-                ? t("settings.history.unsave")
-                : t("settings.history.save")
+                ? "Remove from saved"
+                : "Save transcription"
             }
           >
             <Star
@@ -438,7 +435,7 @@ const HistoryEntryComponent: React.FC<HistoryEntryProps> = ({
           <IconButton
             onClick={handleRetranscribe}
             disabled={retrying}
-            title={t("settings.history.retranscribe")}
+            title={"Re-transcribe"}
           >
             <RotateCcw
               width={16}
@@ -453,7 +450,7 @@ const HistoryEntryComponent: React.FC<HistoryEntryProps> = ({
           <IconButton
             onClick={handleDeleteEntry}
             disabled={retrying}
-            title={t("settings.history.delete")}
+            title={"Delete entry"}
           >
             <Trash2 width={16} height={16} />
           </IconButton>
@@ -483,10 +480,10 @@ const HistoryEntryComponent: React.FC<HistoryEntryProps> = ({
           `}</style>
         )}
         {retrying
-          ? t("settings.history.transcribing")
+          ? "Transcribing..."
           : hasTranscription
             ? entry.transcription_text
-            : t("settings.history.transcriptionFailed")}
+            : "Transcription failed. You can re-transcribe using the retry icon."}
       </p>
 
       <AudioPlayer onLoadRequest={handleLoadAudio} className="w-full" />

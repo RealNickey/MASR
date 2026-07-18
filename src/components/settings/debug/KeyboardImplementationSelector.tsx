@@ -1,5 +1,4 @@
 import React from "react";
-import { useTranslation } from "react-i18next";
 import { SettingContainer } from "../../ui/SettingContainer";
 import { Dropdown, type DropdownOption } from "../../ui/Dropdown";
 import { useSettings } from "../../../hooks/useSettings";
@@ -19,7 +18,6 @@ interface KeyboardImplementationSelectorProps {
 export const KeyboardImplementationSelector: React.FC<
   KeyboardImplementationSelectorProps
 > = ({ descriptionMode = "tooltip", grouped = false }) => {
-  const { t } = useTranslation();
   const { getSetting, isUpdating, refreshSettings } = useSettings();
   const currentImplementation =
     getSetting("keyboard_implementation") ?? "tauri";
@@ -41,7 +39,7 @@ export const KeyboardImplementationSelector: React.FC<
 
       // If any bindings were reset due to incompatibility, notify the user
       if (result.data.reset_bindings.length > 0) {
-        toast.warning(t("settings.debug.keyboardImplementation.bindingsReset"));
+        toast.warning("Keyboard shortcuts were incompatible and reset to defaults");
       }
 
       await refreshSettings();
@@ -53,8 +51,8 @@ export const KeyboardImplementationSelector: React.FC<
 
   return (
     <SettingContainer
-      title={t("settings.debug.keyboardImplementation.title")}
-      description={t("settings.debug.keyboardImplementation.description")}
+      title={"Keyboard Implementation"}
+      description={"Choose the keyboard shortcut backend."}
       descriptionMode={descriptionMode}
       grouped={grouped}
       layout="horizontal"

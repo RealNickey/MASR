@@ -1,5 +1,4 @@
 import React from "react";
-import { useTranslation } from "react-i18next";
 import { Dropdown } from "../ui/Dropdown";
 import { SettingContainer } from "../ui/SettingContainer";
 import { useSettings } from "../../hooks/useSettings";
@@ -12,7 +11,6 @@ interface RecordingRetentionPeriodProps {
 
 export const RecordingRetentionPeriodSelector: React.FC<RecordingRetentionPeriodProps> =
   React.memo(({ descriptionMode = "tooltip", grouped = false }) => {
-    const { t } = useTranslation();
     const { getSetting, updateSetting, isUpdating } = useSettings();
 
     const selectedRetentionPeriod =
@@ -27,25 +25,23 @@ export const RecordingRetentionPeriodSelector: React.FC<RecordingRetentionPeriod
     };
 
     const retentionOptions = [
-      { value: "never", label: t("settings.debug.recordingRetention.never") },
+      { value: "never", label: "Never" },
       {
         value: "preserve_limit",
-        label: t("settings.debug.recordingRetention.preserveLimit", {
-          count: Number(historyLimit),
-        }),
+        label: `Keep latest ${(Number(historyLimit))}`,
       },
-      { value: "days3", label: t("settings.debug.recordingRetention.days3") },
-      { value: "weeks2", label: t("settings.debug.recordingRetention.weeks2") },
+      { value: "days3", label: "After 3 days" },
+      { value: "weeks2", label: "After 2 weeks" },
       {
         value: "months3",
-        label: t("settings.debug.recordingRetention.months3"),
+        label: "After 3 months",
       },
     ];
 
     return (
       <SettingContainer
-        title={t("settings.debug.recordingRetention.title")}
-        description={t("settings.debug.recordingRetention.description")}
+        title={"Auto-Delete Recordings"}
+        description={"Automatically delete old recordings to save space"}
         descriptionMode={descriptionMode}
         grouped={grouped}
       >
@@ -53,7 +49,7 @@ export const RecordingRetentionPeriodSelector: React.FC<RecordingRetentionPeriod
           options={retentionOptions}
           selectedValue={selectedRetentionPeriod}
           onSelect={handleRetentionPeriodSelect}
-          placeholder={t("settings.debug.recordingRetention.placeholder")}
+          placeholder={"Select retention period..."}
           disabled={isUpdating("recording_retention_period")}
         />
       </SettingContainer>

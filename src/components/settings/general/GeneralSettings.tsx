@@ -1,5 +1,4 @@
 import React from "react";
-import { useTranslation } from "react-i18next";
 import { type } from "@tauri-apps/plugin-os";
 import { Keyboard, Mic, Sliders } from "lucide-react";
 import { MicrophoneSelector } from "../MicrophoneSelector";
@@ -18,7 +17,6 @@ import { TranscriptLanguageSelector } from "./TranscriptLanguageSelector";
 export const GeneralSettings: React.FC<{ simulateProd?: boolean }> = ({
   simulateProd = false,
 }) => {
-  const { t } = useTranslation();
   const { audioFeedbackEnabled, getSetting } = useSettings();
   const pushToTalk = getSetting("push_to_talk");
   const isLinux = type() === "linux";
@@ -31,7 +29,7 @@ export const GeneralSettings: React.FC<{ simulateProd?: boolean }> = ({
       <div className="flex justify-between items-end pb-4 border-b border-stone-mist/50">
         <div className="flex flex-col gap-1">
           <h1 className="text-xl font-bold font-cooper text-charcoal">
-            {t("settings.general.title")}
+            {"General"}
           </h1>
           <p className="text-xs text-bark-grey">
             Manage your transcription hotkeys, recording behaviors, and hardware

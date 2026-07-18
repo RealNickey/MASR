@@ -15,7 +15,6 @@ import {
   MessageSquare,
   Send,
 } from "lucide-react";
-import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { open } from "@tauri-apps/plugin-dialog";
 import {
@@ -54,7 +53,6 @@ const IconButton: React.FC<{
 );
 
 export const MeetingsSettings: React.FC = () => {
-  const { t } = useTranslation();
   const osType = useOsType();
   const { settings, updateSetting, isUpdating } = useSettings();
   const [entries, setEntries] = useState<HistoryEntry[]>([]);
@@ -79,16 +77,16 @@ export const MeetingsSettings: React.FC = () => {
     try {
       const result = await commands.connectGoogleFeatures(features as any);
       if (result.status === "ok") {
-        toast.success(t("settings.meetings.googleConnectSuccess"));
+        toast.success("Google Services connected successfully!");
         await refreshGoogleStatus();
       } else {
         toast.error(
-          t("settings.meetings.googleConnectError", { error: result.error }),
+          "Failed to connect Google Services.",
         );
       }
     } catch (error) {
       console.error("Failed to connect Google services:", error);
-      toast.error(t("settings.meetings.googleConnectError"));
+      toast.error("Failed to connect Google Services.");
     } finally {
       setIsConnecting(false);
     }
@@ -100,16 +98,16 @@ export const MeetingsSettings: React.FC = () => {
     try {
       const result = await commands.disconnectGoogleFeature(feature as any);
       if (result.status === "ok") {
-        toast.success(t("settings.meetings.googleDisconnectSuccess"));
+        toast.success("Google Services disconnected.");
         await refreshGoogleStatus();
       } else {
         toast.error(
-          t("settings.meetings.googleDisconnectError", { error: result.error }),
+          "Failed to disconnect Google Services.",
         );
       }
     } catch (error) {
       console.error("Failed to disconnect Google services:", error);
-      toast.error(t("settings.meetings.googleDisconnectError"));
+      toast.error("Failed to disconnect Google Services.");
     }
   };
 
@@ -229,13 +227,13 @@ export const MeetingsSettings: React.FC = () => {
   if (loading) {
     content = (
       <div className="px-4 py-8 text-center text-text/60">
-        {t("settings.meetings.loading")}
+        {"Loading meetings..."}
       </div>
     );
   } else if (entries.length === 0) {
     content = (
       <div className="px-4 py-8 text-center text-text/60">
-        {t("settings.meetings.empty")}
+        {"No meetings recorded yet. Start a meeting to generate summaries!"}
       </div>
     );
   } else {
@@ -258,9 +256,9 @@ export const MeetingsSettings: React.FC = () => {
     googleStatus && !googleStatus.oauth_client_configured;
   const leadOptions = useMemo(
     () => [
-      { value: "5", label: t("settings.meetings.assistant.leadFiveMinutes") },
+      { value: "5", label: "5 minutes" },
     ],
-    [t],
+    [],
   );
 
   return (
@@ -272,8 +270,8 @@ export const MeetingsSettings: React.FC = () => {
             updateSetting("meeting_detection_enabled", checked)
           }
           isUpdating={isUpdating("meeting_detection_enabled")}
-          label={t("settings.meetings.assistant.localToggle")}
-          description={t("settings.meetings.assistant.localDescription")}
+          label={"Meeting Assistant"}
+          description={"Detect active meeting windows and show a prompt to start meeting mode."}
           descriptionMode="inline"
           grouped
         />
@@ -284,21 +282,21 @@ export const MeetingsSettings: React.FC = () => {
           }
           isUpdating={isUpdating("meeting_calendar_prompts_enabled")}
           disabled={!googleStatus?.calendar_connected || googleUnavailable}
-          label={t("settings.meetings.assistant.calendarToggle")}
+          label={"Calendar Prompts"}
           description={
             googleUnavailable
-              ? t("settings.meetings.assistant.oauthUnavailable")
-              : t("settings.meetings.assistant.calendarDescription")
+              ? "Google Calendar is unavailable until a desktop OAuth client ID is configured for this build."
+              : "Prompt five minutes before a Google Calendar meeting with conference details."
           }
           descriptionMode="inline"
           grouped
         />
         <div className="px-4 py-2">
           <p className="text-sm font-medium text-text">
-            {t("settings.meetings.assistant.leadTitle")}
+            {"Prompt Lead Time"}
           </p>
           <p className="text-sm text-mid-gray mb-2">
-            {t("settings.meetings.assistant.leadDescription")}
+            {"Version 1 uses a fixed reminder time for Calendar-based prompts."}
           </p>
           <Select
             value={String(settings?.meeting_prompt_lead_minutes ?? 5)}
@@ -315,20 +313,20 @@ export const MeetingsSettings: React.FC = () => {
         <div className="flex items-center justify-between gap-3">
           <div className="space-y-1">
             <h3 className="text-sm font-semibold text-text">
-              {t("settings.meetings.googleServices")}
+              {"Google Services"}
             </h3>
             <p className="text-xs text-mid-gray">
               {googleUnavailable
-                ? t("settings.meetings.assistant.oauthUnavailable")
-                : t("settings.meetings.googleDisconnected")}
+                ? "Google Calendar is unavailable until a desktop OAuth client ID is configured for this build."
+                : "Connect to send meeting follow-ups via Gmail and create tasks"}
             </p>
           </div>
         </div>
 
         <div className="grid gap-3 sm:grid-cols-2">
           <GoogleFeatureCard
-            title={t("settings.meetings.googleFollowUpsTitle")}
-            description={t("settings.meetings.googleFollowUpsDescription")}
+            title={"Gmail and Tasks Follow-Ups"}
+            description={"Optional follow-up email sending and task creation for completed meetings."}
             connected={!!googleStatus?.gmail_tasks_connected}
             disabled={!!googleUnavailable}
             connecting={isConnecting}
@@ -337,27 +335,25 @@ export const MeetingsSettings: React.FC = () => {
             onConnect={() => handleConnectGoogle(["gmail_tasks"])}
             onDisconnect={() => handleDisconnectGoogle("gmail_tasks")}
             labels={{
-              connect: t("settings.meetings.googleConnect"),
-              disconnect: t("settings.meetings.googleDisconnect"),
-              connected: t("settings.meetings.googleConnected"),
-              disconnected: t("settings.meetings.googleDisconnected"),
+              connect: "Connect",
+              disconnect: "Disconnect",
+              connected: "Connected to Gmail & Google Tasks",
+              disconnected: "Connect to send meeting follow-ups via Gmail and create tasks",
             }}
           />
           <GoogleFeatureCard
-            title={t("settings.meetings.googleCalendarTitle")}
-            description={t("settings.meetings.googleCalendarDescription")}
+            title={"Google Calendar Prompts"}
+            description={"Optional reminders for upcoming primary-calendar meetings with a join link."}
             connected={!!googleStatus?.calendar_connected}
             disabled={!!googleUnavailable}
             connecting={isConnecting}
             onConnect={() => handleConnectGoogle(["calendar"])}
             onDisconnect={() => handleDisconnectGoogle("calendar")}
             labels={{
-              connect: t("settings.meetings.googleConnect"),
-              disconnect: t("settings.meetings.googleDisconnect"),
-              connected: t("settings.meetings.assistant.calendarConnected"),
-              disconnected: t(
-                "settings.meetings.assistant.calendarDisconnected",
-              ),
+              connect: "Connect",
+              disconnect: "Disconnect",
+              connected: "Connected for meeting reminders",
+              disconnected: "Connect Google Calendar for meeting reminders",
             }}
           />
         </div>
@@ -366,14 +362,14 @@ export const MeetingsSettings: React.FC = () => {
       <div className="space-y-2">
         <div className="px-4 flex items-center justify-between">
           <h2 className="text-xs font-medium text-mid-gray uppercase tracking-wide">
-            {t("settings.meetings.title")}
+            {"Meetings"}
           </h2>
           <button
             onClick={handleUploadClick}
             className="flex items-center gap-1.5 text-xs font-medium text-logo-primary hover:text-logo-primary/80 transition-colors bg-logo-primary/10 px-2 py-1 rounded-md"
           >
             <Upload className="w-3.5 h-3.5" />
-            {t("settings.meetings.uploadAudio")}
+            {"Upload Audio"}
           </button>
         </div>
         <div className="bg-background border border-mid-gray/20 rounded-lg overflow-visible">
@@ -464,7 +460,6 @@ export const MeetingEntryComponent: React.FC<MeetingEntryProps> = ({
   deleteMeeting,
   isGoogleConnected,
 }) => {
-  const { t, i18n } = useTranslation();
   const [showSummaryCopied, setShowSummaryCopied] = useState(false);
   const [showTranscriptCopied, setShowTranscriptCopied] = useState(false);
   const [expandTranscript, setExpandTranscript] = useState(false);
@@ -487,12 +482,12 @@ export const MeetingEntryComponent: React.FC<MeetingEntryProps> = ({
         setChatAnswer(result.data);
       } else {
         toast.error(
-          t("errors.askFailed") || "Failed to get answer: " + result.error,
+          "Failed to get an answer from the AI. Please check your connection and LLM settings.",
         );
       }
     } catch (error) {
       console.error("Failed to ask meeting question:", error);
-      toast.error(t("errors.askFailed") || "Failed to get answer");
+      toast.error("Failed to get an answer from the AI. Please check your connection and LLM settings.");
     } finally {
       setIsAsking(false);
     }
@@ -507,8 +502,7 @@ export const MeetingEntryComponent: React.FC<MeetingEntryProps> = ({
     const trimmed = input.trim();
     if (!trimmed) {
       setEmailsError(
-        t("settings.meetings.recipientsRequired") ||
-          "Recipient email is required.",
+        "Recipient email is required.",
       );
       return null;
     }
@@ -517,7 +511,7 @@ export const MeetingEntryComponent: React.FC<MeetingEntryProps> = ({
     for (const email of emails) {
       if (!emailRegex.test(email)) {
         setEmailsError(
-          t("settings.meetings.invalidEmail", { email }) ||
+          `Invalid email address: ${(email)}` ||
             `Invalid email address: ${email}`,
         );
         return null;
@@ -554,22 +548,19 @@ export const MeetingEntryComponent: React.FC<MeetingEntryProps> = ({
 
       if (result.status === "ok") {
         toast.success(
-          t("settings.meetings.sendFollowUpSuccess") ||
-            "Follow-up email and tasks sent successfully!",
+          "Follow-up email and tasks sent successfully!",
         );
         setShowFollowUpDialog(false);
         setRecipientsInput("");
       } else {
         toast.error(
-          t("settings.meetings.sendFollowUpError") ||
-            "Failed to send follow-up: " + result.error,
+          "Failed to send follow-up email/tasks.",
         );
       }
     } catch (error: any) {
       console.error("Failed to send meeting follow-up:", error);
       toast.error(
-        t("settings.meetings.sendFollowUpError") ||
-          "Failed to send follow-up email/tasks",
+        "Failed to send follow-up email/tasks.",
       );
     } finally {
       setIsSending(false);
@@ -607,11 +598,11 @@ export const MeetingEntryComponent: React.FC<MeetingEntryProps> = ({
       await deleteMeeting(entry.id);
     } catch (error) {
       console.error("Failed to delete meeting:", error);
-      toast.error(t("settings.history.deleteError"));
+      toast.error("Failed to delete entry. Please try again.");
     }
   };
 
-  const formattedDate = formatDateTime(String(entry.timestamp), i18n.language);
+  const formattedDate = formatDateTime(String(entry.timestamp), "en");
 
   const displaySummary = React.useMemo(() => {
     if (
@@ -650,15 +641,15 @@ export const MeetingEntryComponent: React.FC<MeetingEntryProps> = ({
             <button
               onClick={() => setShowFollowUpDialog(true)}
               className="flex items-center gap-1.5 text-xs font-medium text-logo-primary hover:text-logo-primary/80 transition-colors bg-logo-primary/10 px-2 py-1 rounded-md cursor-pointer send-via-google-btn"
-              title={t("settings.meetings.sendViaGoogle")}
+              title={"Send via Google"}
             >
               <Mail width={14} height={14} />
-              {t("settings.meetings.sendViaGoogle")}
+              {"Send via Google"}
             </button>
           )}
           <IconButton
             onClick={handleDelete}
-            title={t("settings.history.delete")}
+            title={"Delete entry"}
           >
             <Trash2 width={16} height={16} />
           </IconButton>
@@ -668,11 +659,11 @@ export const MeetingEntryComponent: React.FC<MeetingEntryProps> = ({
       <div className="space-y-2">
         <div className="flex items-center justify-between">
           <h4 className="text-xs font-semibold uppercase tracking-wider text-mid-gray">
-            {t("settings.meetings.summary")}
+            {"Meeting Summary"}
           </h4>
           <IconButton
             onClick={copySummary}
-            title={t("settings.history.copyToClipboard")}
+            title={"Copy transcription to clipboard"}
           >
             {showSummaryCopied ? (
               <Check width={14} height={14} />
@@ -689,10 +680,10 @@ export const MeetingEntryComponent: React.FC<MeetingEntryProps> = ({
           ) : entry.transcription_text === "" ? (
             <div className="flex items-center gap-2 text-mid-gray py-1">
               <span className="w-3.5 h-3.5 border-2 border-logo-primary border-t-transparent rounded-full animate-spin"></span>
-              <span>{t("settings.meetings.processing")}</span>
+              <span>{"Processing"}</span>
             </div>
           ) : (
-            t("settings.meetings.summaryFailed")
+            "Failed to generate meeting summary."
           )}
         </div>
       </div>
@@ -705,7 +696,7 @@ export const MeetingEntryComponent: React.FC<MeetingEntryProps> = ({
           <div className="flex items-center gap-2">
             <FileText className="w-4 h-4 text-mid-gray" />
             <span className="text-xs font-semibold uppercase tracking-wider text-mid-gray">
-              {t("settings.meetings.fullTranscript")}
+              {"Full Transcript"}
             </span>
           </div>
           {expandTranscript ? (
@@ -720,7 +711,7 @@ export const MeetingEntryComponent: React.FC<MeetingEntryProps> = ({
             <div className="flex justify-end">
               <IconButton
                 onClick={copyTranscript}
-                title={t("settings.history.copyToClipboard")}
+                title={"Copy transcription to clipboard"}
               >
                 {showTranscriptCopied ? (
                   <Check width={14} height={14} />
@@ -746,7 +737,7 @@ export const MeetingEntryComponent: React.FC<MeetingEntryProps> = ({
           <div className="flex items-center gap-2">
             <MessageSquare className="w-4 h-4 text-mid-gray" />
             <span className="text-xs font-semibold uppercase tracking-wider text-mid-gray">
-              {t("settings.meetings.chatWithMeeting")}
+              {"Chat with Meeting"}
             </span>
           </div>
           {showChat ? (
@@ -767,7 +758,7 @@ export const MeetingEntryComponent: React.FC<MeetingEntryProps> = ({
                   if (e.key === "Enter") handleAskQuestion();
                 }}
                 disabled={isAsking}
-                placeholder={t("settings.meetings.chatPlaceholder")}
+                placeholder={"Ask something about the meeting..."}
                 className="flex-1 px-3 py-1.5 bg-mid-gray/5 border border-mid-gray/20 rounded-md text-sm text-text focus:outline-none focus:border-logo-primary"
               />
               <button
@@ -798,12 +789,12 @@ export const MeetingEntryComponent: React.FC<MeetingEntryProps> = ({
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 follow-up-dialog">
           <div className="bg-background border border-mid-gray/20 rounded-lg max-w-md w-full p-6 space-y-4 shadow-xl">
             <h3 className="text-base font-semibold text-text">
-              {t("settings.meetings.sendFollowUpTitle")}
+              {"Send Meeting Follow-Up"}
             </h3>
 
             <div className="space-y-1.5">
               <label className="text-xs font-semibold uppercase tracking-wider text-mid-gray">
-                {t("settings.meetings.recipientsLabel")}
+                {"Recipient Emails (comma or space separated)"}
               </label>
               <textarea
                 value={recipientsInput}
@@ -812,7 +803,7 @@ export const MeetingEntryComponent: React.FC<MeetingEntryProps> = ({
                   setEmailsError("");
                 }}
                 disabled={isSending}
-                placeholder={t("settings.meetings.recipientsPlaceholder")}
+                placeholder={"e.g., alex@example.com, john@example.com"}
                 className="w-full h-20 px-3 py-2 bg-mid-gray/5 border border-mid-gray/20 rounded-md text-sm text-text focus:outline-none focus:border-logo-primary resize-none recipients-input"
               />
               {emailsError && (
@@ -832,7 +823,7 @@ export const MeetingEntryComponent: React.FC<MeetingEntryProps> = ({
                 disabled={isSending}
                 className="px-4 py-2 text-xs font-medium text-text hover:bg-mid-gray/10 rounded-md transition-colors cursor-pointer cancel-btn"
               >
-                {t("settings.meetings.cancel")}
+                {"Cancel"}
               </button>
               <button
                 onClick={handleSendFollowUp}
@@ -842,10 +833,10 @@ export const MeetingEntryComponent: React.FC<MeetingEntryProps> = ({
                 {isSending ? (
                   <>
                     <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
-                    {t("settings.meetings.sending")}
+                    {"Sending..."}
                   </>
                 ) : (
-                  t("settings.meetings.send")
+                  "Send"
                 )}
               </button>
             </div>

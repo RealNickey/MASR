@@ -1,5 +1,4 @@
 import React, { useState, useEffect } from "react";
-import { useTranslation } from "react-i18next";
 import { commands } from "@/bindings";
 import { SettingContainer } from "../ui/SettingContainer";
 import { PathDisplay } from "../ui/PathDisplay";
@@ -13,7 +12,6 @@ export const AppDataDirectory: React.FC<AppDataDirectoryProps> = ({
   descriptionMode = "inline",
   grouped = false,
 }) => {
-  const { t } = useTranslation();
   const [appDirPath, setAppDirPath] = useState<string>("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -61,7 +59,7 @@ export const AppDataDirectory: React.FC<AppDataDirectoryProps> = ({
     return (
       <div className="p-4 bg-red-50 border border-red-200 rounded-lg">
         <p className="text-red-600 text-sm">
-          {t("errors.loadDirectory", { error })}
+          {`Error loading directory: ${(error)}`}
         </p>
       </div>
     );
@@ -69,8 +67,8 @@ export const AppDataDirectory: React.FC<AppDataDirectoryProps> = ({
 
   return (
     <SettingContainer
-      title={t("settings.about.appDataDirectory.title")}
-      description={t("settings.about.appDataDirectory.description")}
+      title={"App Data Directory"}
+      description={"Location where ThegAi stores its data"}
       descriptionMode={descriptionMode}
       grouped={grouped}
       layout="stacked"

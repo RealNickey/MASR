@@ -1,5 +1,4 @@
 import React from "react";
-import { useTranslation } from "react-i18next";
 import { ToggleSwitch } from "../ui/ToggleSwitch";
 import { useSettings } from "../../hooks/useSettings";
 
@@ -10,7 +9,6 @@ interface ExperimentalToggleProps {
 
 export const ExperimentalToggle: React.FC<ExperimentalToggleProps> = React.memo(
   ({ descriptionMode = "tooltip", grouped = false }) => {
-    const { t } = useTranslation();
     const { getSetting, updateSetting, isUpdating } = useSettings();
 
     const enabled = getSetting("experimental_enabled") || false;
@@ -20,8 +18,8 @@ export const ExperimentalToggle: React.FC<ExperimentalToggleProps> = React.memo(
         checked={enabled}
         onChange={(enabled) => updateSetting("experimental_enabled", enabled)}
         isUpdating={isUpdating("experimental_enabled")}
-        label={t("settings.advanced.experimentalToggle.label")}
-        description={t("settings.advanced.experimentalToggle.description")}
+        label={"Experimental Features"}
+        description={"Enable experimental features that are still in development."}
         descriptionMode={descriptionMode}
         grouped={grouped}
       />

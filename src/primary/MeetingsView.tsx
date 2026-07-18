@@ -22,7 +22,6 @@ import {
   Sparkles,
   RefreshCw,
 } from "lucide-react";
-import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import Fuse from "fuse.js";
 import {
@@ -246,7 +245,6 @@ const CopySummaryButton: React.FC<CopySummaryButtonProps> = ({
   isCopied,
   title,
 }) => {
-  const { t } = useTranslation();
   const [isHovered, setIsHovered] = useState(false);
 
   return (
@@ -277,8 +275,8 @@ const CopySummaryButton: React.FC<CopySummaryButtonProps> = ({
           className="overflow-hidden whitespace-nowrap text-xs font-semibold"
         >
           {isCopied
-            ? t("settings.meetings.copiedState")
-            : t("settings.meetings.copySummary")}
+            ? "Copied!"
+            : "Copy Summary"}
         </motion.span>
       </div>
     </motion.button>
@@ -294,7 +292,6 @@ const SendFollowUpButton: React.FC<SendFollowUpButtonProps> = ({
   onClick,
   title,
 }) => {
-  const { t } = useTranslation();
   const [isHovered, setIsHovered] = useState(false);
 
   return (
@@ -320,7 +317,7 @@ const SendFollowUpButton: React.FC<SendFollowUpButtonProps> = ({
           transition={{ type: "spring", stiffness: 350, damping: 20 }}
           className="overflow-hidden whitespace-nowrap text-xs font-semibold"
         >
-          {t("settings.meetings.sendFollowUp")}
+          {"Send Follow-up"}
         </motion.span>
       </div>
     </motion.button>
@@ -338,7 +335,6 @@ const RegenerateButton: React.FC<RegenerateButtonProps> = ({
   isRegenerating,
   title,
 }) => {
-  const { t } = useTranslation();
   const [isHovered, setIsHovered] = useState(false);
 
   return (
@@ -368,8 +364,8 @@ const RegenerateButton: React.FC<RegenerateButtonProps> = ({
           className="overflow-hidden whitespace-nowrap text-xs font-semibold"
         >
           {isRegenerating
-            ? t("settings.meetings.regenerating")
-            : t("settings.meetings.regenerate")}
+            ? "Regenerating..."
+            : "Regenerate"}
         </motion.span>
       </div>
     </motion.button>
@@ -385,7 +381,6 @@ const HoldToDeleteButton: React.FC<HoldToDeleteButtonProps> = ({
   onDelete,
   title,
 }) => {
-  const { t } = useTranslation();
   const [isHovered, setIsHovered] = useState(false);
   const [isHolding, setIsHolding] = useState(false);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
@@ -488,8 +483,8 @@ const HoldToDeleteButton: React.FC<HoldToDeleteButtonProps> = ({
           className="overflow-hidden whitespace-nowrap text-xs font-semibold"
         >
           {isHolding
-            ? t("settings.meetings.keepHolding")
-            : t("settings.meetings.holdToDelete")}
+            ? "Keep holding..."
+            : "Hold to Delete"}
         </motion.span>
       </div>
     </motion.button>
@@ -497,7 +492,6 @@ const HoldToDeleteButton: React.FC<HoldToDeleteButtonProps> = ({
 };
 
 export const MeetingsView: React.FC = () => {
-  const { t, i18n } = useTranslation();
   const osType = useOsType();
   const [entries, setEntries] = useState<HistoryEntry[]>([]);
   const [loading, setLoading] = useState(true);
@@ -587,9 +581,7 @@ export const MeetingsView: React.FC = () => {
 
       if (ignoredFiles.length > 0) {
         toast.error(
-          t("settings.meetings.ignoredUnsupportedFiles", {
-            files: ignoredFiles.join(", "),
-          }) || `Ignored unsupported file(s): ${ignoredFiles.join(", ")}`,
+          `Ignored unsupported file(s): ${(ignoredFiles.join(", "))}` || `Ignored unsupported file(s): ${ignoredFiles.join(", ")}`,
         );
       }
 
@@ -723,12 +715,9 @@ export const MeetingsView: React.FC = () => {
 
       if (!displayTitle) {
         if (entry.transcription_text === "") {
-          displayTitle = t("settings.meetings.processing", "Processing...");
+          displayTitle = "Processing";
         } else {
-          displayTitle = t(
-            "settings.meetings.detectedMeeting",
-            "Detected Meeting",
-          );
+          displayTitle = "Detected Meeting";
         }
       }
 
@@ -736,11 +725,11 @@ export const MeetingsView: React.FC = () => {
       let timeStr = "";
       try {
         const date = new Date(entry.timestamp * 1000);
-        monthDate = new Intl.DateTimeFormat(i18n.language, {
+        monthDate = new Intl.DateTimeFormat("en", {
           month: "long",
           day: "numeric",
         }).format(date);
-        timeStr = new Intl.DateTimeFormat(i18n.language, {
+        timeStr = new Intl.DateTimeFormat("en", {
           hour: "numeric",
           minute: "2-digit",
           hour12: true,
@@ -752,7 +741,7 @@ export const MeetingsView: React.FC = () => {
 
       return { title: displayTitle, subtitle: monthDate, time: timeStr, tags };
     },
-    [i18n.language, t],
+    [],
   );
 
   const processedSearchEntries = useMemo(() => {
@@ -828,14 +817,14 @@ export const MeetingsView: React.FC = () => {
           void loadMeetings();
         } else {
           toast.success(
-            t("settings.history.deleteSuccess") || "Meeting deleted",
+            "Entry deleted successfully.",
           );
         }
       } catch {
         void loadMeetings();
       }
     },
-    [loadMeetings, selectedMeeting, t],
+    [loadMeetings, selectedMeeting],
   );
 
   const handleRegenerate = async (id: number) => {
@@ -844,15 +833,15 @@ export const MeetingsView: React.FC = () => {
     try {
       const result = await commands.regenerateHistoryEntrySummary(id);
       if (result.status === "ok") {
-        toast.success(t("settings.meetings.regenerateSuccess"));
+        toast.success("Summary regenerated successfully!");
       } else {
         toast.error(
-          t("settings.meetings.regenerateError") + ": " + result.error,
+          "Failed to regenerate summary" + ": " + result.error,
         );
       }
     } catch (error: any) {
       console.error("Failed to regenerate summary:", error);
-      toast.error(t("settings.meetings.regenerateError"));
+      toast.error("Failed to regenerate summary");
     } finally {
       setIsRegenerating(false);
     }
@@ -880,7 +869,7 @@ export const MeetingsView: React.FC = () => {
       await navigator.clipboard.writeText(text);
       setShowSummaryCopied(true);
       setTimeout(() => setShowSummaryCopied(false), 2000);
-      toast.success(t("settings.history.copied") || "Copied summary!");
+      toast.success("Copied to clipboard!");
     } catch (error) {
       console.error("Failed to copy summary:", error);
     }
@@ -891,7 +880,7 @@ export const MeetingsView: React.FC = () => {
       await navigator.clipboard.writeText(entry.transcription_text);
       setShowTranscriptCopied(true);
       setTimeout(() => setShowTranscriptCopied(false), 2000);
-      toast.success(t("settings.history.copied") || "Copied transcript!");
+      toast.success("Copied to clipboard!");
     } catch (error) {
       console.error("Failed to copy transcript:", error);
     }
@@ -904,8 +893,7 @@ export const MeetingsView: React.FC = () => {
     const trimmed = input.trim();
     if (!trimmed) {
       setEmailsError(
-        t("settings.meetings.recipientsRequired") ||
-          "Recipient email is required.",
+        "Recipient email is required.",
       );
       return null;
     }
@@ -914,7 +902,7 @@ export const MeetingsView: React.FC = () => {
     for (const email of emails) {
       if (!emailRegex.test(email)) {
         setEmailsError(
-          t("settings.meetings.invalidEmail", { email }) ||
+          `Invalid email address: ${(email)}` ||
             `Invalid email address: ${email}`,
         );
         return null;
@@ -952,23 +940,20 @@ export const MeetingsView: React.FC = () => {
 
       if (result.status === "ok") {
         toast.success(
-          t("settings.meetings.sendFollowUpSuccess") ||
-            "Follow-up email sent successfully!",
+          "Follow-up email and tasks sent successfully!",
         );
         setShowFollowUpDialog(false);
         setRecipientsInput("");
         setFollowUpMeeting(null);
       } else {
         toast.error(
-          t("settings.meetings.sendFollowUpError") ||
-            "Failed to send follow-up: " + result.error,
+          "Failed to send follow-up email/tasks.",
         );
       }
     } catch (error: any) {
       console.error("Failed to send meeting follow-up:", error);
       toast.error(
-        t("settings.meetings.sendFollowUpError") ||
-          "Failed to send follow-up email/tasks",
+        "Failed to send follow-up email/tasks.",
       );
     } finally {
       setIsSendingFollowUp(false);
@@ -1013,12 +998,12 @@ export const MeetingsView: React.FC = () => {
         }));
       } else {
         toast.error(
-          t("errors.askFailed") || "Failed to get answer: " + result.error,
+          "Failed to get an answer from the AI. Please check your connection and LLM settings.",
         );
       }
     } catch (error) {
       console.error("Failed to ask meeting question:", error);
-      toast.error(t("errors.askFailed") || "Failed to get answer");
+      toast.error("Failed to get an answer from the AI. Please check your connection and LLM settings.");
     } finally {
       setIsAsking(false);
     }
@@ -1092,10 +1077,10 @@ export const MeetingsView: React.FC = () => {
           >
             <Upload className="w-12 h-12 text-forest-green mb-4 animate-bounce" />
             <p className="text-lg font-semibold text-charcoal">
-              {t("localFileTranscriber.dropFiles")}
+              {"Drop audio files here to transcribe"}
             </p>
             <p className="text-xs text-bark-grey mt-2">
-              {t("localFileTranscriber.supportedFormats")}
+              {"Supports WAV, MP3, M4A, FLAC, OGG"}
             </p>
           </motion.div>
         )}
@@ -1116,7 +1101,7 @@ export const MeetingsView: React.FC = () => {
             {/* Header / Upload bar */}
             <div className="flex items-center justify-between mb-5">
               <h2 className="text-xs font-bold uppercase tracking-wider text-bark-grey">
-                {t("settings.meetings.title")}
+                {"Meetings"}
               </h2>
               <button
                 type="button"
@@ -1124,20 +1109,20 @@ export const MeetingsView: React.FC = () => {
                 className="flex items-center gap-1.5 text-xs font-semibold text-forest-green hover:text-deep-forest-green transition-colors bg-forest-green/10 hover:bg-forest-green/20 px-3 py-1.5 rounded-lg cursor-pointer"
               >
                 <Upload className="w-3.5 h-3.5" />
-                {t("settings.meetings.uploadAudio")}
+                {"Upload Audio"}
               </button>
             </div>
 
             {loading ? (
               <div className="py-20 text-center text-bark-grey text-sm">
                 <span className="w-5 h-5 border-2 border-forest-green border-t-transparent rounded-full animate-spin inline-block mr-2 align-middle"></span>
-                <span>{t("settings.meetings.loading")}</span>
+                <span>{"Loading meetings..."}</span>
               </div>
             ) : filteredEntries.length === 0 ? (
               <div className="py-20 text-center text-bark-grey text-sm">
                 {searchQuery
-                  ? t("settings.meetings.noSearchResults")
-                  : t("settings.meetings.empty")}
+                  ? "No meetings match your search"
+                  : "No meetings recorded yet. Start a meeting to generate summaries!"}
               </div>
             ) : (
               <motion.div
@@ -1179,7 +1164,7 @@ export const MeetingsView: React.FC = () => {
                             className="flex items-center gap-1.5 text-xs font-semibold text-forest-green hover:text-deep-forest-green transition-colors bg-forest-green/10 hover:bg-forest-green/20 px-3 py-1.5 rounded-lg cursor-pointer"
                           >
                             <Mail className="w-3.5 h-3.5" />
-                            <span>{t("settings.meetings.sendViaGoogle")}</span>
+                            <span>{"Send via Google"}</span>
                           </button>
                         )}
                         {cardTime && (
@@ -1214,7 +1199,7 @@ export const MeetingsView: React.FC = () => {
                 className="flex items-center gap-1.5 text-xs font-semibold text-bark-grey hover:text-charcoal transition-colors cursor-pointer"
               >
                 <ArrowLeft className="w-4 h-4" />
-                <span>{t("settings.meetings.backToMeetings")}</span>
+                <span>{"Back"}</span>
               </button>
 
               {/* Detail Action buttons */}
@@ -1222,7 +1207,7 @@ export const MeetingsView: React.FC = () => {
                 <CopySummaryButton
                   onCopy={() => copySummary(selectedMeeting)}
                   isCopied={showSummaryCopied}
-                  title={t("settings.history.copyToClipboard")}
+                  title={"Copy transcription to clipboard"}
                 />
                 {isGoogleConnected && (
                   <SendFollowUpButton
@@ -1232,17 +1217,17 @@ export const MeetingsView: React.FC = () => {
                       setEmailsError("");
                       setShowFollowUpDialog(true);
                     }}
-                    title={t("settings.meetings.sendViaGoogle")}
+                    title={"Send via Google"}
                   />
                 )}
                 <RegenerateButton
                   onRegenerate={() => handleRegenerate(selectedMeeting.id)}
                   isRegenerating={isRegenerating}
-                  title={t("settings.meetings.regenerateSummaryTitle")}
+                  title={"Regenerate summary"}
                 />
                 <HoldToDeleteButton
                   onDelete={() => deleteMeeting(selectedMeeting.id)}
-                  title={t("settings.history.delete")}
+                  title={"Delete entry"}
                 />
               </div>
             </div>
@@ -1265,7 +1250,7 @@ export const MeetingsView: React.FC = () => {
               <p className="text-sm text-bark-grey font-medium">
                 {formatDateTime(
                   String(selectedMeeting.timestamp),
-                  i18n.language,
+                  "en",
                 )}
               </p>
             </div>
@@ -1281,8 +1266,8 @@ export const MeetingsView: React.FC = () => {
                       ? "bg-forest-green text-orange-off-white"
                       : "text-bark-grey hover:text-charcoal hover:bg-stone-mist/40"
                   }`}
-                  title={t("settings.meetings.summaryTab") || "Summary"}
-                  aria-label={t("settings.meetings.summaryTab") || "Summary"}
+                  title="Summary"
+                  aria-label="Summary"
                 >
                   <Sparkles className="w-4 h-4" />
                 </button>
@@ -1294,10 +1279,8 @@ export const MeetingsView: React.FC = () => {
                       ? "bg-forest-green text-orange-off-white"
                       : "text-bark-grey hover:text-charcoal hover:bg-stone-mist/40"
                   }`}
-                  title={t("settings.meetings.transcriptTab") || "Transcript"}
-                  aria-label={
-                    t("settings.meetings.transcriptTab") || "Transcript"
-                  }
+                  title="Transcript"
+                  aria-label="Transcript"
                 >
                   <FileText className="w-4 h-4" />
                 </button>
@@ -1319,11 +1302,11 @@ export const MeetingsView: React.FC = () => {
                 ) : selectedMeeting.transcription_text === "" ? (
                   <div className="flex items-center gap-2 text-bark-grey py-1">
                     <span className="w-4 h-4 border-2 border-forest-green border-t-transparent rounded-full animate-spin"></span>
-                    <span>{t("settings.meetings.processing")}</span>
+                    <span>{"Processing"}</span>
                   </div>
                 ) : (
                   <p className="text-pebble italic">
-                    {t("settings.meetings.summaryFailed")}
+                    {"Failed to generate meeting summary."}
                   </p>
                 )}
               </div>
@@ -1340,7 +1323,7 @@ export const MeetingsView: React.FC = () => {
                   <div className="px-5 py-4 space-y-3">
                     <div className="flex items-center justify-between border-b border-stone-mist/20 pb-2">
                       <span className="text-xs font-bold uppercase tracking-wider text-bark-grey">
-                        {t("settings.meetings.fullTranscript")}
+                        {"Full Transcript"}
                       </span>
                       <button
                         type="button"
@@ -1353,19 +1336,14 @@ export const MeetingsView: React.FC = () => {
                           <Copy className="w-3.5 h-3.5" />
                         )}
                         <span>
-                          {showTranscriptCopied
-                            ? t("settings.meetings.copied") || "Copied"
-                            : t("settings.meetings.copy") || "Copy"}
+                          {showTranscriptCopied ? "Copied" : "Copy"}
                         </span>
                       </button>
                     </div>
                     <div className="text-sm text-bark-grey whitespace-pre-wrap leading-relaxed select-text font-normal font-sans max-h-96 overflow-y-auto pr-2 scrollbar-thin">
                       {selectedMeeting.transcription_text || (
                         <p className="italic text-pebble">
-                          {t(
-                            "settings.meetings.noTranscript",
-                            "No transcript text available.",
-                          )}
+                          {"No transcript text available."}
                         </p>
                       )}
                     </div>
@@ -1401,12 +1379,12 @@ export const MeetingsView: React.FC = () => {
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
           <div className="bg-orange-off-white border border-stone-mist rounded-2xl max-w-md w-full p-6 space-y-4 shadow-2xl backdrop-blur-sm">
             <h3 className="text-base font-semibold text-charcoal font-cooper">
-              {t("settings.meetings.sendFollowUpTitle")}
+              {"Send Meeting Follow-Up"}
             </h3>
 
             <div className="space-y-1.5">
               <label className="text-xs font-semibold uppercase tracking-wider text-bark-grey">
-                {t("settings.meetings.recipientsLabel")}
+                {"Recipient Emails (comma or space separated)"}
               </label>
               <textarea
                 value={recipientsInput}
@@ -1414,7 +1392,7 @@ export const MeetingsView: React.FC = () => {
                   setRecipientsInput(e.target.value);
                   setEmailsError("");
                 }}
-                placeholder={t("settings.meetings.recipientsPlaceholder")}
+                placeholder={"e.g., alex@example.com, john@example.com"}
                 className="w-full h-24 px-3 py-2 bg-warm-bone/45 border border-stone-mist/60 rounded-xl text-sm text-charcoal placeholder-pebble focus:outline-none focus:border-forest-green"
               />
               {emailsError && (
@@ -1433,7 +1411,7 @@ export const MeetingsView: React.FC = () => {
                 }}
                 className="px-4 py-2 text-xs font-semibold text-bark-grey hover:text-charcoal bg-warm-bone/60 border border-stone-mist/40 rounded-xl transition-colors cursor-pointer"
               >
-                {t("settings.meetings.cancel")}
+                {"Cancel"}
               </button>
               <button
                 type="button"
@@ -1446,8 +1424,8 @@ export const MeetingsView: React.FC = () => {
                 )}
                 <span>
                   {isSendingFollowUp
-                    ? t("settings.meetings.sending")
-                    : t("settings.meetings.send")}
+                    ? "Sending..."
+                    : "Send"}
                 </span>
               </button>
             </div>

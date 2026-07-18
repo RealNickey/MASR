@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useRef } from "react";
-import { useTranslation } from "react-i18next";
 import { check, Update } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { getVersion } from "@tauri-apps/api/app";
@@ -74,7 +73,6 @@ let updateCheckingCycleStarted = false;
 let startupUpdateFlowPromise: Promise<void> | null = null;
 
 export const GlobalUpdatePrompt: React.FC = () => {
-  const { t } = useTranslation();
   const [updateState, setUpdateState] =
     useState<GlobalUpdateState>(globalUpdateState);
   const [isStartupInstalling, setIsStartupInstalling] = useState(false);
@@ -493,7 +491,7 @@ export const GlobalUpdatePrompt: React.FC = () => {
           isChecking: false,
           error: fallbackErr?.message || String(fallbackErr),
         });
-        alert(t("footer.updateNowError"));
+        alert("Install failed. Please restart the app manually.");
       }
     }
   };
@@ -516,10 +514,10 @@ export const GlobalUpdatePrompt: React.FC = () => {
           />
           <div className="space-y-2">
             <h2 className="text-xl font-bold font-cooper tracking-wide">
-              {t("footer.installingUpdate")}
+              {"Installing update..."}
             </h2>
             <p className="text-sm text-text/60">
-              {startupError ? t("footer.updateNowError") : t("common.loading")}
+              {startupError ? "Install failed. Please restart the app manually." : "Loading..."}
             </p>
           </div>
           {!startupError && (
@@ -564,14 +562,10 @@ export const GlobalUpdatePrompt: React.FC = () => {
             </div>
             <div className="space-y-1">
               <h2 className="text-lg font-bold font-cooper tracking-wide text-charcoal">
-                {t("footer.updateReady")}
+                {"Update Ready"}
               </h2>
               <p className="text-sm text-text/70">
-                {t("footer.updateReadyDescription", {
-                  appName: "ThegAi",
-                  version: activeUpdateRef.current.version,
-                  current: activeUpdateRef.current.currentVersion,
-                })}
+                {`${("ThegAi")} v${(activeUpdateRef.current.version)} is ready to install. You're on v${(activeUpdateRef.current.currentVersion)}.`}
               </p>
             </div>
           </div>
@@ -581,13 +575,13 @@ export const GlobalUpdatePrompt: React.FC = () => {
               onClick={handleUpdateLater}
               className="px-4 py-2 text-sm font-semibold rounded-xl border border-mid-gray/30 hover:bg-mid-gray/10 transition-colors cursor-pointer text-charcoal"
             >
-              {t("footer.updateOnNextLaunch")}
+              {"Update on Next Launch"}
             </button>
             <button
               onClick={handleUpdateNow}
               className="px-4 py-2 text-sm font-semibold rounded-xl bg-forest-green text-orange-off-white hover:bg-forest-green/90 transition-colors shadow-sm cursor-pointer"
             >
-              {t("footer.updateNow")}
+              {"Update Now"}
             </button>
           </div>
         </div>

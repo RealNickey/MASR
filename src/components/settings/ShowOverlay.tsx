@@ -1,5 +1,4 @@
 import React from "react";
-import { useTranslation } from "react-i18next";
 import { Dropdown } from "../ui/Dropdown";
 import { SettingContainer } from "../ui/SettingContainer";
 import { useSettings } from "../../hooks/useSettings";
@@ -12,13 +11,12 @@ interface ShowOverlayProps {
 
 export const ShowOverlay: React.FC<ShowOverlayProps> = React.memo(
   ({ descriptionMode = "tooltip", grouped = false }) => {
-    const { t } = useTranslation();
     const { getSetting, updateSetting, isUpdating } = useSettings();
 
     const overlayOptions = [
-      { value: "none", label: t("settings.advanced.overlay.options.none") },
-      { value: "bottom", label: t("settings.advanced.overlay.options.bottom") },
-      { value: "top", label: t("settings.advanced.overlay.options.top") },
+      { value: "none", label: "None" },
+      { value: "bottom", label: "Bottom" },
+      { value: "top", label: "Top" },
     ];
 
     const selectedPosition = (getSetting("overlay_position") ||
@@ -26,8 +24,8 @@ export const ShowOverlay: React.FC<ShowOverlayProps> = React.memo(
 
     return (
       <SettingContainer
-        title={t("settings.advanced.overlay.title")}
-        description={t("settings.advanced.overlay.description")}
+        title={"Overlay Position"}
+        description={"Display visual feedback overlay during recording and transcription. On Linux 'None' is recommended."}
         descriptionMode={descriptionMode}
         grouped={grouped}
       >

@@ -7,7 +7,6 @@ import {
   X,
   ArrowUpRight,
 } from "lucide-react";
-import { useTranslation } from "react-i18next";
 import { motion, AnimatePresence } from "framer-motion";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -38,7 +37,6 @@ export const FloatingBar: React.FC<FloatingBarProps> = ({
   isSendingChat,
   onClearChat,
 }) => {
-  const { t } = useTranslation();
   const [chatInput, setChatInput] = useState("");
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
@@ -91,7 +89,7 @@ export const FloatingBar: React.FC<FloatingBarProps> = ({
             <div className="flex items-center justify-between px-4 py-2.5 border-b border-stone-mist/60 bg-warm-bone/40">
               <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-bark-grey">
                 <Sparkles className="w-3.5 h-3.5 text-forest-green" />
-                <span>{t("settings.meetings.chatWithMeeting")}</span>
+                <span>{"Chat with Meeting"}</span>
               </div>
               <div className="flex items-center gap-2">
                 {onClearChat && (
@@ -99,14 +97,14 @@ export const FloatingBar: React.FC<FloatingBarProps> = ({
                     onClick={onClearChat}
                     className="text-[10px] uppercase font-bold text-pebble hover:text-alarm-red transition-colors cursor-pointer"
                   >
-                    {t("settings.meetings.clear")}
+                    {"Clear"}
                   </button>
                 )}
                 <button
                   onClick={() => setIsHistoryOpen(false)}
                   className="text-bark-grey hover:text-charcoal p-0.5 rounded transition-colors"
-                  aria-label={t("common.close") || "Close"}
-                  title={t("common.close") || "Close"}
+                  aria-label="Close"
+                  title="Close"
                 >
                   <X className="w-3.5 h-3.5" />
                 </button>
@@ -144,7 +142,7 @@ export const FloatingBar: React.FC<FloatingBarProps> = ({
                   <div className="bg-warm-bone/60 border border-stone-mist/40 rounded-xl px-3 py-2 text-sm flex items-center gap-2">
                     <span className="w-3.5 h-3.5 border-2 border-forest-green border-t-transparent rounded-full animate-spin"></span>
                     <span className="text-xs text-bark-grey italic">
-                      {t("settings.meetings.asking")}
+                      {"Asking..."}
                     </span>
                   </div>
                 </div>
@@ -177,7 +175,7 @@ export const FloatingBar: React.FC<FloatingBarProps> = ({
                 value={searchQuery}
                 onChange={(e) => onSearchChange(e.target.value)}
                 onKeyDown={handleKeyDown}
-                placeholder={t("settings.meetings.searchPlaceholder")}
+                placeholder={"Search meetings..."}
                 className="flex-1 bg-transparent border-none text-charcoal placeholder-pebble text-sm focus:outline-none focus:ring-0"
                 autoFocus
               />
@@ -185,10 +183,8 @@ export const FloatingBar: React.FC<FloatingBarProps> = ({
                 <button
                   onClick={() => onSearchChange("")}
                   className="text-bark-grey hover:text-charcoal p-1 transition-colors"
-                  aria-label={
-                    t("settings.meetings.clearSearch") || "Clear search"
-                  }
-                  title={t("settings.meetings.clearSearch") || "Clear search"}
+                  aria-label="Clear search"
+                  title="Clear search"
                 >
                   <X className="w-4 h-4" />
                 </button>
@@ -212,14 +208,8 @@ export const FloatingBar: React.FC<FloatingBarProps> = ({
                       ? "bg-forest-green/10 text-forest-green"
                       : "text-bark-grey hover:text-charcoal hover:bg-warm-bone/40"
                   }`}
-                  title={
-                    t("settings.meetings.toggleChatHistory") ||
-                    "Toggle Chat History"
-                  }
-                  aria-label={
-                    t("settings.meetings.toggleChatHistory") ||
-                    "Toggle Chat History"
-                  }
+                  title="Toggle Chat History"
+                  aria-label="Toggle Chat History"
                 >
                   <MessageSquare className="w-4 h-4" />
                 </button>
@@ -232,7 +222,7 @@ export const FloatingBar: React.FC<FloatingBarProps> = ({
                   onChange={(e) => setChatInput(e.target.value)}
                   onKeyDown={handleKeyDown}
                   disabled={isSendingChat}
-                  placeholder={t("settings.meetings.chatPlaceholder_detail")}
+                  placeholder={"Ask about this meeting..."}
                   className="flex-1 bg-transparent border-none text-charcoal placeholder-pebble text-sm focus:outline-none focus:ring-0"
                   autoFocus
                 />
@@ -242,8 +232,8 @@ export const FloatingBar: React.FC<FloatingBarProps> = ({
                 onClick={handleSend}
                 disabled={isSendingChat || !chatInput.trim()}
                 className="p-2 rounded-xl bg-forest-green hover:bg-deep-forest-green disabled:opacity-40 disabled:cursor-not-allowed text-orange-off-white transition-all duration-150 active:scale-95 flex items-center justify-center cursor-pointer shadow-md"
-                title={t("settings.meetings.sendChat") || "Send message"}
-                aria-label={t("settings.meetings.sendChat") || "Send message"}
+                title="Send message"
+                aria-label="Send message"
               >
                 {isSendingChat ? (
                   <span className="w-4 h-4 border-2 border-orange-off-white border-t-transparent rounded-full animate-spin"></span>

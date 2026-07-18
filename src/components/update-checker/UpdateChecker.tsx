@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useRef } from "react";
-import { useTranslation } from "react-i18next";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { ProgressBar } from "../shared";
 import { commands } from "../../bindings";
@@ -14,7 +13,6 @@ interface UpdateCheckerProps {
 }
 
 const UpdateChecker: React.FC<UpdateCheckerProps> = ({ className = "" }) => {
-  const { t } = useTranslation();
 
   const [updateState, setUpdateState] = useState<GlobalUpdateState | null>(
     null,
@@ -79,35 +77,33 @@ const UpdateChecker: React.FC<UpdateCheckerProps> = ({ className = "" }) => {
   };
 
   const getUpdateStatusText = () => {
-    if (!updateState) return t("footer.checkForUpdates");
+    if (!updateState) return "Check for updates";
 
     if (updateState.isChecking) {
-      return t("footer.checkingUpdates");
+      return "Checking for updates...";
     }
 
     if (updateState.isDownloading) {
       const progress = updateState.downloadProgress;
       if (progress > 0 && progress < 100) {
-        return t("footer.downloading", {
-          progress: progress.toString().padStart(3),
-        });
+        return `Downloading... ${(progress.toString().padStart(3))}%`;
       }
-      return progress === 100 ? t("footer.installing") : t("footer.preparing");
+      return progress === 100 ? "Installing..." : "Preparing...";
     }
 
     if (showUpToDate) {
-      return t("footer.upToDate");
+      return "Up to date";
     }
 
     if (updateState.updateReady) {
-      return t("footer.updateAvailableShort");
+      return "Update available";
     }
 
     if (updateState.updateAvailable) {
-      return t("footer.updateAvailableShort");
+      return "Update available";
     }
 
-    return t("footer.checkForUpdates");
+    return "Check for updates";
   };
 
   const isChecking = updateState?.isChecking ?? false;
@@ -130,17 +126,17 @@ const UpdateChecker: React.FC<UpdateCheckerProps> = ({ className = "" }) => {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
           <div className="bg-bg border border-border rounded-lg p-6 max-w-md w-full mx-4 space-y-4">
             <h2 className="text-base font-semibold">
-              {t("footer.portableUpdateTitle")}
+              {"Manual update required"}
             </h2>
             <p className="text-sm text-text/70">
-              {t("footer.portableUpdateMessage")}
+              {"Portable installs cannot be updated automatically. To update: download the latest NSIS installer from GitHub Releases, install it to the same folder, then copy your Data/ folder (settings, models, recordings) from the old version to the new one."}
             </p>
             <div className="flex gap-2 justify-end">
               <button
                 className="px-3 py-1.5 text-sm rounded border border-border hover:bg-border/50 transition-colors cursor-pointer"
                 onClick={() => setShowPortableUpdateDialog(false)}
               >
-                {t("common.close")}
+                {"Close"}
               </button>
               <button
                 className="px-3 py-1.5 text-sm rounded bg-logo-primary text-white hover:bg-logo-primary/80 transition-colors cursor-pointer"
@@ -149,7 +145,7 @@ const UpdateChecker: React.FC<UpdateCheckerProps> = ({ className = "" }) => {
                   setShowPortableUpdateDialog(false);
                 }}
               >
-                {t("footer.portableUpdateButton")}
+                {"Open GitHub Releases"}
               </button>
             </div>
           </div>

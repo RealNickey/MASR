@@ -1,5 +1,4 @@
 import React from "react";
-import { useTranslation } from "react-i18next";
 import { SettingContainer } from "../../ui/SettingContainer";
 
 interface DebugPathsProps {
@@ -11,7 +10,6 @@ export const DebugPaths: React.FC<DebugPathsProps> = ({
   descriptionMode = "inline",
   grouped = false,
 }) => {
-  const { t } = useTranslation();
 
   return (
     <SettingContainer
@@ -23,7 +21,7 @@ export const DebugPaths: React.FC<DebugPathsProps> = ({
       <div className="text-sm text-gray-600 space-y-2">
         <div>
           <span className="font-medium">
-            {t("settings.debug.paths.appData")}
+            {"App Data:"}
           </span>{" "}
           {}
           <span className="font-mono text-xs select-text">
@@ -32,7 +30,7 @@ export const DebugPaths: React.FC<DebugPathsProps> = ({
         </div>
         <div>
           <span className="font-medium">
-            {t("settings.debug.paths.models")}
+            {"Models:"}
           </span>{" "}
           {}
           <span className="font-mono text-xs select-text">
@@ -41,7 +39,7 @@ export const DebugPaths: React.FC<DebugPathsProps> = ({
         </div>
         <div>
           <span className="font-medium">
-            {t("settings.debug.paths.settings")}
+            {"Settings:"}
           </span>{" "}
           {}
           <span className="font-mono text-xs select-text">

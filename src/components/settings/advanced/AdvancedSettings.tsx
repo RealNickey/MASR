@@ -1,5 +1,4 @@
 import React from "react";
-import { useTranslation } from "react-i18next";
 import { ShowOverlay } from "../ShowOverlay";
 import { ModelUnloadTimeoutSetting } from "../ModelUnloadTimeout";
 import { CustomWords } from "../CustomWords";
@@ -26,7 +25,6 @@ interface AdvancedSettingsProps {
 export const AdvancedSettings: React.FC<AdvancedSettingsProps> = ({
   simulateProd,
 }) => {
-  const { t } = useTranslation();
   const { getSetting } = useSettings();
   const experimentalEnabled = getSetting("experimental_enabled") || false;
 
@@ -36,7 +34,7 @@ export const AdvancedSettings: React.FC<AdvancedSettingsProps> = ({
   return (
     <div className="max-w-3xl w-full mx-auto space-y-6">
       <SettingsGroup
-        title={t("settings.advanced.groups.app")}
+        title={"App"}
         className="relative z-50"
       >
         <StartHidden descriptionMode="tooltip" grouped={true} />
@@ -52,7 +50,7 @@ export const AdvancedSettings: React.FC<AdvancedSettingsProps> = ({
       </SettingsGroup>
 
       <SettingsGroup
-        title={t("settings.advanced.groups.output")}
+        title={"Output"}
         className="relative z-40"
       >
         <PasteMethodSetting descriptionMode="tooltip" grouped={true} />
@@ -62,7 +60,7 @@ export const AdvancedSettings: React.FC<AdvancedSettingsProps> = ({
       </SettingsGroup>
 
       <SettingsGroup
-        title={t("settings.advanced.groups.transcription")}
+        title={"Transcription"}
         className="relative z-30"
       >
         <CustomWords descriptionMode="tooltip" grouped />
@@ -70,7 +68,7 @@ export const AdvancedSettings: React.FC<AdvancedSettingsProps> = ({
       </SettingsGroup>
 
       <SettingsGroup
-        title={t("settings.advanced.groups.history")}
+        title={"History"}
         className="relative z-20"
       >
         <HistoryLimit descriptionMode="tooltip" grouped={true} />
@@ -82,7 +80,7 @@ export const AdvancedSettings: React.FC<AdvancedSettingsProps> = ({
 
       {experimentalEnabled && !isSimulatingOrRealProd && (
         <SettingsGroup
-          title={t("settings.advanced.groups.experimental")}
+          title={"Experimental"}
           className="relative z-10"
         >
           <KeyboardImplementationSelector

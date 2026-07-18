@@ -1,5 +1,4 @@
 import React, { useState, useRef, useEffect } from "react";
-import { useTranslation } from "react-i18next";
 import { listen } from "@tauri-apps/api/event";
 import { commands } from "@/bindings";
 import { getTranslatedModelName } from "../../lib/utils/modelTranslation";
@@ -25,7 +24,6 @@ interface ModelSelectorProps {
 }
 
 const ModelSelector: React.FC<ModelSelectorProps> = ({ onError }) => {
-  const { t } = useTranslation();
   const {
     models,
     currentModel,
@@ -160,11 +158,11 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({ onError }) => {
         const modelId = verifyingKeys[0];
         const model = models.find((m) => m.id === modelId);
         const modelName = model
-          ? getTranslatedModelName(model, t)
-          : t("modelSelector.verifyingGeneric").replace("...", "");
-        return t("modelSelector.verifying", { modelName });
+          ? getTranslatedModelName(model)
+          : "Verifying...".replace("...", "");
+        return `Verifying ${(modelName)}...`;
       } else {
-        return t("modelSelector.verifyingGeneric");
+        return "Verifying...";
       }
     }
 
@@ -174,13 +172,11 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({ onError }) => {
         const modelId = extractingKeys[0];
         const model = models.find((m) => m.id === modelId);
         const modelName = model
-          ? getTranslatedModelName(model, t)
-          : t("modelSelector.extractingGeneric").replace("...", "");
-        return t("modelSelector.extracting", { modelName });
+          ? getTranslatedModelName(model)
+          : "Extracting...".replace("...", "");
+        return `Extracting ${(modelName)}...`;
       } else {
-        return t("modelSelector.extractingMultiple", {
-          count: extractingKeys.length,
-        });
+        return `Extracting ${(extractingKeys.length)} models...`;
       }
     }
 
@@ -192,11 +188,9 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({ onError }) => {
           0,
           Math.min(100, Math.round(progress.percentage)),
         );
-        return t("modelSelector.downloading", { percentage });
+        return `Downloading ${(percentage)}%`;
       } else {
-        return t("modelSelector.downloadingMultiple", {
-          count: progressValues.length,
-        });
+        return `Downloading ${(progressValues.length)} models...`;
       }
     }
 
@@ -205,32 +199,28 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({ onError }) => {
     switch (modelStatus) {
       case "ready":
         return currentModelInfo
-          ? getTranslatedModelName(currentModelInfo, t)
-          : t("modelSelector.modelReady");
+          ? getTranslatedModelName(currentModelInfo)
+          : "Model Ready";
       case "loading":
         return currentModelInfo
-          ? t("modelSelector.loading", {
-              modelName: getTranslatedModelName(currentModelInfo, t),
-            })
-          : t("modelSelector.loadingGeneric");
+          ? `Loading ${(getTranslatedModelName(currentModelInfo))}...`
+          : "Loading...";
       case "extracting":
         return currentModelInfo
-          ? t("modelSelector.extracting", {
-              modelName: getTranslatedModelName(currentModelInfo, t),
-            })
-          : t("modelSelector.extractingGeneric");
+          ? `Extracting ${(getTranslatedModelName(currentModelInfo))}...`
+          : "Extracting...";
       case "error":
-        return modelError || t("modelSelector.modelError");
+        return modelError || "Model Error";
       case "unloaded":
         return currentModelInfo
-          ? getTranslatedModelName(currentModelInfo, t)
-          : t("modelSelector.modelUnloaded");
+          ? getTranslatedModelName(currentModelInfo)
+          : "Model Unloaded";
       case "none":
-        return t("modelSelector.noModelDownloadRequired");
+        return "No Model - Download Required";
       default:
         return currentModelInfo
-          ? getTranslatedModelName(currentModelInfo, t)
-          : t("modelSelector.modelUnloaded");
+          ? getTranslatedModelName(currentModelInfo)
+          : "Model Unloaded";
     }
   };
 

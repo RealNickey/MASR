@@ -1,5 +1,4 @@
 import React, { useEffect, useState } from "react";
-import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import type { ModelInfo } from "@/bindings";
 import type { ModelCardStatus } from "./ModelCard";
@@ -18,7 +17,6 @@ const Onboarding: React.FC<OnboardingProps> = ({
   isPreview = false,
   onExitPreview,
 }) => {
-  const { t } = useTranslation();
   const {
     models,
     downloadModel,
@@ -58,7 +56,7 @@ const Onboarding: React.FC<OnboardingProps> = ({
         if (success) {
           onModelSelected();
         } else {
-          toast.error(t("onboarding.errors.selectModel"));
+          toast.error("Failed to select model");
           setSelectedModelId(null);
         }
       });
@@ -76,9 +74,7 @@ const Onboarding: React.FC<OnboardingProps> = ({
   const handleDownloadModel = async (modelId: string) => {
     if (isPreview) {
       toast.success(
-        t("onboarding.success", {
-          defaultValue: "Preview: Model selected successfully!",
-        }),
+        "Preview: Model selected successfully!",
       );
       onModelSelected();
       return;
@@ -115,13 +111,13 @@ const Onboarding: React.FC<OnboardingProps> = ({
           onClick={onExitPreview}
           className="absolute top-4 right-4 px-3 py-1.5 rounded-md border border-amber-500/20 bg-amber-500/10 hover:bg-amber-500/20 text-amber-600 text-[10px] font-mono font-bold tracking-wide uppercase transition-all duration-200"
         >
-          {t("onboarding.exitPreview")}
+          {"Exit Preview"}
         </button>
       )}
       <div className="flex flex-col items-center gap-2 shrink-0">
         <Logo size="lg" className="mb-2" />
         <p className="text-text/70 max-w-md font-medium mx-auto">
-          {t("onboarding.subtitle")}
+          {"To get started, choose a transcription model"}
         </p>
       </div>
 

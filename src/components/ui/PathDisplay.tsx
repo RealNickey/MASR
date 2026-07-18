@@ -1,5 +1,4 @@
 import React from "react";
-import { useTranslation } from "react-i18next";
 import { Button } from "./Button";
 
 interface PathDisplayProps {
@@ -13,7 +12,6 @@ export const PathDisplay: React.FC<PathDisplayProps> = ({
   onOpen,
   disabled = false,
 }) => {
-  const { t } = useTranslation();
 
   return (
     <div className="flex items-center gap-2">
@@ -27,7 +25,7 @@ export const PathDisplay: React.FC<PathDisplayProps> = ({
         disabled={disabled}
         className="px-3 py-2 shrink-0"
       >
-        {t("common.open")}
+        {"Open"}
       </Button>
     </div>
   );

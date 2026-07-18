@@ -1,5 +1,4 @@
 import React, { useEffect, useRef, useState } from "react";
-import { useTranslation } from "react-i18next";
 import { motion, AnimatePresence } from "framer-motion";
 
 export interface DropdownOption {
@@ -27,7 +26,6 @@ export const Dropdown: React.FC<DropdownProps> = ({
   disabled = false,
   onRefresh,
 }) => {
-  const { t } = useTranslation();
   const [isOpen, setIsOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
@@ -101,7 +99,7 @@ export const Dropdown: React.FC<DropdownProps> = ({
           >
             {options.length === 0 ? (
               <div className="px-4 py-2.5 text-sm text-pebble">
-                {t("common.noOptionsFound")}
+                {"No options found"}
               </div>
             ) : (
               options.map((option) => (

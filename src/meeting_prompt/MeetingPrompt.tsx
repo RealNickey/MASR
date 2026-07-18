@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { AnimatePresence, motion } from "framer-motion";
 import { Check, EyeOff, Mic, Square, Info } from "lucide-react";
-import { useTranslation } from "react-i18next";
 import { commands } from "@/bindings";
 import "./MeetingPrompt.css";
 
@@ -48,7 +47,6 @@ function formatElapsed(startedAt: string | null) {
 }
 
 export default function MeetingPrompt() {
-  const { t } = useTranslation();
   const [snapshot, setSnapshot] = useState<MeetingOverlaySnapshot>({
     sequence: 0,
     mode: "hidden",
@@ -122,11 +120,11 @@ export default function MeetingPrompt() {
   const detail = useMemo(() => {
     const prompt = snapshot.prompt;
     if (!prompt?.provider && !prompt?.title) {
-      return t("settings.meetings.assistant.detectedMeeting");
+      return "Detected Meeting";
     }
 
     return [prompt.provider, prompt.title].filter(Boolean).join(" · ");
-  }, [snapshot.prompt, t]);
+  }, [snapshot.prompt]);
 
   const dismissSuggestion = async () => {
     const prompt = snapshot.prompt;
@@ -206,7 +204,7 @@ export default function MeetingPrompt() {
                   <div className="w-1.5 h-6 rounded-full bg-alarm"></div>
                   <div className="flex flex-col">
                     <span className="font-body-sm font-semibold text-on-surface leading-tight whitespace-nowrap">
-                      {t("settings.meetings.assistant.suggestionTitle")}
+                      {"Meeting Detected"}
                     </span>
                     <span className="font-caption text-bark-grey leading-tight mt-1">
                       {snapshot.prompt?.provider || detail}
@@ -220,7 +218,7 @@ export default function MeetingPrompt() {
                   type="button"
                 >
                   <div className="w-2.5 h-2.5 rounded-full bg-alarm animate-pulse-dot flex-shrink-0" />
-                  <span>{t("settings.meetings.assistant.record")}</span>
+                  <span>{"Record"}</span>
                 </button>
               </div>
             )}
@@ -231,7 +229,7 @@ export default function MeetingPrompt() {
                   <div className="w-3 h-3 rounded-full bg-alarm animate-pulse-dot"></div>
                   <div className="flex flex-col justify-center">
                     <span className="font-body-sm font-semibold text-on-surface leading-tight">
-                      {t("settings.meetings.assistant.recordingTitle")}
+                      {"Recording"}
                     </span>
                     <span className="font-data-mono text-[12px] text-bark-grey leading-tight mt-1 tabular-nums">
                       {elapsed}
@@ -243,11 +241,11 @@ export default function MeetingPrompt() {
                   <div className="w-px h-full bg-stone-mist"></div>
                   <div className="flex items-center gap-2">
                     <button
-                      aria-label={t("settings.meetings.assistant.hide")}
+                      aria-label={"Hide"}
                       className="btn-interactive text-bark-grey hover:text-on-surface hover:bg-stone-mist/50 p-2 rounded-lg flex items-center justify-center"
                       onClick={hideRecording}
                       type="button"
-                      title={t("settings.meetings.assistant.hide")}
+                      title={"Hide"}
                     >
                       <EyeOff size={18} />
                     </button>
@@ -259,7 +257,7 @@ export default function MeetingPrompt() {
                       type="button"
                     >
                       <Square size={14} fill="currentColor" />
-                      {t("settings.meetings.assistant.stopSave")}
+                      {"STOP"}
                     </button>
                   </div>
                 </div>
@@ -291,7 +289,7 @@ export default function MeetingPrompt() {
                   </div>
                   <div className="flex flex-col">
                     <span className="font-body-sm font-semibold text-on-surface leading-tight anim-slide-up">
-                      {t("settings.meetings.assistant.capturedTitle")}
+                      {"Recording Saved"}
                     </span>
                     <span className="font-caption text-bark-grey leading-tight mt-1 anim-slide-up-delayed">
                       Saved to history
@@ -304,7 +302,7 @@ export default function MeetingPrompt() {
                   onClick={viewMeetingInApp}
                   type="button"
                 >
-                  <span>{t("settings.meetings.assistant.viewMeeting")}</span>
+                  <span>{"View"}</span>
                 </button>
               </div>
             )}
@@ -317,10 +315,10 @@ export default function MeetingPrompt() {
                   </div>
                   <div className="flex flex-col">
                     <span className="font-body-sm font-semibold text-on-surface leading-tight anim-slide-up">
-                      {t("settings.meetings.assistant.discardedTitle")}
+                      {"Meeting Discarded"}
                     </span>
                     <span className="font-caption text-bark-grey leading-tight mt-1 anim-slide-up-delayed">
-                      {t("settings.meetings.assistant.discardedDescription")}
+                      {"Recording was too short"}
                     </span>
                   </div>
                 </div>

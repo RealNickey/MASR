@@ -1,5 +1,4 @@
 import { useEffect, useState } from "react";
-import { useTranslation } from "react-i18next";
 import { type } from "@tauri-apps/plugin-os";
 import {
   checkAccessibilityPermission,
@@ -17,7 +16,6 @@ interface ButtonPropsConfig {
 }
 
 const AccessibilityPermissions: React.FC = () => {
-  const { t } = useTranslation();
   const [hasAccessibility, setHasAccessibility] = useState<boolean>(false);
   const [permissionState, setPermissionState] =
     useState<PermissionState>("request");
@@ -71,11 +69,11 @@ const AccessibilityPermissions: React.FC = () => {
   // Configure button text and style based on state
   const buttonConfig: Record<PermissionState, ButtonPropsConfig | null> = {
     request: {
-      text: t("accessibility.openSettings"),
+      text: "Open System Settings",
       variant: "primary",
     },
     verify: {
-      text: t("accessibility.openSettings"),
+      text: "Open System Settings",
       variant: "secondary",
     },
     granted: null,
@@ -88,7 +86,7 @@ const AccessibilityPermissions: React.FC = () => {
       <div className="flex justify-between items-center gap-4">
         <div className="min-w-0 flex-1">
           <p className="text-sm font-medium text-charcoal">
-            {t("accessibility.permissionsDescription")}
+            {"ThegAi needs accessibility permissions to type transcribed text."}
           </p>
         </div>
         <Button

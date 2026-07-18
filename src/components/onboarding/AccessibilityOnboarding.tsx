@@ -1,5 +1,4 @@
 import { useEffect, useState, useCallback, useRef } from "react";
-import { useTranslation } from "react-i18next";
 import { platform } from "@tauri-apps/plugin-os";
 import {
   checkAccessibilityPermission,
@@ -32,7 +31,6 @@ const AccessibilityOnboarding: React.FC<AccessibilityOnboardingProps> = ({
   isPreview = false,
   onExitPreview,
 }) => {
-  const { t } = useTranslation();
   const refreshAudioDevices = useSettingsStore(
     (state) => state.refreshAudioDevices,
   );
@@ -138,7 +136,7 @@ const AccessibilityOnboarding: React.FC<AccessibilityOnboardingProps> = ({
           }
         } catch (error) {
           console.error("Failed to check macOS permissions:", error);
-          toast.error(t("onboarding.permissions.errors.checkFailed"));
+          toast.error("Failed to check permissions. Please try again.");
           setPermissions({
             accessibility: "needed",
             microphone: "needed",
@@ -170,7 +168,7 @@ const AccessibilityOnboarding: React.FC<AccessibilityOnboardingProps> = ({
     };
 
     checkInitial();
-  }, [completeOnboarding, hasWindowsMicrophoneAccess, onComplete, t]);
+  }, [completeOnboarding, hasWindowsMicrophoneAccess, onComplete]);
 
   // Polling for permissions after user clicks a button
   const startPolling = useCallback(() => {
@@ -243,11 +241,11 @@ const AccessibilityOnboarding: React.FC<AccessibilityOnboardingProps> = ({
             clearInterval(pollingRef.current);
             pollingRef.current = null;
           }
-          toast.error(t("onboarding.permissions.errors.checkFailed"));
+          toast.error("Failed to check permissions. Please try again.");
         }
       }
     }, 1000);
-  }, [completeOnboarding, hasWindowsMicrophoneAccess, permissionPlatform, t]);
+  }, [completeOnboarding, hasWindowsMicrophoneAccess, permissionPlatform]);
 
   // Cleanup polling and timeouts on unmount
   useEffect(() => {
@@ -278,7 +276,7 @@ const AccessibilityOnboarding: React.FC<AccessibilityOnboardingProps> = ({
       startPolling();
     } catch (error) {
       console.error("Failed to request accessibility permission:", error);
-      toast.error(t("onboarding.permissions.errors.requestFailed"));
+      toast.error("Failed to request permission. Please try again.");
     }
   };
 
@@ -305,7 +303,7 @@ const AccessibilityOnboarding: React.FC<AccessibilityOnboardingProps> = ({
       startPolling();
     } catch (error) {
       console.error("Failed to request microphone permission:", error);
-      toast.error(t("onboarding.permissions.errors.requestFailed"));
+      toast.error("Failed to request permission. Please try again.");
     }
   };
 
@@ -333,7 +331,7 @@ const AccessibilityOnboarding: React.FC<AccessibilityOnboardingProps> = ({
           <Check className="w-12 h-12 text-emerald-400" />
         </div>
         <p className="text-lg font-medium text-text">
-          {t("onboarding.permissions.allGranted")}
+          {"All set!"}
         </p>
       </div>
     );
@@ -347,7 +345,7 @@ const AccessibilityOnboarding: React.FC<AccessibilityOnboardingProps> = ({
           onClick={onExitPreview}
           className="absolute top-4 right-4 px-3 py-1.5 rounded-md border border-amber-500/20 bg-amber-500/10 hover:bg-amber-500/20 text-amber-600 text-[10px] font-mono font-bold tracking-wide uppercase transition-all duration-200"
         >
-          {t("onboarding.exitPreview")}
+          {"Exit Preview"}
         </button>
       )}
       <div className="flex flex-col items-center gap-2 shrink-0">
@@ -357,10 +355,10 @@ const AccessibilityOnboarding: React.FC<AccessibilityOnboardingProps> = ({
       <div className="max-w-md w-full flex flex-col items-center gap-4">
         <div className="text-center mb-2">
           <h2 className="text-xl font-semibold text-text mb-2">
-            {t("onboarding.permissions.title")}
+            {"Permissions Required"}
           </h2>
           <p className="text-text/70 text-sm">
-            {t("onboarding.permissions.description")}
+            {"ThegAi needs a couple of permissions to work properly."}
           </p>
         </div>
 
@@ -373,20 +371,20 @@ const AccessibilityOnboarding: React.FC<AccessibilityOnboardingProps> = ({
               </div>
               <div className="flex-1 min-w-0">
                 <h3 className="font-medium text-text">
-                  {t("onboarding.permissions.microphone.title")}
+                  {"Microphone Access"}
                 </h3>
                 <p className="text-sm text-text/60 mb-3 leading-relaxed">
-                  {t("onboarding.permissions.microphone.description")}
+                  {"Required to hear your voice for transcription."}
                 </p>
                 {permissions.microphone === "granted" ? (
                   <div className="flex items-center gap-2 text-emerald-400 text-sm">
                     <Check className="w-4 h-4" />
-                    {t("onboarding.permissions.granted")}
+                    {"Granted"}
                   </div>
                 ) : permissions.microphone === "waiting" ? (
                   <div className="flex items-center gap-2 text-text/50 text-sm">
                     <Loader2 className="w-4 h-4 animate-spin" />
-                    {t("onboarding.permissions.waiting")}
+                    {"Waiting..."}
                   </div>
                 ) : (
                   <button
@@ -394,8 +392,8 @@ const AccessibilityOnboarding: React.FC<AccessibilityOnboardingProps> = ({
                     className="px-4 py-2 rounded-lg bg-logo-primary hover:bg-logo-primary/90 text-white text-sm font-medium transition-colors cursor-pointer"
                   >
                     {isWindows
-                      ? t("accessibility.openSettings")
-                      : t("onboarding.permissions.grant")}
+                      ? "Open System Settings"
+                      : "Grant Permission"}
                   </button>
                 )}
               </div>
@@ -412,27 +410,27 @@ const AccessibilityOnboarding: React.FC<AccessibilityOnboardingProps> = ({
               </div>
               <div className="flex-1 min-w-0">
                 <h3 className="font-medium text-text">
-                  {t("onboarding.permissions.accessibility.title")}
+                  {"Accessibility Access"}
                 </h3>
                 <p className="text-sm text-text/60 mb-3 leading-relaxed">
-                  {t("onboarding.permissions.accessibility.description")}
+                  {"Required to type transcribed text into your applications."}
                 </p>
                 {permissions.accessibility === "granted" ? (
                   <div className="flex items-center gap-2 text-emerald-400 text-sm">
                     <Check className="w-4 h-4" />
-                    {t("onboarding.permissions.granted")}
+                    {"Granted"}
                   </div>
                 ) : permissions.accessibility === "waiting" ? (
                   <div className="flex items-center gap-2 text-text/50 text-sm">
                     <Loader2 className="w-4 h-4 animate-spin" />
-                    {t("onboarding.permissions.waiting")}
+                    {"Waiting..."}
                   </div>
                 ) : (
                   <button
                     onClick={handleGrantAccessibility}
                     className="px-4 py-2 rounded-lg bg-logo-primary hover:bg-logo-primary/90 text-white text-sm font-medium transition-colors cursor-pointer"
                   >
-                    {t("onboarding.permissions.grant")}
+                    {"Grant Permission"}
                   </button>
                 )}
               </div>

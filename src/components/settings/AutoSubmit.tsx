@@ -1,5 +1,4 @@
 import React from "react";
-import { useTranslation } from "react-i18next";
 import { Dropdown } from "../ui/Dropdown";
 import { SettingContainer } from "../ui/SettingContainer";
 import { useSettings } from "../../hooks/useSettings";
@@ -15,7 +14,6 @@ type AutoSubmitOptionValue = AutoSubmitKey | "off";
 
 export const AutoSubmit: React.FC<AutoSubmitProps> = React.memo(
   ({ descriptionMode = "tooltip", grouped = false }) => {
-    const { t } = useTranslation();
     const osType = useOsType();
     const { getSetting, updateSetting, isUpdating } = useSettings();
 
@@ -25,21 +23,21 @@ export const AutoSubmit: React.FC<AutoSubmitProps> = React.memo(
     const selectedValue: AutoSubmitOptionValue = enabled ? selectedKey : "off";
     const submitWithMetaLabel =
       osType === "macos"
-        ? t("settings.advanced.autoSubmit.options.cmdEnter")
-        : t("settings.advanced.autoSubmit.options.superEnter");
+        ? "Cmd+Enter"
+        : "Super+Enter";
 
     const autoSubmitOptions = [
       {
         value: "off",
-        label: t("settings.advanced.autoSubmit.options.off"),
+        label: "Off",
       },
       {
         value: "enter",
-        label: t("settings.advanced.autoSubmit.options.enter"),
+        label: "Enter",
       },
       {
         value: "ctrl_enter",
-        label: t("settings.advanced.autoSubmit.options.ctrlEnter"),
+        label: "Ctrl+Enter",
       },
       {
         value: "cmd_enter",
@@ -63,8 +61,8 @@ export const AutoSubmit: React.FC<AutoSubmitProps> = React.memo(
 
     return (
       <SettingContainer
-        title={t("settings.advanced.autoSubmit.title")}
-        description={t("settings.advanced.autoSubmit.description")}
+        title={"Auto Submit"}
+        description={"Automatically send the selected key combination after text insertion. Cmd+Enter applies on macOS, while Windows/Linux use Super+Enter."}
         descriptionMode={descriptionMode}
         grouped={grouped}
       >

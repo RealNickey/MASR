@@ -1,5 +1,4 @@
 import React, { useEffect, useState, useRef, useCallback } from "react";
-import { useTranslation } from "react-i18next";
 import { listen } from "@tauri-apps/api/event";
 import { formatKeyCombination } from "../../lib/utils/keyboard";
 import { ResetButton } from "../ui/ResetButton";
@@ -29,7 +28,6 @@ export const HandyKeysShortcutInput: React.FC<HandyKeysShortcutInputProps> = ({
   shortcutId,
   disabled = false,
 }) => {
-  const { t } = useTranslation();
   const { getSetting, updateBinding, resetBinding, isUpdating, isLoading } =
     useSettings();
   const [isRecording, setIsRecording] = useState(false);
@@ -62,7 +60,7 @@ export const HandyKeysShortcutInput: React.FC<HandyKeysShortcutInputProps> = ({
         await updateBinding(shortcutId, originalBinding);
       } catch (error) {
         console.error("Failed to restore original binding:", error);
-        toast.error(t("settings.general.shortcut.errors.restore"));
+        toast.error("Failed to restore original shortcut");
       }
     }
 
@@ -70,7 +68,7 @@ export const HandyKeysShortcutInput: React.FC<HandyKeysShortcutInputProps> = ({
     setCurrentKeys("");
     currentKeysRef.current = "";
     setOriginalBinding("");
-  }, [isRecording, originalBinding, shortcutId, updateBinding, t]);
+  }, [isRecording, originalBinding, shortcutId, updateBinding]);
 
   // Set up event listener for handy-keys events
   useEffect(() => {
@@ -99,9 +97,7 @@ export const HandyKeysShortcutInput: React.FC<HandyKeysShortcutInputProps> = ({
             } catch (error) {
               console.error("Failed to change binding:", error);
               toast.error(
-                t("settings.general.shortcut.errors.set", {
-                  error: String(error),
-                }),
+                `Failed to set shortcut: ${(String(error))}`,
               );
 
               // Reset to original binding on error
@@ -110,7 +106,7 @@ export const HandyKeysShortcutInput: React.FC<HandyKeysShortcutInputProps> = ({
                   await updateBinding(shortcutId, originalBinding);
                 } catch (resetError) {
                   console.error("Failed to reset binding:", resetError);
-                  toast.error(t("settings.general.shortcut.errors.reset"));
+                  toast.error("Failed to reset shortcut to original value");
                 }
               }
             }
@@ -149,7 +145,6 @@ export const HandyKeysShortcutInput: React.FC<HandyKeysShortcutInputProps> = ({
     originalBinding,
     updateBinding,
     cancelRecording,
-    t,
   ]);
 
   // Handle click outside
@@ -185,14 +180,14 @@ export const HandyKeysShortcutInput: React.FC<HandyKeysShortcutInputProps> = ({
     } catch (error) {
       console.error("Failed to start recording:", error);
       toast.error(
-        t("settings.general.shortcut.errors.set", { error: String(error) }),
+        `Failed to set shortcut: ${(String(error))}`,
       );
     }
   };
 
   // Format the current shortcut keys being recorded
   const formatCurrentKeys = (): string => {
-    if (!currentKeys) return t("settings.general.shortcut.pressKeys");
+    if (!currentKeys) return "Press keys...";
     return formatKeyCombination(currentKeys, osType);
   };
 
@@ -200,13 +195,13 @@ export const HandyKeysShortcutInput: React.FC<HandyKeysShortcutInputProps> = ({
   if (isLoading) {
     return (
       <SettingContainer
-        title={t("settings.general.shortcut.title")}
-        description={t("settings.general.shortcut.description")}
+        title={"ThegAi Shortcuts"}
+        description={"Configure keyboard shortcuts to trigger speech-to-text recording"}
         descriptionMode={descriptionMode}
         grouped={grouped}
       >
         <div className="text-sm text-mid-gray">
-          {t("settings.general.shortcut.loading")}
+          {"Loading shortcuts..."}
         </div>
       </SettingContainer>
     );
@@ -216,13 +211,13 @@ export const HandyKeysShortcutInput: React.FC<HandyKeysShortcutInputProps> = ({
   if (Object.keys(bindings).length === 0) {
     return (
       <SettingContainer
-        title={t("settings.general.shortcut.title")}
-        description={t("settings.general.shortcut.description")}
+        title={"ThegAi Shortcuts"}
+        description={"Configure keyboard shortcuts to trigger speech-to-text recording"}
         descriptionMode={descriptionMode}
         grouped={grouped}
       >
         <div className="text-sm text-mid-gray">
-          {t("settings.general.shortcut.none")}
+          {"No shortcuts configured"}
         </div>
       </SettingContainer>
     );
@@ -232,27 +227,20 @@ export const HandyKeysShortcutInput: React.FC<HandyKeysShortcutInputProps> = ({
   if (!binding) {
     return (
       <SettingContainer
-        title={t("settings.general.shortcut.title")}
-        description={t("settings.general.shortcut.notFound")}
+        title={"ThegAi Shortcuts"}
+        description={"Shortcut not found"}
         descriptionMode={descriptionMode}
         grouped={grouped}
       >
         <div className="text-sm text-mid-gray">
-          {t("settings.general.shortcut.none")}
+          {"No shortcuts configured"}
         </div>
       </SettingContainer>
     );
   }
 
-  // Get translated name and description for the binding
-  const translatedName = t(
-    `settings.general.shortcut.bindings.${shortcutId}.name`,
-    binding.name,
-  );
-  const translatedDescription = t(
-    `settings.general.shortcut.bindings.${shortcutId}.description`,
-    binding.description,
-  );
+  const translatedName = binding.name;
+  const translatedDescription = binding.description;
 
   return (
     <SettingContainer

@@ -1,5 +1,4 @@
 import { HardDriveDownload, LoaderCircle } from "lucide-react";
-import { useTranslation } from "react-i18next";
 import type { InitialSetupStatus } from "@/bindings";
 
 interface InitialSetupEmptyStateProps {
@@ -16,7 +15,6 @@ const formatBytes = (bytes: number) => {
 export function InitialSetupEmptyState({
   status,
 }: InitialSetupEmptyStateProps) {
-  const { t } = useTranslation();
   const percentage =
     status.total > 0
       ? Math.min(100, Math.round((status.downloaded / status.total) * 100))
@@ -24,8 +22,10 @@ export function InitialSetupEmptyState({
   const isStorageError = status.phase === "insufficient_storage";
 
   const phaseText = isStorageError
-    ? t("initialSetup.insufficientStorage")
-    : t(`initialSetup.phases.${status.phase}`);
+    ? "Not enough storage"
+    : status.phase === "downloading"
+      ? "Downloading"
+      : "Preparing";
 
   return (
     <section className="mx-auto flex min-h-[420px] max-w-xl flex-col items-center justify-center px-6 text-center">
@@ -37,15 +37,12 @@ export function InitialSetupEmptyState({
         )}
       </div>
       <h2 className="text-xl font-bold text-charcoal">
-        {t("initialSetup.title")}
+        {"Setting up private compute cluster"}
       </h2>
       <p className="mt-2 max-w-md text-sm leading-6 text-bark-grey">
         {isStorageError
-          ? t("initialSetup.storageDescription", {
-              required: formatBytes(status.required_bytes),
-              available: formatBytes(status.available_bytes ?? 0),
-            })
-          : t("initialSetup.description")}
+          ? `Free up space to continue. This setup needs ${(formatBytes(status.required_bytes))}, but only ${(formatBytes(status.available_bytes ?? 0))} is available.`
+          : "Preparing secure local speech processing on this device."}
       </p>
 
       {!isStorageError && (
@@ -62,10 +59,7 @@ export function InitialSetupEmptyState({
           </div>
           {status.total > 0 && (
             <p className="mt-3 text-xs text-bark-grey">
-              {t("initialSetup.transfer", {
-                downloaded: formatBytes(status.downloaded),
-                total: formatBytes(status.total),
-              })}
+              {`${(formatBytes(status.downloaded))} of ${(formatBytes(status.total))}`}
             </p>
           )}
         </div>

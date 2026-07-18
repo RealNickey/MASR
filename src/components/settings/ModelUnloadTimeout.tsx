@@ -1,5 +1,4 @@
 import React, { useMemo } from "react";
-import { useTranslation } from "react-i18next";
 import { useSettings } from "../../hooks/useSettings";
 import { commands, type ModelUnloadTimeout } from "@/bindings";
 import { Dropdown } from "../ui/Dropdown";
@@ -14,37 +13,36 @@ export const ModelUnloadTimeoutSetting: React.FC<ModelUnloadTimeoutProps> = ({
   descriptionMode = "inline",
   grouped = false,
 }) => {
-  const { t } = useTranslation();
   const { settings, getSetting, updateSetting } = useSettings();
 
   const timeoutOptions = [
     {
       value: "never" as ModelUnloadTimeout,
-      label: t("settings.advanced.modelUnload.options.never"),
+      label: "Never",
     },
     {
       value: "immediately" as ModelUnloadTimeout,
-      label: t("settings.advanced.modelUnload.options.immediately"),
+      label: "Immediately",
     },
     {
       value: "min2" as ModelUnloadTimeout,
-      label: t("settings.advanced.modelUnload.options.min2"),
+      label: "After 2 minutes",
     },
     {
       value: "min5" as ModelUnloadTimeout,
-      label: t("settings.advanced.modelUnload.options.min5"),
+      label: "After 5 minutes",
     },
     {
       value: "min10" as ModelUnloadTimeout,
-      label: t("settings.advanced.modelUnload.options.min10"),
+      label: "After 10 minutes",
     },
     {
       value: "min15" as ModelUnloadTimeout,
-      label: t("settings.advanced.modelUnload.options.min15"),
+      label: "After 15 minutes",
     },
     {
       value: "hour1" as ModelUnloadTimeout,
-      label: t("settings.advanced.modelUnload.options.hour1"),
+      label: "After 1 hour",
     },
   ];
 
@@ -52,7 +50,7 @@ export const ModelUnloadTimeoutSetting: React.FC<ModelUnloadTimeoutProps> = ({
     ...timeoutOptions,
     {
       value: "sec15" as ModelUnloadTimeout,
-      label: t("settings.advanced.modelUnload.options.sec15"),
+      label: "After 15 seconds (Debug)",
     },
   ];
 
@@ -75,8 +73,8 @@ export const ModelUnloadTimeoutSetting: React.FC<ModelUnloadTimeoutProps> = ({
 
   return (
     <SettingContainer
-      title={t("settings.advanced.modelUnload.title")}
-      description={t("settings.advanced.modelUnload.description")}
+      title={"Unload Model"}
+      description={"Automatically free GPU/CPU memory when the model hasn't been used for the specified time"}
       descriptionMode={descriptionMode}
       grouped={grouped}
     >

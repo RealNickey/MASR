@@ -1,6 +1,5 @@
 import React from "react";
 import { Logo } from "./Logo";
-import { useTranslation } from "react-i18next";
 import {
   Cog,
   FlaskConical,
@@ -34,7 +33,7 @@ interface IconProps {
 }
 
 interface SectionConfig {
-  labelKey: string;
+  label: string;
   icon: React.ComponentType<IconProps>;
   component: React.ComponentType;
   enabled: (settings: any) => boolean;
@@ -43,54 +42,54 @@ interface SectionConfig {
 
 export const SECTIONS_CONFIG = {
   general: {
-    labelKey: "sidebar.general",
+    label: "General",
     icon: Sliders,
     component: GeneralSettings,
     enabled: () => true,
   },
   models: {
-    labelKey: "sidebar.models",
+    label: "Models",
     icon: Cpu,
     component: ModelsSettings,
     enabled: () => true,
     isProdHidden: true,
   },
   advanced: {
-    labelKey: "sidebar.advanced",
+    label: "Advanced",
     icon: Cog,
     component: AdvancedSettings,
     enabled: () => true,
   },
   history: {
-    labelKey: "sidebar.history",
+    label: "History",
     icon: History,
     component: HistorySettings,
     enabled: () => true,
     isProdHidden: true,
   },
   meetings: {
-    labelKey: "sidebar.meetings",
+    label: "Meetings",
     icon: Users,
     component: MeetingsSettings,
     enabled: () => true,
     isProdHidden: true,
   },
   postprocessing: {
-    labelKey: "sidebar.postProcessing",
+    label: "Post-processing",
     icon: Sparkles,
     component: PostProcessingSettings,
     enabled: () => true,
     isProdHidden: true,
   },
   debug: {
-    labelKey: "sidebar.debug",
+    label: "Debug",
     icon: FlaskConical,
     component: DebugSettings,
     enabled: (settings) => settings?.debug_mode ?? false,
     isProdHidden: true,
   },
   about: {
-    labelKey: "sidebar.about",
+    label: "About",
     icon: Info,
     component: AboutSettings,
     enabled: () => true,
@@ -112,7 +111,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onToggleSimulateProd,
   onTriggerOnboarding,
 }) => {
-  const { t } = useTranslation();
   const { settings } = useSettings();
 
   const isRealProd = !import.meta.env.DEV;
@@ -150,9 +148,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 <Icon width={18} height={18} className="shrink-0 opacity-85" />
                 <p
                   className="text-[11px] font-semibold uppercase tracking-[0.04em] font-mono truncate"
-                  title={t(section.labelKey)}
+                  title={section.label}
                 >
-                  {t(section.labelKey)}
+                  {section.label}
                 </p>
               </div>
             );
@@ -180,9 +178,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
           <button
             onClick={onTriggerOnboarding}
             className="w-full flex items-center justify-center gap-2 py-1.5 px-2 rounded-md border border-[#1d7a46]/20 bg-[#1d7a46]/5 text-[#1d7a46] hover:bg-[#1d7a46]/10 text-[10px] font-mono font-bold tracking-wide uppercase transition-all duration-200"
-            title={t("sidebar.launchOnboardingTitle")}
+            title={"Launch the onboarding flow in check/preview mode"}
           >
-            {t("sidebar.launchOnboarding")}
+            {"Launch Onboarding"}
           </button>
         </div>
       )}

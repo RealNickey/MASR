@@ -1,5 +1,4 @@
 import React from "react";
-import { useTranslation } from "react-i18next";
 import { Dropdown } from "../ui/Dropdown";
 import { SettingContainer } from "../ui/SettingContainer";
 import { Input } from "../ui/Input";
@@ -14,7 +13,6 @@ interface PasteMethodProps {
 
 export const PasteMethodSetting: React.FC<PasteMethodProps> = React.memo(
   ({ descriptionMode = "tooltip", grouped = false }) => {
-    const { t } = useTranslation();
     const { getSetting, updateSetting, isUpdating } = useSettings();
     const osType = useOsType();
 
@@ -24,17 +22,15 @@ export const PasteMethodSetting: React.FC<PasteMethodProps> = React.memo(
       const options = [
         {
           value: "ctrl_v",
-          label: t("settings.advanced.pasteMethod.options.clipboard", {
-            modifier: mod,
-          }),
+          label: `Clipboard (${(mod)}+V)`,
         },
         {
           value: "direct",
-          label: t("settings.advanced.pasteMethod.options.direct"),
+          label: "Direct",
         },
         {
           value: "none",
-          label: t("settings.advanced.pasteMethod.options.none"),
+          label: "None",
         },
       ];
 
@@ -43,15 +39,11 @@ export const PasteMethodSetting: React.FC<PasteMethodProps> = React.memo(
         options.push(
           {
             value: "ctrl_shift_v",
-            label: t(
-              "settings.advanced.pasteMethod.options.clipboardCtrlShiftV",
-            ),
+            label: "Clipboard (Ctrl+Shift+V)",
           },
           {
             value: "shift_insert",
-            label: t(
-              "settings.advanced.pasteMethod.options.clipboardShiftInsert",
-            ),
+            label: "Clipboard (Shift+Insert)",
           },
         );
       }
@@ -60,7 +52,7 @@ export const PasteMethodSetting: React.FC<PasteMethodProps> = React.memo(
       if (osType === "linux") {
         options.push({
           value: "external_script",
-          label: t("settings.advanced.pasteMethod.options.externalScript"),
+          label: "External Script",
         });
       }
 
@@ -75,8 +67,8 @@ export const PasteMethodSetting: React.FC<PasteMethodProps> = React.memo(
 
     return (
       <SettingContainer
-        title={t("settings.advanced.pasteMethod.title")}
-        description={t("settings.advanced.pasteMethod.description")}
+        title={"Paste Method"}
+        description={"Choose how text is inserted. Direct: simulates typing via system input. None: skips paste, only updates history/clipboard."}
         descriptionMode={descriptionMode}
         grouped={grouped}
         tooltipPosition="bottom"
@@ -97,9 +89,7 @@ export const PasteMethodSetting: React.FC<PasteMethodProps> = React.memo(
               onChange={(e) =>
                 updateSetting("external_script_path", e.target.value)
               }
-              placeholder={t(
-                "settings.advanced.pasteMethod.externalScriptPlaceholder",
-              )}
+              placeholder={"/path/to/your/script.sh"}
               disabled={isUpdating("external_script_path")}
             />
           )}

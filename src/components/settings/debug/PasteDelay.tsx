@@ -1,5 +1,4 @@
 import React from "react";
-import { useTranslation } from "react-i18next";
 import { Slider } from "../../ui/Slider";
 import { useSettings } from "../../../hooks/useSettings";
 
@@ -12,7 +11,6 @@ export const PasteDelay: React.FC<PasteDelayProps> = ({
   descriptionMode = "tooltip",
   grouped = false,
 }) => {
-  const { t } = useTranslation();
   const { settings, updateSetting } = useSettings();
 
   const handleDelayChange = (value: number) => {
@@ -26,8 +24,8 @@ export const PasteDelay: React.FC<PasteDelayProps> = ({
       min={10}
       max={200}
       step={10}
-      label={t("settings.debug.pasteDelay.title")}
-      description={t("settings.debug.pasteDelay.description")}
+      label={"Paste Delay"}
+      description={"Delay before sending paste keystroke (in milliseconds). Increase if wrong text is being pasted."}
       descriptionMode={descriptionMode}
       grouped={grouped}
       formatValue={(v) => `${v}ms`}

@@ -1,5 +1,4 @@
 import React from "react";
-import { useTranslation } from "react-i18next";
 import { commands } from "@/bindings";
 import { SettingContainer } from "../ui/SettingContainer";
 import { Button } from "../ui/Button";
@@ -13,7 +12,6 @@ export const RecordingsDirectory: React.FC<RecordingsDirectoryProps> = ({
   descriptionMode = "inline",
   grouped = false,
 }) => {
-  const { t } = useTranslation();
 
   const handleOpen = async () => {
     try {
@@ -25,8 +23,8 @@ export const RecordingsDirectory: React.FC<RecordingsDirectoryProps> = ({
 
   return (
     <SettingContainer
-      title={t("settings.about.recordingsDirectory.title")}
-      description={t("settings.about.recordingsDirectory.description")}
+      title={"Recordings Folder"}
+      description={"Location where meeting recordings are saved"}
       descriptionMode={descriptionMode}
       grouped={grouped}
     >
@@ -36,7 +34,7 @@ export const RecordingsDirectory: React.FC<RecordingsDirectoryProps> = ({
         size="sm"
         className="px-3 py-2 shrink-0"
       >
-        {t("common.open")}
+        {"Open"}
       </Button>
     </SettingContainer>
   );

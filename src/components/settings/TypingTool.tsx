@@ -1,5 +1,4 @@
 import React, { useEffect, useState } from "react";
-import { useTranslation } from "react-i18next";
 import { Dropdown } from "../ui/Dropdown";
 import { SettingContainer } from "../ui/SettingContainer";
 import { useSettings } from "../../hooks/useSettings";
@@ -22,7 +21,6 @@ const allToolLabels: Record<string, string> = {
 
 export const TypingToolSetting: React.FC<TypingToolProps> = React.memo(
   ({ descriptionMode = "tooltip", grouped = false }) => {
-    const { t } = useTranslation();
     const { getSetting, updateSetting, isUpdating } = useSettings();
     const osType = useOsType();
     const [availableTools, setAvailableTools] = useState<string[] | null>(null);
@@ -53,7 +51,7 @@ export const TypingToolSetting: React.FC<TypingToolProps> = React.memo(
       tool === "auto"
         ? {
             value: "auto",
-            label: t("settings.advanced.typingTool.options.auto"),
+            label: "Auto (Recommended)",
           }
         : { value: tool, label: allToolLabels[tool] ?? tool },
     );
@@ -62,8 +60,8 @@ export const TypingToolSetting: React.FC<TypingToolProps> = React.memo(
 
     return (
       <SettingContainer
-        title={t("settings.advanced.typingTool.title")}
-        description={t("settings.advanced.typingTool.description")}
+        title={"Typing Tool"}
+        description={"Choose which Linux typing tool to use for Direct paste method. Auto will automatically detect and use the best available tool for your system."}
         descriptionMode={descriptionMode}
         grouped={grouped}
         tooltipPosition="bottom"

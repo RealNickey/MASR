@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from "react";
 import { createPortal } from "react-dom";
-import { useTranslation } from "react-i18next";
 import { X, FileAudio, FilePlus2, Play, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { open } from "@tauri-apps/plugin-dialog";
@@ -19,7 +18,6 @@ export const LocalFileTranscriber: React.FC<LocalFileTranscriberProps> = ({
   onClose,
   onSuccess,
 }) => {
-  const { t } = useTranslation();
   const [files, setFiles] = useState<string[]>(initialFiles);
   const [action, setAction] = useState<"meeting" | "transcribe">("meeting");
 
@@ -75,9 +73,7 @@ export const LocalFileTranscriber: React.FC<LocalFileTranscriberProps> = ({
     // Detach and process in background
     (async () => {
       toast.info(
-        t("localFileTranscriber.startToast", {
-          count: filesToProcess.length,
-        }) ||
+        `Started transcription for ${(filesToProcess.length)} file(s) in background.` ||
           `Started transcription for ${filesToProcess.length} file(s) in background.`,
       );
 
@@ -91,20 +87,14 @@ export const LocalFileTranscriber: React.FC<LocalFileTranscriberProps> = ({
             results.push({ file, success: true });
           } else {
             toast.error(
-              t("localFileTranscriber.failToast", {
-                fileName,
-                error: result.error,
-              }) || `Failed to process ${fileName}: ${result.error}`,
+              `Failed to process ${(fileName)}: ${(result.error)}` || `Failed to process ${fileName}: ${result.error}`,
             );
             results.push({ file, success: false });
           }
         } catch (error: any) {
           const errorMsg = error.message || error;
           toast.error(
-            t("localFileTranscriber.errorToast", {
-              fileName,
-              error: errorMsg,
-            }) || `Error processing ${fileName}: ${errorMsg}`,
+            `Error processing ${(fileName)}: ${(errorMsg)}` || `Error processing ${fileName}: ${errorMsg}`,
           );
           results.push({ file, success: false });
         }
@@ -114,7 +104,7 @@ export const LocalFileTranscriber: React.FC<LocalFileTranscriberProps> = ({
 
       if (successCount > 0) {
         toast.success(
-          t("localFileTranscriber.successToast", { count: successCount }) ||
+          `Successfully processed ${(successCount)} file(s)` ||
             `Successfully processed ${successCount} file(s)`,
         );
         onSuccess(targetAction);
@@ -124,11 +114,8 @@ export const LocalFileTranscriber: React.FC<LocalFileTranscriberProps> = ({
 
   const buttonText =
     files.length === 1
-      ? t("localFileTranscriber.startTranscriptionOne") ||
-        "Start Transcription (1 file)"
-      : t("localFileTranscriber.startTranscriptionMultiple", {
-          count: files.length,
-        }) || `Start Transcription (${files.length} files)`;
+      ? "Start Transcription (1 file)"
+      : `Start Transcription (${files.length} files)`;
 
   // Disable body scroll when modal is active
   useEffect(() => {
@@ -164,11 +151,10 @@ export const LocalFileTranscriber: React.FC<LocalFileTranscriberProps> = ({
             </div>
             <div>
               <h2 className="text-md font-bold font-cooper text-charcoal">
-                {t("localFileTranscriber.title")}
+                {"Transcribe Local Files"}
               </h2>
               <p className="text-xs text-bark-grey mt-0.5">
-                {t("localFileTranscriber.subtitle") ||
-                  "Convert local audio files into written text and summaries."}
+                Convert local audio files into written text and summaries.
               </p>
             </div>
           </div>
@@ -185,11 +171,11 @@ export const LocalFileTranscriber: React.FC<LocalFileTranscriberProps> = ({
           {/* File list section */}
           <div className="space-y-2">
             <div className="text-[10px] font-bold uppercase tracking-wider font-mono text-bark-grey/85 mb-2">
-              {t("localFileTranscriber.selectedFiles")} ({files.length})
+              {"Selected Files:"} ({files.length})
             </div>
             {files.length === 0 ? (
               <div className="text-center text-pebble py-8 border border-dashed border-stone-mist/60 rounded-xl bg-warm-bone/20 font-mono text-xs uppercase tracking-wider">
-                {t("localFileTranscriber.empty")}
+                {"No files selected. Add some audio files to transcribe."}
               </div>
             ) : (
               <div className="space-y-2 max-h-[120px] overflow-y-auto pr-1">
@@ -235,7 +221,7 @@ export const LocalFileTranscriber: React.FC<LocalFileTranscriberProps> = ({
                 className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-[0.04em] font-mono text-forest-green hover:text-deep-forest-green transition-all cursor-pointer active:scale-97"
               >
                 <FilePlus2 className="w-4 h-4" />
-                {t("localFileTranscriber.addMoreFiles")}
+                {"Add more files"}
               </button>
             </div>
           </div>
@@ -243,7 +229,7 @@ export const LocalFileTranscriber: React.FC<LocalFileTranscriberProps> = ({
           {/* Action Choice cards */}
           <div className="space-y-2 pt-3 border-t border-stone-mist/50">
             <div className="text-[10px] font-bold uppercase tracking-wider font-mono text-bark-grey/85">
-              {t("localFileTranscriber.action")}
+              {"Action:"}
             </div>
             <div className="grid grid-cols-1 gap-2.5">
               {/* Summarize card */}
@@ -265,10 +251,10 @@ export const LocalFileTranscriber: React.FC<LocalFileTranscriberProps> = ({
                 />
                 <div className="flex flex-col">
                   <span className="text-xs font-semibold text-charcoal">
-                    {t("localFileTranscriber.summarizeAsMeeting")}
+                    {"Summarize as Meeting"}
                   </span>
                   <span className="text-[11px] text-bark-grey mt-0.5 leading-relaxed">
-                    {t("localFileTranscriber.summarizeAsMeetingDesc")}
+                    {"Transcribes and summarizes to English (Meetings tab)"}
                   </span>
                 </div>
               </label>
@@ -292,10 +278,10 @@ export const LocalFileTranscriber: React.FC<LocalFileTranscriberProps> = ({
                 />
                 <div className="flex flex-col">
                   <span className="text-xs font-semibold text-charcoal">
-                    {t("localFileTranscriber.plainTranscribe")}
+                    {"Plain Transcribe"}
                   </span>
                   <span className="text-[11px] text-bark-grey mt-0.5 leading-relaxed">
-                    {t("localFileTranscriber.plainTranscribeDesc")}
+                    {"Basic Malayalam transcription (History tab)"}
                   </span>
                 </div>
               </label>
@@ -306,8 +292,7 @@ export const LocalFileTranscriber: React.FC<LocalFileTranscriberProps> = ({
         {/* Pinned Footer */}
         <div className="p-4 border-t border-stone-mist/50 bg-[#141211]/90 flex flex-col gap-3">
           <div className="text-xs text-pebble text-center leading-normal">
-            {t("localFileTranscriber.backgroundNotice") ||
-              "All files will be processed sequentially in the background."}
+            All files will be processed sequentially in the background.
           </div>
           <div className="flex justify-end gap-3">
             <Button
@@ -315,7 +300,7 @@ export const LocalFileTranscriber: React.FC<LocalFileTranscriberProps> = ({
               onClick={onClose}
               className="active:scale-[0.97] transition-transform duration-150"
             >
-              {t("common.cancel") || "Cancel"}
+              Cancel
             </Button>
             <Button
               variant="primary"

@@ -7,11 +7,9 @@ import {
 } from "tauri-plugin-macos-permissions-api";
 import { Settings2 } from "lucide-react";
 import { toast, Toaster } from "sonner";
-import { useTranslation } from "react-i18next";
 import { commands, type InitialSetupStatus } from "@/bindings";
 import { HistorySettings } from "@/components/settings";
 import { MeetingsView } from "./MeetingsView";
-import { getLanguageDirection, initializeRTL } from "@/lib/utils/rtl";
 import { useMeetingSummaryFallbackToast } from "@/hooks/useMeetingSummaryFallbackToast";
 import { motion, AnimatePresence } from "framer-motion";
 import { GlobalUpdatePrompt } from "@/components/update-checker/GlobalUpdatePrompt";
@@ -22,28 +20,23 @@ type PrimaryTab = "meetings" | "transcription";
 
 const PRIMARY_TABS: Array<{
   id: PrimaryTab;
-  labelKey: string;
+  label: string;
 }> = [
-  { id: "meetings", labelKey: "sidebar.meetings" },
+  { id: "meetings", label: "Meetings" },
   {
     id: "transcription",
-    labelKey: "settings.advanced.groups.transcription",
+    label: "Transcription",
   },
 ];
 
 function PrimaryApp() {
-  const { t, i18n } = useTranslation();
   const [activeTab, setActiveTab] = useState<PrimaryTab>("meetings");
   const [initialSetup, setInitialSetup] = useState<InitialSetupStatus | null>(
     null,
   );
   const hasInitialized = useRef(false);
-  const direction = getLanguageDirection(i18n.language);
   useMeetingSummaryFallbackToast();
 
-  useEffect(() => {
-    initializeRTL(i18n.language);
-  }, [i18n.language]);
 
   useEffect(() => {
     const unlisten = listen("meeting-summary", () => {
@@ -146,7 +139,6 @@ function PrimaryApp() {
 
   return (
     <div
-      dir={direction}
       className="h-screen overflow-hidden bg-warm-bone text-charcoal"
     >
       <Toaster
@@ -203,7 +195,7 @@ function PrimaryApp() {
                           }}
                         />
                       )}
-                      {t(tab.labelKey)}
+                      {tab.label}
                     </button>
                   );
                 })}
@@ -215,7 +207,7 @@ function PrimaryApp() {
                 className="inline-flex items-center gap-2 rounded-[12px] border border-stone-mist bg-warm-bone px-4 py-2 text-sm font-semibold text-charcoal transition-colors hover:border-forest-green/40 hover:text-forest-green cursor-pointer"
               >
                 <Settings2 className="h-4 w-4" />
-                {t("tray.settings")}
+                {"Settings..."}
               </button>
             </div>
           </div>

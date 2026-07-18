@@ -1,5 +1,4 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { useTranslation } from "react-i18next";
 import { ask } from "@tauri-apps/plugin-dialog";
 import { ChevronDown, Globe } from "lucide-react";
 import type { ModelCardStatus } from "@/components/onboarding";
@@ -14,7 +13,6 @@ const modelSupportsLanguage = (model: ModelInfo, langCode: string): boolean => {
 };
 
 export const ModelsSettings: React.FC = () => {
-  const { t } = useTranslation();
   const [switchingModelId, setSwitchingModelId] = useState<string | null>(null);
   const [languageFilter, setLanguageFilter] = useState("all");
   const [languageDropdownOpen, setLanguageDropdownOpen] = useState(false);
@@ -70,10 +68,10 @@ export const ModelsSettings: React.FC = () => {
   // Get selected language label
   const selectedLanguageLabel = useMemo(() => {
     if (languageFilter === "all") {
-      return t("settings.models.filters.allLanguages");
+      return "All Languages";
     }
     return LANGUAGES.find((lang) => lang.value === languageFilter)?.label || "";
-  }, [languageFilter, t]);
+  }, [languageFilter]);
 
   const getModelStatus = (modelId: string): ModelCardStatus => {
     if (modelId in extractingModels) {
@@ -128,10 +126,10 @@ export const ModelsSettings: React.FC = () => {
 
     const confirmed = await ask(
       isActive
-        ? t("settings.models.deleteActiveConfirm", { modelName })
-        : t("settings.models.deleteConfirm", { modelName }),
+        ? `${(modelName)} is your active model. Deleting it will stop transcriptions until you select a new model. Are you sure?`
+        : `Are you sure you want to delete ${(modelName)}? You will need to download it again to use it.`,
       {
-        title: t("settings.models.deleteTitle"),
+        title: "Delete Model",
         kind: "warning",
       },
     );
@@ -209,10 +207,10 @@ export const ModelsSettings: React.FC = () => {
     <div className="max-w-3xl w-full mx-auto space-y-4">
       <div className="mb-4">
         <h1 className="text-xl font-semibold mb-2">
-          {t("settings.models.title")}
+          {"Transcription Models"}
         </h1>
         <p className="text-sm text-text/60">
-          {t("settings.models.description")}
+          {"Select a transcription model or download additional models. Different models offer varying levels of accuracy and speed."}
         </p>
       </div>
       {filteredModels.length > 0 ? (
@@ -221,7 +219,7 @@ export const ModelsSettings: React.FC = () => {
           <div className="space-y-3">
             <div className="flex items-center justify-between">
               <h2 className="text-sm font-medium text-text/60">
-                {t("settings.models.yourModels")}
+                {"Downloaded Models"}
               </h2>
               {/* Language filter dropdown */}
               <div className="relative" ref={languageDropdownRef}>
@@ -266,9 +264,7 @@ export const ModelsSettings: React.FC = () => {
                             setLanguageSearch("");
                           }
                         }}
-                        placeholder={t(
-                          "settings.general.language.searchPlaceholder",
-                        )}
+                        placeholder={"Search languages..."}
                         className="w-full px-2 py-1 text-sm bg-mid-gray/10 border border-mid-gray/40 rounded-md focus:outline-none focus:ring-1 focus:ring-logo-primary"
                       />
                     </div>
@@ -286,7 +282,7 @@ export const ModelsSettings: React.FC = () => {
                             : "hover:bg-mid-gray/10"
                         }`}
                       >
-                        {t("settings.models.filters.allLanguages")}
+                        {"All Languages"}
                       </button>
                       {filteredLanguages.map((lang) => (
                         <button
@@ -308,7 +304,7 @@ export const ModelsSettings: React.FC = () => {
                       ))}
                       {filteredLanguages.length === 0 && (
                         <div className="px-3 py-2 text-sm text-text/50 text-center">
-                          {t("settings.general.language.noResults")}
+                          {"No languages found"}
                         </div>
                       )}
                     </div>
@@ -336,7 +332,7 @@ export const ModelsSettings: React.FC = () => {
           {availableModels.length > 0 && (
             <div className="space-y-3">
               <h2 className="text-sm font-medium text-text/60">
-                {t("settings.models.availableModels")}
+                {"Available to Download"}
               </h2>
               {availableModels.map((model: ModelInfo) => (
                 <ModelCard
@@ -357,7 +353,7 @@ export const ModelsSettings: React.FC = () => {
         </div>
       ) : (
         <div className="text-center py-8 text-text/50">
-          {t("settings.models.noModelsMatch")}
+          {"No models match this filter."}
         </div>
       )}
     </div>

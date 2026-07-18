@@ -1,5 +1,4 @@
 import React, { useEffect, useState } from "react";
-import { useTranslation } from "react-i18next";
 import { useSettings } from "@/hooks/useSettings";
 import { commands } from "@/bindings";
 import { Logo } from "../Logo";
@@ -16,7 +15,6 @@ const LanguageOnboarding: React.FC<LanguageOnboardingProps> = ({
   isPreview = false,
   onExitPreview,
 }) => {
-  const { t } = useTranslation();
   const { settings, updateSetting } = useSettings();
   const [selectedLang, setSelectedLang] = useState<"en" | "ml">("en");
   const [englishModelId, setEnglishModelId] = useState("turbo");
@@ -59,22 +57,17 @@ const LanguageOnboarding: React.FC<LanguageOnboardingProps> = ({
           onClick={onExitPreview}
           className="absolute top-4 right-4 px-3 py-1.5 rounded-md border border-amber-500/20 bg-amber-500/10 hover:bg-amber-500/20 text-amber-600 text-[10px] font-mono font-bold tracking-wide uppercase transition-all duration-200"
         >
-          {t("onboarding.exitPreview", { defaultValue: "Exit Preview" })}
+          {"Exit Preview"}
         </button>
       )}
 
       <div className="flex flex-col items-center gap-2 shrink-0">
         <Logo size="lg" className="mb-2" />
         <h2 className="text-2xl font-bold text-charcoal text-center">
-          {t("onboarding.language.title", {
-            defaultValue: "Select Transcription Language",
-          })}
+          {"Select Transcription Language"}
         </h2>
         <p className="text-bark-grey text-sm text-center max-w-md">
-          {t("onboarding.language.subtitle", {
-            defaultValue:
-              "Choose your primary language for basic speech-to-text. Meetings will always use Malayalam.",
-          })}
+          {"Choose your primary language for basic speech-to-text. Meetings will always use Malayalam."}
         </p>
       </div>
 
@@ -180,7 +173,7 @@ const LanguageOnboarding: React.FC<LanguageOnboardingProps> = ({
           onClick={handleContinue}
           className="w-full py-3 rounded-cards bg-[#1d7a46] hover:bg-[#1d7a46]/95 text-white font-bold text-sm transition-colors cursor-pointer shadow-md text-center"
         >
-          {t("onboarding.continue", { defaultValue: "Continue" })}
+          {"Continue"}
         </button>
       </div>
     </div>

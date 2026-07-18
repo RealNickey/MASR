@@ -1,5 +1,4 @@
 import React, { useCallback, useMemo } from "react";
-import { useTranslation } from "react-i18next";
 import { SettingContainer } from "../../ui/SettingContainer";
 import { Select } from "../../ui/Select";
 import { useSettings } from "../../../hooks/useSettings";
@@ -11,7 +10,6 @@ interface TranscriptLanguageSelectorProps {
 
 export const TranscriptLanguageSelector: React.FC<TranscriptLanguageSelectorProps> =
   React.memo(({ descriptionMode = "tooltip", grouped = false }) => {
-    const { t } = useTranslation();
     const { settings, updateSetting } = useSettings();
 
     const options = useMemo(
@@ -35,13 +33,8 @@ export const TranscriptLanguageSelector: React.FC<TranscriptLanguageSelectorProp
 
     return (
       <SettingContainer
-        title={t("settings.general.transcriptLanguage.title", {
-          defaultValue: "Transcript Language",
-        })}
-        description={t("settings.general.transcriptLanguage.description", {
-          defaultValue:
-            "Select the language for basic transcription. Continuous meeting transcription will always use Malayalam.",
-        })}
+        title={"Transcript Language"}
+        description={"Select the language for basic transcription. Continuous meeting transcription will always use Malayalam."}
         descriptionMode={descriptionMode}
         grouped={grouped}
       >

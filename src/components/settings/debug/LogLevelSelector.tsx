@@ -1,5 +1,4 @@
 import React from "react";
-import { useTranslation } from "react-i18next";
 import { SettingContainer } from "../../ui/SettingContainer";
 import { Dropdown, type DropdownOption } from "../../ui/Dropdown";
 import { useSettings } from "../../../hooks/useSettings";
@@ -22,7 +21,6 @@ export const LogLevelSelector: React.FC<LogLevelSelectorProps> = ({
   descriptionMode = "tooltip",
   grouped = false,
 }) => {
-  const { t } = useTranslation();
   const { settings, updateSetting, isUpdating } = useSettings();
   const currentLevel = settings?.log_level ?? "debug";
 
@@ -38,8 +36,8 @@ export const LogLevelSelector: React.FC<LogLevelSelectorProps> = ({
 
   return (
     <SettingContainer
-      title={t("settings.debug.logLevel.title")}
-      description={t("settings.debug.logLevel.description")}
+      title={"Log Level"}
+      description={"Set the verbosity of logging"}
       descriptionMode={descriptionMode}
       grouped={grouped}
       layout="horizontal"

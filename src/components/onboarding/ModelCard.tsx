@@ -1,5 +1,4 @@
 import React from "react";
-import { useTranslation } from "react-i18next";
 import {
   Check,
   Download,
@@ -22,15 +21,14 @@ import { Button } from "../ui/Button";
 // Get display text for model's language support
 const getLanguageDisplayText = (
   supportedLanguages: string[],
-  t: (key: string, options?: Record<string, unknown>) => string,
 ): string => {
   if (supportedLanguages.length === 1) {
     const langCode = supportedLanguages[0];
     const langName =
       LANGUAGES.find((l) => l.value === langCode)?.label || langCode;
-    return t("modelSelector.capabilities.languageOnly", { language: langName });
+    return `${(langName)} Only`;
   }
-  return t("modelSelector.capabilities.multiLanguage");
+  return "Multi-language";
 };
 
 export type ModelCardStatus =
@@ -71,14 +69,13 @@ const ModelCard: React.FC<ModelCardProps> = ({
   downloadSpeed,
   showRecommended = true,
 }) => {
-  const { t } = useTranslation();
   const isFeatured = variant === "featured";
   const isClickable =
     status === "available" || status === "active" || status === "downloadable";
 
   // Get translated model name and description
-  const displayName = getTranslatedModelName(model, t);
-  const displayDescription = getTranslatedModelDescription(model, t);
+  const displayName = getTranslatedModelName(model);
+  const displayDescription = getTranslatedModelDescription(model);
   const showModelSize =
     status === "downloadable" || status === "available" || status === "active";
   const formattedModelSize = formatModelSize(Number(model.size_mb));
@@ -143,21 +140,21 @@ const ModelCard: React.FC<ModelCardProps> = ({
               {displayName}
             </h3>
             {showRecommended && model.is_recommended && (
-              <Badge variant="primary">{t("onboarding.recommended")}</Badge>
+              <Badge variant="primary">{"Recommended"}</Badge>
             )}
             {status === "active" && (
               <Badge variant="primary">
                 <Check className="w-3 h-3 mr-1" />
-                {t("modelSelector.active")}
+                {"Active"}
               </Badge>
             )}
             {model.is_custom && (
-              <Badge variant="secondary">{t("modelSelector.custom")}</Badge>
+              <Badge variant="secondary">{"Custom"}</Badge>
             )}
             {status === "switching" && (
               <Badge variant="secondary">
                 <Loader2 className="w-3 h-3 mr-1 animate-spin" />
-                {t("modelSelector.switching")}
+                {"Switching..."}
               </Badge>
             )}
           </div>
@@ -170,7 +167,7 @@ const ModelCard: React.FC<ModelCardProps> = ({
             <div className="space-y-1">
               <div className="flex items-center gap-2">
                 <p className="text-xs text-text/60 w-24 text-end">
-                  {t("onboarding.modelCard.accuracy")}
+                  {"accuracy"}
                 </p>
                 <div className="w-16 h-1.5 bg-mid-gray/20 rounded-full overflow-hidden">
                   <div
@@ -181,7 +178,7 @@ const ModelCard: React.FC<ModelCardProps> = ({
               </div>
               <div className="flex items-center gap-2">
                 <p className="text-xs text-text/60 w-24 text-end">
-                  {t("onboarding.modelCard.speed")}
+                  {"speed"}
                 </p>
                 <div className="w-16 h-1.5 bg-mid-gray/20 rounded-full overflow-hidden">
                   <div
@@ -204,21 +201,21 @@ const ModelCard: React.FC<ModelCardProps> = ({
             className="flex items-center gap-1 text-xs text-text/50"
             title={
               model.supported_languages.length === 1
-                ? t("modelSelector.capabilities.singleLanguage")
-                : t("modelSelector.capabilities.languageSelection")
+                ? "Supports this language only"
+                : "Supports multiple input languages"
             }
           >
             <Globe className="w-3.5 h-3.5" />
-            <span>{getLanguageDisplayText(model.supported_languages, t)}</span>
+            <span>{getLanguageDisplayText(model.supported_languages)}</span>
           </div>
         )}
         {model.supports_translation && (
           <div
             className="flex items-center gap-1 text-xs text-text/50"
-            title={t("modelSelector.capabilities.translation")}
+            title={"Can translate to English"}
           >
             <Languages className="w-3.5 h-3.5" />
-            <span>{t("modelSelector.capabilities.translate")}</span>
+            <span>{"Translate to English"}</span>
           </div>
         )}
         {showModelSize && (
@@ -236,11 +233,11 @@ const ModelCard: React.FC<ModelCardProps> = ({
             variant="ghost"
             size="sm"
             onClick={handleDelete}
-            title={t("modelSelector.deleteModel", { modelName: displayName })}
+            title={`Delete ${(displayName)}`}
             className="flex items-center gap-1.5 text-logo-primary/85 hover:text-logo-primary hover:bg-logo-primary/10"
           >
             <Trash2 className="w-3.5 h-3.5" />
-            <span>{t("common.delete")}</span>
+            <span>{"Delete"}</span>
           </Button>
         )}
       </div>
@@ -256,16 +253,12 @@ const ModelCard: React.FC<ModelCardProps> = ({
           </div>
           <div className="flex items-center justify-between text-xs mt-1">
             <span className="text-text/50">
-              {t("modelSelector.downloading", {
-                percentage: Math.round(downloadProgress),
-              })}
+              {`Downloading ${(Math.round(downloadProgress))}%`}
             </span>
             <div className="flex items-center gap-2">
               {downloadSpeed !== undefined && downloadSpeed > 0 && (
                 <span className="tabular-nums text-text/50">
-                  {t("modelSelector.downloadSpeed", {
-                    speed: downloadSpeed.toFixed(1),
-                  })}
+                  {`${(downloadSpeed.toFixed(1))} MB/s`}
                 </span>
               )}
               {onCancel && (
@@ -277,9 +270,9 @@ const ModelCard: React.FC<ModelCardProps> = ({
                     e.stopPropagation();
                     onCancel(model.id);
                   }}
-                  aria-label={t("modelSelector.cancelDownload")}
+                  aria-label={"Cancel download"}
                 >
-                  {t("modelSelector.cancel")}
+                  {"Cancel"}
                 </Button>
               )}
             </div>
@@ -292,7 +285,7 @@ const ModelCard: React.FC<ModelCardProps> = ({
             <div className="h-full bg-logo-primary rounded-full animate-pulse w-full" />
           </div>
           <p className="text-xs text-text/50 mt-1">
-            {t("modelSelector.verifyingGeneric")}
+            {"Verifying..."}
           </p>
         </div>
       )}
@@ -302,7 +295,7 @@ const ModelCard: React.FC<ModelCardProps> = ({
             <div className="h-full bg-logo-primary rounded-full animate-pulse w-full" />
           </div>
           <p className="text-xs text-text/50 mt-1">
-            {t("modelSelector.extractingGeneric")}
+            {"Extracting..."}
           </p>
         </div>
       )}
