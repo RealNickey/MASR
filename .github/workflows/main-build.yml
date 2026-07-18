@@ -5,6 +5,7 @@ name: "Development Build"
 # so any commit on main has a downloadable, testable build.
 
 on:
+  workflow_dispatch:
   push:
     branches: [dev]
   pull_request:
