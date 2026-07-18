@@ -1,81 +1,281 @@
-name: "Release"
+name: Publish release
 
-on: workflow_dispatch
+# Releases are intentionally made only after a change lands on main. Development
+# work belongs on dev (or a PR into dev); this workflow never publishes from it.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: publish-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  DEPOT_REPOSITORY: RealNickey/runtime-depot
 
 jobs:
-  create-release:
-    permissions:
-      contents: write
+  version:
+    name: Calculate release version
     runs-on: ubuntu-latest
     outputs:
-      release-id: ${{ steps.create-release.outputs.result }}
-      version: ${{ steps.get-version.outputs.version }}
+      version: ${{ steps.version.outputs.value }}
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Get version from tauri.conf.json
-        id: get-version
+      # Keep the source manifests on their development baseline. The CI run
+      # number supplies a strictly increasing release patch version without a
+      # release commit (and the resulting build is the version users install).
+      - id: version
         shell: bash
         run: |
-          VERSION=$(grep -o '"version": "[^"]*"' src-tauri/tauri.conf.json | cut -d'"' -f4)
-          echo "Application version from tauri.conf.json: $VERSION"
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          base=$(jq -r '.version' package.json)
+          IFS=. read -r major minor patch <<< "$base"
+          version="$major.$minor.$((patch + GITHUB_RUN_NUMBER))"
+          echo "Publishing v$version"
+          echo "value=$version" >> "$GITHUB_OUTPUT"
 
-      - name: Create Draft Release
-        id: create-release
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const { data } = await github.rest.repos.createRelease({
-              owner: 'RealNickey',
-              repo: 'runtime-depot',
-              tag_name: `v${{ steps.get-version.outputs.version }}`,
-              name: `v${{ steps.get-version.outputs.version }}`,
-              draft: true,
-              prerelease: false,
-              generate_release_notes: true
-            })
-            return data.id
-
-  publish-tauri:
-    permissions:
-      contents: write
-    needs: create-release
+  build:
+    name: ${{ matrix.name }}
+    needs: version
     strategy:
       fail-fast: false
       matrix:
         include:
-          - platform: "macos-26" # for Arm based macs (M1 and above). Uses macOS 26 for Apple Intelligence SDK.
-            args: "--target aarch64-apple-darwin"
-            target: "aarch64-apple-darwin"
-          - platform: "macos-latest" # for Intel based macs.
-            args: "--target x86_64-apple-darwin"
-            target: "x86_64-apple-darwin"
-          - platform: "ubuntu-22.04" # Build .deb on 22.04
-            args: "--bundles deb"
-            target: "x86_64-unknown-linux-gnu"
-          - platform: "ubuntu-24.04" # Build AppImage and RPM on 24.04
-            args: "--bundles appimage,rpm"
-            target: "x86_64-unknown-linux-gnu"
-          - platform: "ubuntu-24.04-arm" # Build for ARM64 Linux
-            args: "--bundles appimage,deb,rpm"
-            target: "aarch64-unknown-linux-gnu"
-          - platform: "windows-latest"
-            args: ""
-            target: "x86_64-pc-windows-msvc"
-          - platform: "windows-11-arm" # for ARM64 Windows runner
-            args: "--target aarch64-pc-windows-msvc"
-            target: "aarch64-pc-windows-msvc"
+          - name: Windows x64
+            os: windows-latest
+            target: x86_64-pc-windows-msvc
+            args: --bundles nsis,msi
+          - name: macOS Apple Silicon
+            os: macos-14
+            target: aarch64-apple-darwin
+            args: --target aarch64-apple-darwin
+          - name: macOS Intel
+            os: macos-13
+            target: x86_64-apple-darwin
+            args: --target x86_64-apple-darwin
+          - name: Linux x64
+            os: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+            args: --bundles deb,appimage,rpm
 
-    uses: ./.github/workflows/build.yml
-    with:
-      platform: ${{ matrix.platform }}
-      target: ${{ matrix.target }}
-      build-args: ${{ matrix.args }}
-      sign-binaries: true
-      asset-prefix: "thegai"
-      upload-artifacts: false
-      release-id: ${{ needs.create-release.outputs.release-id }}
-      repository: "RealNickey/runtime-depot"
-    secrets: inherit
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install Linux packaging dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libasound2-dev libopenblas-dev libx11-dev libxtst-dev libxrandr-dev libgtk-layer-shell0 libgtk-layer-shell-dev rpm
+
+      - name: Install Windows Vulkan SDK
+        if: runner.os == 'Windows'
+        uses: humbletim/install-vulkan-sdk@v1.2
+        with:
+          version: 1.4.309.0
+          cache: true
+
+      # whisper-rs creates deeply nested CMake paths; this keeps Windows below
+      # MAX_PATH and mirrors the known-good local/CI build configuration.
+      - name: Shorten Windows build path
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $drive = Split-Path -Qualifier $env:GITHUB_WORKSPACE
+          $targetDir = "$drive\t"
+          New-Item -ItemType Directory -Force -Path $targetDir | Out-Null
+          "CARGO_TARGET_DIR=$targetDir" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Install frontend dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Install ONNX Runtime (macOS Intel)
+        if: matrix.target == 'x86_64-apple-darwin'
+        shell: bash
+        run: |
+          version="1.24.2"
+          curl -L -o ort.tgz "https://blob.handy.computer/onnxruntime-osx-x86_64-${version}.tgz"
+          tar xzf ort.tgz
+          ort_dir="$PWD/onnxruntime-osx-x86_64-${version}"
+          echo "ORT_LIB_LOCATION=$ort_dir/lib" >> "$GITHUB_ENV"
+          echo "ORT_PREFER_DYNAMIC_LINK=1" >> "$GITHUB_ENV"
+          jq --arg lib "$ort_dir/lib/libonnxruntime.${version}.dylib" '.bundle.macOS.frameworks = [$lib]' src-tauri/tauri.conf.json > tauri.conf.tmp && mv tauri.conf.tmp src-tauri/tauri.conf.json
+
+      - name: Install ONNX Runtime (Linux x64)
+        if: matrix.target == 'x86_64-unknown-linux-gnu'
+        shell: bash
+        run: |
+          version="1.24.2"
+          curl -L -o ort.tgz "https://blob.handy.computer/onnxruntime-linux-x86_64-${version}.tgz"
+          tar xzf ort.tgz
+          ort_dir="$PWD/onnxruntime-linux-x86_64-${version}"
+          echo "ORT_LIB_LOCATION=$ort_dir/lib" >> "$GITHUB_ENV"
+          echo "ORT_PREFER_DYNAMIC_LINK=1" >> "$GITHUB_ENV"
+          for file in "$ort_dir"/lib/libonnxruntime.so*; do
+            if [ -L "$file" ]; then cp -L "$file" "$file.real" && mv "$file.real" "$file"; fi
+          done
+          jq --arg so "$ort_dir/lib/libonnxruntime.so" --arg so1 "$ort_dir/lib/libonnxruntime.so.1" --arg sov "$ort_dir/lib/libonnxruntime.so.1.24.2" '.bundle.linux.deb.files["/usr/lib/libonnxruntime.so"] = $so | .bundle.linux.deb.files["/usr/lib/libonnxruntime.so.1"] = $so1 | .bundle.linux.deb.files["/usr/lib/libonnxruntime.so.1.24.2"] = $sov' src-tauri/tauri.conf.json > tauri.conf.tmp && mv tauri.conf.tmp src-tauri/tauri.conf.json
+
+      - name: Set the generated release version
+        shell: bash
+        env:
+          RELEASE_VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          jq --arg version "$RELEASE_VERSION" '.version = $version' package.json > package.json.tmp && mv package.json.tmp package.json
+          jq --arg version "$RELEASE_VERSION" '.version = $version' src-tauri/tauri.conf.json > src-tauri/tauri.conf.json.tmp && mv src-tauri/tauri.conf.json.tmp src-tauri/tauri.conf.json
+          sed -i.bak -E "0,/^version = /s//version = \"$RELEASE_VERSION\"/" src-tauri/Cargo.toml
+          rm -f src-tauri/Cargo.toml.bak
+
+      - name: Verify updater signing key
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        shell: bash
+        run: test -n "$TAURI_SIGNING_PRIVATE_KEY"
+
+      - name: Import Apple Developer certificate
+        if: runner.os == 'macOS'
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+        shell: bash
+        run: |
+          test -n "$APPLE_CERTIFICATE" && test -n "$APPLE_CERTIFICATE_PASSWORD" && test -n "$KEYCHAIN_PASSWORD"
+          echo "$APPLE_CERTIFICATE" | base64 --decode > certificate.p12
+          security create-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          security default-keychain -s build.keychain
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          security set-keychain-settings -t 3600 -u build.keychain
+          security import certificate.p12 -k build.keychain -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" build.keychain
+          identity=$(security find-identity -v -p codesigning build.keychain | awk -F '"' '/Developer ID Application/ { print $2; exit }')
+          test -n "$identity"
+          jq --arg identity "$identity" '.bundle.macOS.signingIdentity = $identity' src-tauri/tauri.conf.json > tauri.conf.tmp && mv tauri.conf.tmp src-tauri/tauri.conf.json
+
+      - name: Build signed Tauri bundles
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          GGML_NATIVE: ${{ runner.os != 'macOS' && 'OFF' || '' }}
+          GGML_AVX: ${{ runner.os != 'macOS' && 'OFF' || '' }}
+          GGML_AVX2: ${{ runner.os != 'macOS' && 'OFF' || '' }}
+          GGML_FMA: ${{ runner.os != 'macOS' && 'OFF' || '' }}
+          GGML_F16C: ${{ runner.os != 'macOS' && 'OFF' || '' }}
+        with:
+          args: ${{ matrix.args }}
+
+      - name: Stage release files (Unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          stage="release-assets/${{ matrix.target }}"
+          mkdir -p "$stage"
+          find src-tauri/target -path '*/bundle/*' -type f \( -name '*.deb' -o -name '*.rpm' -o -name '*.AppImage' -o -name '*.dmg' -o -name '*.tar.gz' -o -name '*.sig' \) -print0 | while IFS= read -r -d '' file; do
+            cp "$file" "$stage/${{ matrix.target }}--$(basename "$file")"
+          done
+          test -n "$(find "$stage" -type f -name '*.sig' -print -quit)"
+
+      - name: Stage release files (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $stage = "release-assets/${{ matrix.target }}"
+          New-Item -ItemType Directory -Force -Path $stage | Out-Null
+          Get-ChildItem -Path $env:CARGO_TARGET_DIR -Recurse -File | Where-Object {
+            $_.FullName -match '\\bundle\\' -and $_.Name -match '\.(exe|msi|sig)$'
+          } | ForEach-Object {
+            Copy-Item -LiteralPath $_.FullName -Destination (Join-Path $stage "${{ matrix.target }}--$($_.Name)")
+          }
+          if (-not (Get-ChildItem -Path $stage -Filter *.sig -File)) { throw "No updater signature was produced" }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.target }}
+          path: release-assets
+          if-no-files-found: error
+          retention-days: 1
+
+  publish:
+    name: Publish depot release and updater manifest
+    needs: [version, build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          path: release-assets
+          merge-multiple: true
+
+      - name: Create latest.json
+        env:
+          RELEASE_VERSION: ${{ needs.version.outputs.version }}
+        shell: bash
+        run: |
+          node <<'NODE'
+          const fs = require('fs');
+          const path = require('path');
+          const root = 'release-assets';
+          const targetPlatform = {
+            'x86_64-pc-windows-msvc': 'windows-x86_64',
+            'aarch64-apple-darwin': 'darwin-aarch64',
+            'x86_64-apple-darwin': 'darwin-x86_64',
+            'x86_64-unknown-linux-gnu': 'linux-x86_64',
+          };
+          const preferred = {
+            'x86_64-pc-windows-msvc': /-setup\.exe\.sig$/i,
+            'aarch64-apple-darwin': /\.app\.tar\.gz\.sig$/i,
+            'x86_64-apple-darwin': /\.app\.tar\.gz\.sig$/i,
+            'x86_64-unknown-linux-gnu': /\.AppImage\.sig$/i,
+          };
+          const platforms = {};
+          for (const [target, platform] of Object.entries(targetPlatform)) {
+            const directory = path.join(root, target);
+            const signatures = fs.readdirSync(directory).filter(name => preferred[target].test(name));
+            if (signatures.length !== 1) throw new Error(`Expected one updater signature for ${target}, found ${signatures.length}`);
+            const signatureFile = signatures[0];
+            const asset = signatureFile.slice(0, -4);
+            if (!fs.existsSync(path.join(directory, asset))) throw new Error(`Missing updater asset ${asset}`);
+            platforms[platform] = {
+              signature: fs.readFileSync(path.join(directory, signatureFile), 'utf8').trim(),
+              url: `https://github.com/RealNickey/runtime-depot/releases/download/v${process.env.RELEASE_VERSION}/${encodeURIComponent(asset)}`,
+            };
+          }
+          fs.writeFileSync(path.join(root, 'latest.json'), JSON.stringify({
+            version: process.env.RELEASE_VERSION,
+            notes: `Release ${process.env.RELEASE_VERSION}`,
+            pub_date: new Date().toISOString(),
+            platforms,
+          }, null, 2) + '\n');
+          NODE
+
+      - name: Create or update the runtime-depot release
+        env:
+          GH_TOKEN: ${{ secrets.RUNTIME_DEPOT_TOKEN }}
+          RELEASE_VERSION: ${{ needs.version.outputs.version }}
+        shell: bash
+        run: |
+          test -n "$GH_TOKEN"
+          tag="v$RELEASE_VERSION"
+          if gh release view "$tag" --repo "$DEPOT_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$tag" release-assets/*/* release-assets/latest.json --clobber --repo "$DEPOT_REPOSITORY"
+          else
+            gh release create "$tag" release-assets/*/* release-assets/latest.json --title "$tag" --generate-notes --latest --repo "$DEPOT_REPOSITORY"
+          fi

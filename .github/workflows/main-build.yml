@@ -1,4 +1,4 @@
-name: "Main Branch Build"
+name: "Development Build"
 
 # Runs the full cross-platform build on every push to main so breakage is
 # caught before a manual release is triggered. Artifacts are kept for 30 days
@@ -6,7 +6,9 @@ name: "Main Branch Build"
 
 on:
   push:
-    branches: [main]
+    branches: [dev]
+  pull_request:
+    branches: [dev]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -15,15 +17,15 @@ concurrency:
 jobs:
   build:
     permissions:
-      contents: write
+      contents: read
     strategy:
       fail-fast: false
       matrix:
         include:
-          - platform: "macos-26"
+          - platform: "macos-14"
             args: "--target aarch64-apple-darwin"
             target: "aarch64-apple-darwin"
-          - platform: "macos-latest"
+          - platform: "macos-13"
             args: "--target x86_64-apple-darwin"
             target: "x86_64-apple-darwin"
           - platform: "ubuntu-22.04"
@@ -32,15 +34,9 @@ jobs:
           - platform: "ubuntu-24.04"
             args: "--bundles appimage,rpm"
             target: "x86_64-unknown-linux-gnu"
-          - platform: "ubuntu-24.04-arm"
-            args: "--bundles appimage,deb,rpm"
-            target: "aarch64-unknown-linux-gnu"
           - platform: "windows-latest"
             args: ""
             target: "x86_64-pc-windows-msvc"
-          - platform: "windows-11-arm"
-            args: "--target aarch64-pc-windows-msvc"
-            target: "aarch64-pc-windows-msvc"
 
     uses: ./.github/workflows/build.yml
     with:
@@ -48,5 +44,5 @@ jobs:
       target: ${{ matrix.target }}
       build-args: ${{ matrix.args }}
       upload-artifacts: true
-      sign-binaries: true
+      sign-binaries: false
     secrets: inherit
