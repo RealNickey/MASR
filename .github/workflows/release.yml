@@ -140,38 +140,16 @@ jobs:
         shell: bash
         run: test -n "$TAURI_SIGNING_PRIVATE_KEY"
 
-      - name: Import Apple Developer certificate
-        if: runner.os == 'macOS'
-        env:
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
-        shell: bash
-        run: |
-          test -n "$APPLE_CERTIFICATE" && test -n "$APPLE_CERTIFICATE_PASSWORD" && test -n "$KEYCHAIN_PASSWORD"
-          echo "$APPLE_CERTIFICATE" | base64 --decode > certificate.p12
-          security create-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
-          security default-keychain -s build.keychain
-          security unlock-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
-          security set-keychain-settings -t 3600 -u build.keychain
-          security import certificate.p12 -k build.keychain -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
-          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" build.keychain
-          identity=$(security find-identity -v -p codesigning build.keychain | awk -F '"' '/Developer ID Application/ { print $2; exit }')
-          test -n "$identity"
-          jq --arg identity "$identity" '.bundle.macOS.signingIdentity = $identity' src-tauri/tauri.conf.json > tauri.conf.tmp && mv tauri.conf.tmp src-tauri/tauri.conf.json
-
-      - name: Build signed Tauri bundles
+      # The updater signature is required. OS-level Apple notarization and
+      # Windows Authenticode signing are intentionally optional: without
+      # those services users may see platform trust prompts, but update
+      # integrity remains protected by the Tauri signature in latest.json.
+      - name: Build Tauri bundles with signed updater artifacts
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ github.token }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
-          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
-          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
           GGML_NATIVE: ${{ runner.os != 'macOS' && 'OFF' || '' }}
           GGML_AVX: ${{ runner.os != 'macOS' && 'OFF' || '' }}
           GGML_AVX2: ${{ runner.os != 'macOS' && 'OFF' || '' }}
