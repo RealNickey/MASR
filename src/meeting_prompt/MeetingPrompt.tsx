@@ -7,7 +7,12 @@ import { commands } from "@/bindings";
 import "./MeetingPrompt.css";
 
 type MeetingPromptSource = "LocalDetection" | "GoogleCalendar";
-type MeetingOverlayMode = "suggestion" | "recording" | "stopped" | "discarded" | "hidden";
+type MeetingOverlayMode =
+  | "suggestion"
+  | "recording"
+  | "stopped"
+  | "discarded"
+  | "hidden";
 
 interface MeetingOverlayPrompt {
   provider: string;
@@ -307,9 +312,7 @@ export default function MeetingPrompt() {
             {snapshot.mode === "discarded" && (
               <div className="flex h-full items-center px-6 justify-between w-full">
                 <div className="flex items-center gap-4 flex-1">
-                  <div
-                    className="w-8 h-8 rounded-full bg-bark-grey/10 flex items-center justify-center text-bark-grey z-10 relative anim-scale-in"
-                  >
+                  <div className="w-8 h-8 rounded-full bg-bark-grey/10 flex items-center justify-center text-bark-grey z-10 relative anim-scale-in">
                     <Info size={20} className="text-bark-grey" />
                   </div>
                   <div className="flex flex-col">

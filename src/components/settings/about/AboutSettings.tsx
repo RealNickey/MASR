@@ -4,9 +4,8 @@ import { getVersion } from "@tauri-apps/api/app";
 import { SettingsGroup } from "../../ui/SettingsGroup";
 import { SettingContainer } from "../../ui/SettingContainer";
 import Badge from "../../ui/Badge";
-import { AppDataDirectory } from "../AppDataDirectory";
 import { AppLanguageSelector } from "../AppLanguageSelector";
-import { LogDirectory } from "../debug";
+import { RecordingsDirectory } from "../RecordingsDirectory";
 
 export const AboutSettings: React.FC = () => {
   const { t } = useTranslation();
@@ -39,8 +38,7 @@ export const AboutSettings: React.FC = () => {
             v{version}
           </Badge>
         </SettingContainer>
-        <AppDataDirectory descriptionMode="tooltip" grouped={true} />
-        <LogDirectory grouped={true} />
+        <RecordingsDirectory descriptionMode="tooltip" grouped={true} />
       </SettingsGroup>
     </div>
   );

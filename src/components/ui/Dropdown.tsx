@@ -60,7 +60,10 @@ export const Dropdown: React.FC<DropdownProps> = ({
   };
 
   return (
-    <div className={`relative ${isOpen ? "z-50" : "z-10"} ${className}`} ref={dropdownRef}>
+    <div
+      className={`relative ${isOpen ? "z-50" : "z-10"} ${className}`}
+      ref={dropdownRef}
+    >
       <button
         type="button"
         className={`px-4 py-2.5 text-base font-semibold bg-orange-off-white border border-stone-mist rounded-inputs min-w-[200px] w-full text-start grid grid-cols-[1fr_auto] gap-2 items-center transition-all duration-150 active:scale-[0.98] ${

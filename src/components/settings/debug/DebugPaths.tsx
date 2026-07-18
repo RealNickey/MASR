@@ -25,7 +25,7 @@ export const DebugPaths: React.FC<DebugPathsProps> = ({
           <span className="font-medium">
             {t("settings.debug.paths.appData")}
           </span>{" "}
-          { }
+          {}
           <span className="font-mono text-xs select-text">
             %APPDATA%/com.thegai.app
           </span>
@@ -34,7 +34,7 @@ export const DebugPaths: React.FC<DebugPathsProps> = ({
           <span className="font-medium">
             {t("settings.debug.paths.models")}
           </span>{" "}
-          { }
+          {}
           <span className="font-mono text-xs select-text">
             %APPDATA%/com.thegai.app/models
           </span>
@@ -43,7 +43,7 @@ export const DebugPaths: React.FC<DebugPathsProps> = ({
           <span className="font-medium">
             {t("settings.debug.paths.settings")}
           </span>{" "}
-          { }
+          {}
           <span className="font-mono text-xs select-text">
             %APPDATA%/com.thegai.app/settings_store.json
           </span>

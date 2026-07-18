@@ -11,7 +11,10 @@ import { ModelStateEvent, RecordingErrorEvent } from "./lib/types/events";
 import "./App.css";
 import AccessibilityPermissions from "./components/AccessibilityPermissions";
 import Footer from "./components/footer";
-import { AccessibilityOnboarding, LanguageOnboarding } from "./components/onboarding";
+import {
+  AccessibilityOnboarding,
+  LanguageOnboarding,
+} from "./components/onboarding";
 import { Sidebar, SidebarSection, SECTIONS_CONFIG } from "./components/Sidebar";
 import { LocalFileTranscriber } from "./components/LocalFileTranscriber";
 import { useSettings } from "./hooks/useSettings";
@@ -24,10 +27,19 @@ import { isProductionLike } from "@/utils/isProductionLike";
 
 type OnboardingStep = "accessibility" | "language" | "done";
 
-const renderSettingsContent = (section: SidebarSection, simulateProd: boolean) => {
+const renderSettingsContent = (
+  section: SidebarSection,
+  simulateProd: boolean,
+) => {
   const ActiveComponent =
     SECTIONS_CONFIG[section]?.component || SECTIONS_CONFIG.general.component;
-  return <ActiveComponent {...(section === "advanced" || section === "general" ? { simulateProd } : {})} />;
+  return (
+    <ActiveComponent
+      {...(section === "advanced" || section === "general"
+        ? { simulateProd }
+        : {})}
+    />
+  );
 };
 
 function App() {
@@ -208,8 +220,6 @@ function App() {
     };
   }, [t]);
 
-
-
   // Listen for recording state changes to display meeting recording indicator
   useEffect(() => {
     const unlisten = listen<{ mode: "meeting" | "transcribe" | "idle" }>(
@@ -262,6 +272,23 @@ function App() {
 
   const checkOnboardingStatus = async () => {
     try {
+      const [setupResult, currentModelResult] = await Promise.all([
+        commands.getInitialSetupStatus(),
+        commands.getCurrentModel(),
+      ]);
+      const needsLanguageSelection =
+        setupResult.status === "ok" &&
+        setupResult.data.phase === "ready" &&
+        Boolean(setupResult.data.english_model_id) &&
+        currentModelResult.status === "ok" &&
+        !currentModelResult.data;
+
+      if (needsLanguageSelection) {
+        setIsReturningUser(false);
+        setOnboardingStep("accessibility");
+        return;
+      }
+
       // Check if they have any models available
       const result = await commands.hasAnyModelsAvailable();
       const hasModels = result.status === "ok" && result.data;
@@ -319,7 +346,9 @@ function App() {
   };
 
   const handleAccessibilityComplete = useCallback(() => {
-    setOnboardingStep(isOnboardingPreview ? "language" : (isReturningUser ? "done" : "language"));
+    setOnboardingStep(
+      isOnboardingPreview ? "language" : isReturningUser ? "done" : "language",
+    );
   }, [isOnboardingPreview, isReturningUser]);
 
   const handleLanguageComplete = useCallback(() => {

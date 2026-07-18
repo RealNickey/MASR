@@ -60,7 +60,10 @@ export const GeneralSettings: React.FC<{ simulateProd?: boolean }> = ({
           >
             <ShortcutInput shortcutId="transcribe" grouped={true} />
             <PushToTalk descriptionMode="tooltip" grouped={true} />
-            <TranscriptLanguageSelector descriptionMode="tooltip" grouped={true} />
+            <TranscriptLanguageSelector
+              descriptionMode="tooltip"
+              grouped={true}
+            />
             <OutputLanguageSelector descriptionMode="tooltip" grouped={true} />
             <ShortcutInput shortcutId="meeting" grouped={true} />
             {/* Cancel shortcut is hidden with push-to-talk (release key cancels) and on Linux (dynamic shortcut instability) */}

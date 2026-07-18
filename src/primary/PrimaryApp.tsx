@@ -8,7 +8,7 @@ import {
 import { Settings2 } from "lucide-react";
 import { toast, Toaster } from "sonner";
 import { useTranslation } from "react-i18next";
-import { commands } from "@/bindings";
+import { commands, type InitialSetupStatus } from "@/bindings";
 import { HistorySettings } from "@/components/settings";
 import { MeetingsView } from "./MeetingsView";
 import { getLanguageDirection, initializeRTL } from "@/lib/utils/rtl";
@@ -16,6 +16,7 @@ import { useMeetingSummaryFallbackToast } from "@/hooks/useMeetingSummaryFallbac
 import { motion, AnimatePresence } from "framer-motion";
 import { GlobalUpdatePrompt } from "@/components/update-checker/GlobalUpdatePrompt";
 import logo from "@/assets/logo.png";
+import { InitialSetupEmptyState } from "./InitialSetupEmptyState";
 
 type PrimaryTab = "meetings" | "transcription";
 
@@ -33,6 +34,9 @@ const PRIMARY_TABS: Array<{
 function PrimaryApp() {
   const { t, i18n } = useTranslation();
   const [activeTab, setActiveTab] = useState<PrimaryTab>("meetings");
+  const [initialSetup, setInitialSetup] = useState<InitialSetupStatus | null>(
+    null,
+  );
   const hasInitialized = useRef(false);
   const direction = getLanguageDirection(i18n.language);
   useMeetingSummaryFallbackToast();
@@ -50,10 +54,31 @@ function PrimaryApp() {
     };
   }, []);
 
+  useEffect(() => {
+    let cancelled = false;
+    const unlisten = listen<InitialSetupStatus>(
+      "initial-setup-status",
+      (event) => {
+        if (!cancelled) setInitialSetup(event.payload);
+      },
+    );
 
+    void commands.getInitialSetupStatus().then((result) => {
+      if (!cancelled && result.status === "ok") setInitialSetup(result.data);
+    });
+
+    return () => {
+      cancelled = true;
+      unlisten.then((fn) => fn());
+    };
+  }, []);
 
   useEffect(() => {
     if (hasInitialized.current) {
+      return;
+    }
+
+    if (!initialSetup || initialSetup.phase !== "ready") {
       return;
     }
 
@@ -61,6 +86,11 @@ function PrimaryApp() {
 
     void (async () => {
       try {
+        const currentModelResult = await commands.getCurrentModel();
+        if (currentModelResult.status === "ok" && !currentModelResult.data) {
+          await commands.showMainWindowCommand();
+          return;
+        }
         const hasModelsResult = await commands.hasAnyModelsAvailable();
         const hasModels =
           hasModelsResult.status === "ok" && hasModelsResult.data;
@@ -104,7 +134,7 @@ function PrimaryApp() {
         console.warn("Primary window initialization failed:", error);
       }
     })();
-  }, []);
+  }, [initialSetup]);
 
   const handleOpenSettings = async () => {
     try {
@@ -193,21 +223,25 @@ function PrimaryApp() {
 
         <main className="flex-1 overflow-y-auto overflow-x-hidden px-6 py-6 relative [scrollbar-gutter:stable]">
           <div className="mx-auto w-full max-w-6xl">
-            <AnimatePresence mode="wait">
-              <motion.div
-                key={activeTab}
-                initial={{ opacity: 0, y: 8, filter: "blur(2px)" }}
-                animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
-                exit={{ opacity: 0, y: -8, filter: "blur(2px)" }}
-                transition={{ duration: 0.2, ease: "easeOut" }}
-              >
-                {activeTab === "meetings" ? (
-                  <MeetingsView />
-                ) : (
-                  <HistorySettings />
-                )}
-              </motion.div>
-            </AnimatePresence>
+            {initialSetup && initialSetup.phase !== "ready" ? (
+              <InitialSetupEmptyState status={initialSetup} />
+            ) : (
+              <AnimatePresence mode="wait">
+                <motion.div
+                  key={activeTab}
+                  initial={{ opacity: 0, y: 8, filter: "blur(2px)" }}
+                  animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
+                  exit={{ opacity: 0, y: -8, filter: "blur(2px)" }}
+                  transition={{ duration: 0.2, ease: "easeOut" }}
+                >
+                  {activeTab === "meetings" ? (
+                    <MeetingsView />
+                  ) : (
+                    <HistorySettings />
+                  )}
+                </motion.div>
+              </AnimatePresence>
+            )}
           </div>
         </main>
       </div>

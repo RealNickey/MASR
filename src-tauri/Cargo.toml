@@ -1,6 +1,6 @@
 [package]
 name = "thegai"
-version = "0.0.1"
+version = "0.0.2"
 description = "ThegAi"
 authors = ["Aswin Jimson"]
 edition = "2021"
@@ -41,6 +41,7 @@ tauri = { version = "2.10.2", features = [
   "macos-private-api",
   "tray-icon",
   'image-png',
+  "test",
 ] }
 tauri-plugin-log = "2.7.1"
 tauri-plugin-opener = "2.5.2"

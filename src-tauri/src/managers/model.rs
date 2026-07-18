@@ -14,6 +14,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
+use sysinfo::Disks;
 use tar::Archive;
 use tauri::{AppHandle, Emitter, Manager};
 
@@ -61,6 +62,44 @@ pub struct DownloadProgress {
     pub percentage: f64,
 }
 
+/// User-facing state for the automatic first-run model setup. This deliberately
+/// contains no model display names: the primary window presents it as a single
+/// private-compute setup operation.
+#[derive(Debug, Clone, Serialize, Deserialize, Type, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum InitialSetupPhase {
+    CheckingStorage,
+    Downloading,
+    Verifying,
+    Extracting,
+    Retrying,
+    Ready,
+    InsufficientStorage,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+pub struct InitialSetupStatus {
+    pub phase: InitialSetupPhase,
+    pub downloaded: u64,
+    pub total: u64,
+    pub english_model_id: Option<String>,
+    pub available_bytes: Option<u64>,
+    pub required_bytes: u64,
+}
+
+impl InitialSetupStatus {
+    fn checking_storage() -> Self {
+        Self {
+            phase: InitialSetupPhase::CheckingStorage,
+            downloaded: 0,
+            total: 0,
+            english_model_id: None,
+            available_bytes: None,
+            required_bytes: 0,
+        }
+    }
+}
+
 /// RAII guard that cleans up download state (`is_downloading` flag and cancel flag)
 /// when dropped, unless explicitly disarmed. This ensures consistent cleanup on
 /// every error path without requiring manual cleanup at each `?` or `return Err`.
@@ -92,6 +131,8 @@ pub struct ModelManager {
     available_models: Mutex<HashMap<String, ModelInfo>>,
     cancel_flags: Arc<Mutex<HashMap<String, Arc<AtomicBool>>>>,
     extracting_models: Arc<Mutex<HashSet<String>>>,
+    initial_setup_status: Mutex<InitialSetupStatus>,
+    initial_setup_models: Mutex<Vec<String>>,
 }
 
 impl ModelManager {
@@ -652,6 +693,8 @@ impl ModelManager {
             available_models: Mutex::new(available_models),
             cancel_flags: Arc::new(Mutex::new(HashMap::new())),
             extracting_models: Arc::new(Mutex::new(HashSet::new())),
+            initial_setup_status: Mutex::new(InitialSetupStatus::checking_storage()),
+            initial_setup_models: Mutex::new(Vec::new()),
         };
 
         // Migrate any bundled models to user directory
@@ -677,6 +720,176 @@ impl ModelManager {
     pub fn get_model_info(&self, model_id: &str) -> Option<ModelInfo> {
         let models = self.available_models.lock().unwrap();
         models.get(model_id).cloned()
+    }
+
+    pub fn get_initial_setup_status(&self) -> InitialSetupStatus {
+        self.initial_setup_status.lock().unwrap().clone()
+    }
+
+    fn emit_initial_setup_status(&self) {
+        let status = self.get_initial_setup_status();
+        let _ = self.app_handle.emit("initial-setup-status", status);
+    }
+
+    fn set_initial_setup_status(&self, status: InitialSetupStatus) {
+        *self.initial_setup_status.lock().unwrap() = status;
+        self.emit_initial_setup_status();
+    }
+
+    fn initial_setup_contains(&self, model_id: &str) -> bool {
+        self.initial_setup_models
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|id| id == model_id)
+    }
+
+    fn set_initial_setup_phase(&self, model_id: &str, phase: InitialSetupPhase) {
+        if !self.initial_setup_contains(model_id) {
+            return;
+        }
+        let mut status = self.initial_setup_status.lock().unwrap();
+        status.phase = phase;
+        drop(status);
+        self.emit_initial_setup_status();
+    }
+
+    fn update_initial_setup_progress(&self, model_id: &str, downloaded: u64, total: u64) {
+        if !self.initial_setup_contains(model_id) {
+            return;
+        }
+
+        let completed_before_current = {
+            let models = self.initial_setup_models.lock().unwrap();
+            let available = self.available_models.lock().unwrap();
+            models
+                .iter()
+                .take_while(|id| id.as_str() != model_id)
+                .filter_map(|id| available.get(id))
+                .map(|model| model.size_mb * 1024 * 1024)
+                .sum::<u64>()
+        };
+
+        let mut status = self.initial_setup_status.lock().unwrap();
+        status.phase = InitialSetupPhase::Downloading;
+        status.downloaded = completed_before_current + downloaded;
+        if total > 0 {
+            let remaining_after_current = status.total.saturating_sub(
+                completed_before_current
+                    + self
+                        .available_models
+                        .lock()
+                        .unwrap()
+                        .get(model_id)
+                        .map(|model| model.size_mb * 1024 * 1024)
+                        .unwrap_or(0),
+            );
+            status.total = completed_before_current + total + remaining_after_current;
+        }
+        drop(status);
+        self.emit_initial_setup_status();
+    }
+
+    /// Selects the automatic first-run pair using the disk that contains the
+    /// models directory. Existing completed models do not consume new budget.
+    pub fn prepare_initial_setup(&self) -> InitialSetupStatus {
+        let available_bytes = self.available_space_for_models_dir();
+        let models = self.available_models.lock().unwrap();
+        let required_for = |ids: &[&str]| {
+            ids.iter()
+                .filter_map(|id| models.get(*id))
+                .filter(|model| !model.is_downloaded)
+                .map(|model| (model.size_mb * 1024 * 1024).saturating_sub(model.partial_size))
+                .sum::<u64>()
+        };
+
+        let turbo_models = ["thegav1", "turbo"];
+        let fallback_models = ["thegav1", "parakeet-tdt-0.6b-v3"];
+        let turbo_required = required_for(&turbo_models);
+        let fallback_required = required_for(&fallback_models);
+        let can_fit = |required| {
+            available_bytes
+                .map(|free| free >= required)
+                .unwrap_or(false)
+        };
+
+        let (selected, english_model_id, required_bytes) = if can_fit(turbo_required) {
+            (turbo_models.to_vec(), "turbo", turbo_required)
+        } else if can_fit(fallback_required) {
+            (
+                fallback_models.to_vec(),
+                "parakeet-tdt-0.6b-v3",
+                fallback_required,
+            )
+        } else {
+            let status = InitialSetupStatus {
+                phase: InitialSetupPhase::InsufficientStorage,
+                downloaded: 0,
+                total: fallback_required,
+                english_model_id: None,
+                available_bytes,
+                required_bytes: fallback_required,
+            };
+            drop(models);
+            self.initial_setup_models.lock().unwrap().clear();
+            self.set_initial_setup_status(status.clone());
+            return status;
+        };
+        drop(models);
+
+        let selected_ids = selected
+            .iter()
+            .filter(|id| {
+                self.available_models
+                    .lock()
+                    .unwrap()
+                    .get(**id)
+                    .map(|model| !model.is_downloaded)
+                    .unwrap_or(false)
+            })
+            .map(|id| (*id).to_string())
+            .collect::<Vec<_>>();
+        *self.initial_setup_models.lock().unwrap() = selected_ids;
+        let status = InitialSetupStatus {
+            phase: if required_bytes == 0 {
+                InitialSetupPhase::Ready
+            } else {
+                InitialSetupPhase::Downloading
+            },
+            downloaded: 0,
+            total: required_bytes,
+            english_model_id: Some(english_model_id.to_string()),
+            available_bytes,
+            required_bytes,
+        };
+        self.set_initial_setup_status(status.clone());
+        status
+    }
+
+    pub fn mark_initial_setup_retrying(&self, model_id: &str) {
+        self.set_initial_setup_phase(model_id, InitialSetupPhase::Retrying);
+    }
+
+    pub fn mark_initial_setup_ready(&self) {
+        let mut status = self.initial_setup_status.lock().unwrap();
+        status.phase = InitialSetupPhase::Ready;
+        status.downloaded = status.total;
+        drop(status);
+        self.emit_initial_setup_status();
+    }
+
+    pub fn initial_setup_models(&self) -> Vec<String> {
+        self.initial_setup_models.lock().unwrap().clone()
+    }
+
+    fn available_space_for_models_dir(&self) -> Option<u64> {
+        let disks = Disks::new_with_refreshed_list();
+        disks
+            .list()
+            .iter()
+            .filter(|disk| self.models_dir.starts_with(disk.mount_point()))
+            .max_by_key(|disk| disk.mount_point().components().count())
+            .map(|disk| disk.available_space())
     }
 
     fn migrate_bundled_models(&self) -> Result<()> {
@@ -1148,6 +1361,7 @@ impl ModelManager {
         let _ = self
             .app_handle
             .emit("model-download-progress", &initial_progress);
+        self.update_initial_setup_progress(model_id, downloaded, total_size);
 
         // Throttle progress events to max 10/sec (100ms intervals)
         let mut last_emit = Instant::now();
@@ -1184,6 +1398,7 @@ impl ModelManager {
                     percentage,
                 };
                 let _ = self.app_handle.emit("model-download-progress", &progress);
+                self.update_initial_setup_progress(model_id, downloaded, total_size);
                 last_emit = Instant::now();
             }
         }
@@ -1202,6 +1417,7 @@ impl ModelManager {
         let _ = self
             .app_handle
             .emit("model-download-progress", &final_progress);
+        self.update_initial_setup_progress(model_id, downloaded, total_size);
 
         file.flush()?;
         drop(file); // Ensure file is closed before moving
@@ -1209,13 +1425,20 @@ impl ModelManager {
         // Verify downloaded file size matches expected size
         if total_size > 0 {
             let actual_size = partial_path.metadata()?.len();
-            if actual_size != total_size {
-                // Download is incomplete/corrupted - delete partial and return error
-                let _ = fs::remove_file(&partial_path);
+            if actual_size < total_size {
+                // Download is incomplete/interrupted - return error but do NOT delete partial file so it can resume
                 return Err(anyhow::anyhow!(
-                    "Download incomplete: expected {} bytes, got {} bytes",
+                    "Download interrupted: expected {} bytes, got {} bytes. Will resume later.",
                     total_size,
                     actual_size
+                ));
+            } else if actual_size > total_size {
+                // Download is corrupted (oversized) - delete partial and return error
+                let _ = fs::remove_file(&partial_path);
+                return Err(anyhow::anyhow!(
+                    "Download corrupted: file size {} exceeds expected size {}",
+                    actual_size,
+                    total_size
                 ));
             }
         }
@@ -1224,6 +1447,7 @@ impl ModelManager {
         // stalled while hashing large model files (up to 1.6 GB). On failure the partial
         // is deleted inside verify_sha256 so the next attempt always starts fresh.
         let _ = self.app_handle.emit("model-verification-started", model_id);
+        self.set_initial_setup_phase(model_id, InitialSetupPhase::Verifying);
         info!("Verifying SHA256 for model {}...", model_id);
         let verify_path = partial_path.clone();
         let verify_expected = model_info.sha256.clone();
@@ -1248,6 +1472,7 @@ impl ModelManager {
 
             // Emit extraction started event
             let _ = self.app_handle.emit("model-extraction-started", model_id);
+            self.set_initial_setup_phase(model_id, InitialSetupPhase::Extracting);
             info!("Extracting archive for directory-based model: {}", model_id);
 
             // Use a temporary extraction directory to ensure atomic operations
@@ -1501,12 +1726,28 @@ impl ModelManager {
         info!("Download cancellation initiated for: {}", model_id);
         Ok(())
     }
+
+    #[cfg(test)]
+    pub fn new_test(app_handle: &AppHandle, models_dir: PathBuf) -> Self {
+        Self {
+            app_handle: app_handle.clone(),
+            models_dir,
+            available_models: std::sync::Mutex::new(HashMap::new()),
+            cancel_flags: std::sync::Arc::new(std::sync::Mutex::new(HashMap::new())),
+            extracting_models: std::sync::Arc::new(std::sync::Mutex::new(HashSet::new())),
+            initial_setup_status: std::sync::Mutex::new(InitialSetupStatus::checking_storage()),
+            initial_setup_models: std::sync::Mutex::new(Vec::new()),
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::io::Write;
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
     use tempfile::TempDir;
 
     #[test]
@@ -1691,5 +1932,140 @@ mod tests {
             ModelManager::verify_sha256(&missing_path, Some("anyexpectedhash"), "missing_model");
 
         assert!(result.is_err(), "missing file must return an error");
+    }
+
+    fn start_mock_resume_server() -> (String, Arc<AtomicUsize>) {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let url = format!("http://127.0.0.1:{}", port);
+        let request_count = Arc::new(AtomicUsize::new(0));
+        let request_count_clone = request_count.clone();
+
+        std::thread::spawn(move || {
+            for stream in listener.incoming() {
+                let stream = stream.unwrap();
+                stream
+                    .set_read_timeout(Some(std::time::Duration::from_secs(5)))
+                    .unwrap();
+                let mut stream = stream;
+                let mut buffer = [0; 1024];
+                let bytes_read = stream.read(&mut buffer).unwrap();
+                let request = String::from_utf8_lossy(&buffer[..bytes_read]);
+
+                let count = request_count_clone.fetch_add(1, Ordering::SeqCst);
+
+                if count == 0 {
+                    // First request: return 200 OK with Content-Length 10, but only write 5 bytes and drop connection to simulate interruption
+                    let response_headers =
+                        "HTTP/1.1 200 OK\r\nContent-Length: 10\r\nAccept-Ranges: bytes\r\n\r\n";
+                    stream.write_all(response_headers.as_bytes()).unwrap();
+                    stream.write_all(b"hello").unwrap();
+                    drop(stream); // Close connection abruptly
+                } else {
+                    // Second request: should contain Range header "bytes=5-"
+                    assert!(
+                        request.contains("Range: bytes=5-") || request.contains("range: bytes=5-"),
+                        "Missing Range header in resume attempt: {}",
+                        request
+                    );
+                    let response = "HTTP/1.1 206 Partial Content\r\nContent-Length: 5\r\nContent-Range: bytes 5-9/10\r\n\r\nworld";
+                    stream.write_all(response.as_bytes()).unwrap();
+                }
+            }
+        });
+
+        (url, request_count)
+    }
+
+    #[tokio::test]
+    async fn test_download_model_interruption_and_resume() {
+        let app = tauri::Builder::default()
+            .build(tauri::generate_context!())
+            .unwrap();
+        let app_handle = app.handle();
+        let temp_dir = TempDir::new().unwrap();
+        let models_dir = temp_dir.path().to_path_buf();
+        let manager = ModelManager::new_test(app_handle, models_dir);
+
+        let (url, req_count) = start_mock_resume_server();
+
+        let model_id = "test_download".to_string();
+        let test_model = ModelInfo {
+            id: model_id.clone(),
+            name: "Test Download Model".to_string(),
+            description: "Test".to_string(),
+            filename: "test-model.bin".to_string(),
+            url: Some(url),
+            sha256: None,
+            size_mb: 1,
+            is_downloaded: false,
+            is_downloading: false,
+            partial_size: 0,
+            is_directory: false,
+            engine_type: EngineType::Whisper,
+            accuracy_score: 0.5,
+            speed_score: 0.5,
+            supports_translation: true,
+            is_recommended: false,
+            supported_languages: vec!["en".to_string()],
+            supports_language_selection: true,
+            is_custom: false,
+        };
+
+        {
+            let mut models = manager.available_models.lock().unwrap();
+            models.insert(model_id.clone(), test_model);
+        }
+
+        // First attempt (will fail due to connection drop, but should preserve the partial file)
+        let result = manager.download_model(&model_id).await;
+        assert!(result.is_err(), "First attempt should fail");
+
+        let partial_path = manager.models_dir.join("test-model.bin.partial");
+        assert!(
+            partial_path.exists(),
+            "Partial file should be preserved on interruption"
+        );
+        assert_eq!(
+            partial_path.metadata().unwrap().len(),
+            5,
+            "Partial file should contain exactly 5 bytes"
+        );
+
+        // Second attempt (should resume using Range header and complete successfully)
+        let result = manager.download_model(&model_id).await;
+        assert!(
+            result.is_ok(),
+            "Second attempt should succeed: {:?}",
+            result.err()
+        );
+
+        assert_eq!(
+            req_count.load(Ordering::SeqCst),
+            2,
+            "Should have made exactly 2 requests"
+        );
+
+        let final_path = manager.models_dir.join("test-model.bin");
+        assert!(final_path.exists(), "Final model file should exist");
+        assert!(
+            !partial_path.exists(),
+            "Partial file should be cleaned up on completion"
+        );
+        assert_eq!(
+            final_path.metadata().unwrap().len(),
+            10,
+            "Final file should contain 10 bytes"
+        );
+
+        let mut final_content = String::new();
+        std::fs::File::open(&final_path)
+            .unwrap()
+            .read_to_string(&mut final_content)
+            .unwrap();
+        assert_eq!(
+            final_content, "helloworld",
+            "Downloaded content should be complete"
+        );
     }
 }

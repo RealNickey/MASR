@@ -275,9 +275,13 @@ fn generate_obfuscated_keys() {
 
     let mut out = String::from("// Auto-generated key obfuscation - do not edit\n\n");
     let xor_key: &[u8] = &[0x5A, 0xA5, 0x3F, 0xC3, 0x7E, 0xBD, 0x12, 0x9B];
-    
-    out.push_str(&format!("#[allow(dead_code)]\nconst XOR_KEY: &[u8] = &{:?};\n\n", xor_key));
-    out.push_str(r#"
+
+    out.push_str(&format!(
+        "#[allow(dead_code)]\nconst XOR_KEY: &[u8] = &{:?};\n\n",
+        xor_key
+    ));
+    out.push_str(
+        r#"
 #[allow(dead_code)]
 fn deobfuscate(encoded: &[u8]) -> Option<String> {
     if encoded.is_empty() {
@@ -289,18 +293,26 @@ fn deobfuscate(encoded: &[u8]) -> Option<String> {
     }
     String::from_utf8(decoded).ok()
 }
-"#);
+"#,
+    );
 
     for (name, env_vars) in keys {
-        let val = env_vars.iter()
+        let val = env_vars
+            .iter()
             .find_map(|&var| std::env::var(var).ok())
             .unwrap_or_default();
 
         if val.is_empty() {
-            out.push_str(&format!("pub static OBFUSCATED_{name}: Lazy<Option<String>> = Lazy::new(|| None);\n"));
+            out.push_str(&format!(
+                "pub static OBFUSCATED_{name}: Lazy<Option<String>> = Lazy::new(|| None);\n"
+            ));
         } else {
             let bytes = val.as_bytes();
-            let obfuscated: Vec<u8> = bytes.iter().enumerate().map(|(i, &b)| b ^ xor_key[i % xor_key.len()]).collect();
+            let obfuscated: Vec<u8> = bytes
+                .iter()
+                .enumerate()
+                .map(|(i, &b)| b ^ xor_key[i % xor_key.len()])
+                .collect();
             out.push_str(&format!("pub static OBFUSCATED_{name}: Lazy<Option<String>> = Lazy::new(|| deobfuscate(&{:?}));\n", obfuscated));
         }
     }

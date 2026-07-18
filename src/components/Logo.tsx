@@ -14,12 +14,10 @@ export const Logo: React.FC<LogoProps> = ({ size = "lg", className = "" }) => {
 
   return (
     <div className={`flex items-center ${gap} select-none ${className}`}>
-      <img
-        src={logo}
-        alt="Logo"
-        className={`${imgSize} object-contain`}
-      />
-      <span className={`${textSize} font-bold text-charcoal font-cooper tracking-wide`}>
+      <img src={logo} alt="Logo" className={`${imgSize} object-contain`} />
+      <span
+        className={`${textSize} font-bold text-charcoal font-cooper tracking-wide`}
+      >
         Thegai
       </span>
     </div>

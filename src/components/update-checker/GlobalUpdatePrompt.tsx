@@ -40,7 +40,9 @@ const WAIT_MUTEX_TIMEOUT_MS = 5 * 60 * 1000;
 
 export const getGlobalUpdateState = () => globalUpdateState;
 
-export const subscribeToUpdateState = (listener: (state: GlobalUpdateState) => void) => {
+export const subscribeToUpdateState = (
+  listener: (state: GlobalUpdateState) => void,
+) => {
   listeners.add(listener);
   listener(globalUpdateState);
   return () => {
@@ -52,7 +54,11 @@ const updateGlobalState = (updates: Partial<GlobalUpdateState>) => {
   globalUpdateState = { ...globalUpdateState, ...updates };
   listeners.forEach((listener) => listener(globalUpdateState));
   // Dispatch a window event so non-React code or other frames can react if needed
-  window.dispatchEvent(new CustomEvent("thegai-update-state-changed", { detail: globalUpdateState }));
+  window.dispatchEvent(
+    new CustomEvent("thegai-update-state-changed", {
+      detail: globalUpdateState,
+    }),
+  );
   // Emit Tauri event for cross-window sync
   emit("thegai-update-state-sync", globalUpdateState).catch(console.error);
 };
@@ -69,12 +75,13 @@ let startupUpdateFlowPromise: Promise<void> | null = null;
 
 export const GlobalUpdatePrompt: React.FC = () => {
   const { t } = useTranslation();
-  const [updateState, setUpdateState] = useState<GlobalUpdateState>(globalUpdateState);
+  const [updateState, setUpdateState] =
+    useState<GlobalUpdateState>(globalUpdateState);
   const [isStartupInstalling, setIsStartupInstalling] = useState(false);
   const [startupError, setStartupError] = useState<string | null>(null);
   const currentWindowLabel = getCurrentWebviewWindow().label;
   const isPrimaryWindow = currentWindowLabel === PRIMARY_WINDOW_LABEL;
-  
+
   // Track active update instance
   const activeUpdateRef = useRef<Update | null>(null);
   const isCheckingRef = useRef(false);
@@ -92,18 +99,28 @@ export const GlobalUpdatePrompt: React.FC = () => {
     });
 
     // Listen for manual update trigger from any window
-    const unlistenManualTriggerPromise = listen("thegai-trigger-update-check", () => {
-      if (!isPrimaryWindow) return;
-      performUpdateCheck(true);
-    });
+    const unlistenManualTriggerPromise = listen(
+      "thegai-trigger-update-check",
+      () => {
+        if (!isPrimaryWindow) return;
+        performUpdateCheck(true);
+      },
+    );
 
     // Listen for update state sync from other windows
-    const unlistenSyncPromise = listen<GlobalUpdateState>("thegai-update-state-sync", (event) => {
-      const newState = event.payload;
-      globalUpdateState = { ...globalUpdateState, ...newState };
-      listeners.forEach((listener) => listener(globalUpdateState));
-      window.dispatchEvent(new CustomEvent("thegai-update-state-changed", { detail: globalUpdateState }));
-    });
+    const unlistenSyncPromise = listen<GlobalUpdateState>(
+      "thegai-update-state-sync",
+      (event) => {
+        const newState = event.payload;
+        globalUpdateState = { ...globalUpdateState, ...newState };
+        listeners.forEach((listener) => listener(globalUpdateState));
+        window.dispatchEvent(
+          new CustomEvent("thegai-update-state-changed", {
+            detail: globalUpdateState,
+          }),
+        );
+      },
+    );
 
     return () => {
       unsubscribe();
@@ -124,7 +141,8 @@ export const GlobalUpdatePrompt: React.FC = () => {
     if (startupUpdateFlowPromise) return;
 
     startupUpdateFlowPromise = (async () => {
-      const hasDeferred = localStorage.getItem("thegai_update_on_next_launch") === "true";
+      const hasDeferred =
+        localStorage.getItem("thegai_update_on_next_launch") === "true";
       if (!hasDeferred) {
         if (!updateCheckingCycleStarted) {
           updateCheckingCycleStarted = true;
@@ -158,14 +176,18 @@ export const GlobalUpdatePrompt: React.FC = () => {
               }
             });
 
-            console.log("[Updater] Update installed successfully, relaunching...");
+            console.log(
+              "[Updater] Update installed successfully, relaunching...",
+            );
             // Clear flag before relaunching so we don't get stuck in a loop
             localStorage.removeItem("thegai_update_on_next_launch");
             localStorage.removeItem("thegai_update_ready");
 
             await relaunch();
           } else {
-            console.warn("[Updater] Startup check returned no update. Clearing flag.");
+            console.warn(
+              "[Updater] Startup check returned no update. Clearing flag.",
+            );
             localStorage.removeItem("thegai_update_on_next_launch");
             localStorage.removeItem("thegai_update_ready");
             setIsStartupInstalling(false);
@@ -213,9 +235,12 @@ export const GlobalUpdatePrompt: React.FC = () => {
     performUpdateCheck(false);
 
     // Schedule checking every 2 hours (aggressive enough for updates)
-    checkIntervalRef.current = setInterval(() => {
-      performUpdateCheck(false);
-    }, 2 * 60 * 60 * 1000);
+    checkIntervalRef.current = setInterval(
+      () => {
+        performUpdateCheck(false);
+      },
+      2 * 60 * 60 * 1000,
+    );
   };
 
   const performUpdateCheck = async (isManual = false) => {
@@ -278,7 +303,9 @@ export const GlobalUpdatePrompt: React.FC = () => {
       if (!isManual && retryCountRef.current < 3) {
         retryCountRef.current += 1;
         const delay = Math.pow(2, retryCountRef.current) * 5000; // 10s, 20s, 40s
-        console.log(`[Updater] Retrying check in ${delay / 1000}s... (Attempt ${retryCountRef.current}/3)`);
+        console.log(
+          `[Updater] Retrying check in ${delay / 1000}s... (Attempt ${retryCountRef.current}/3)`,
+        );
         setTimeout(() => performUpdateCheck(false), delay);
       }
     }
@@ -301,36 +328,70 @@ export const GlobalUpdatePrompt: React.FC = () => {
     // Set download mutex/flag in localStorage
     const now = Date.now();
     const activeDownloading = localStorage.getItem("thegai_update_downloading");
-    const activeDownloadTime = parseInt(localStorage.getItem("thegai_update_download_time") || "0", 10);
-    
+    const activeDownloadTime = parseInt(
+      localStorage.getItem("thegai_update_download_time") || "0",
+      10,
+    );
+
     // If another window is downloading the same version and it started less than 5 mins ago, wait for it
-    if (activeDownloading === update.version && now - activeDownloadTime < 5 * 60 * 1000) {
-      console.log("[Updater] Another window is currently downloading the update. Waiting...");
-      updateGlobalState({ isChecking: false, isDownloading: true, downloadProgress: 50 });
-      
+    if (
+      activeDownloading === update.version &&
+      now - activeDownloadTime < 5 * 60 * 1000
+    ) {
+      console.log(
+        "[Updater] Another window is currently downloading the update. Waiting...",
+      );
+      updateGlobalState({
+        isChecking: false,
+        isDownloading: true,
+        downloadProgress: 50,
+      });
+
       // Poll storage for completion or cancellation
       pollIntervalRef.current = setInterval(() => {
         const readyVersion = localStorage.getItem("thegai_update_ready");
-        const currentDownloading = localStorage.getItem("thegai_update_downloading");
-        const currentDownloadTime = parseInt(localStorage.getItem("thegai_update_download_time") || "0", 10);
+        const currentDownloading = localStorage.getItem(
+          "thegai_update_downloading",
+        );
+        const currentDownloadTime = parseInt(
+          localStorage.getItem("thegai_update_download_time") || "0",
+          10,
+        );
 
         if (Date.now() - activeDownloadTime >= WAIT_MUTEX_TIMEOUT_MS) {
           if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
-          console.warn("[Updater] Waited too long for another downloader. Stopping wait.");
-          updateGlobalState({ isDownloading: false, error: "Download timed out while waiting for another window." });
+          console.warn(
+            "[Updater] Waited too long for another downloader. Stopping wait.",
+          );
+          updateGlobalState({
+            isDownloading: false,
+            error: "Download timed out while waiting for another window.",
+          });
           isCheckingRef.current = false;
           return;
         }
-        
+
         if (readyVersion === update.version) {
           if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
-          updateGlobalState({ isDownloading: false, updateReady: true, showPrompt: true });
+          updateGlobalState({
+            isDownloading: false,
+            updateReady: true,
+            showPrompt: true,
+          });
           isCheckingRef.current = false;
-        } else if (currentDownloading !== update.version || currentDownloadTime !== activeDownloadTime) {
+        } else if (
+          currentDownloading !== update.version ||
+          currentDownloadTime !== activeDownloadTime
+        ) {
           // The other window's download lock was released (download failed or window closed)
           if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
-          console.warn("[Updater] Active downloader lock was released or changed. Stopping wait.");
-          updateGlobalState({ isDownloading: false, error: "Download failed or was cancelled by another window." });
+          console.warn(
+            "[Updater] Active downloader lock was released or changed. Stopping wait.",
+          );
+          updateGlobalState({
+            isDownloading: false,
+            error: "Download failed or was cancelled by another window.",
+          });
           isCheckingRef.current = false;
         }
       }, 5000);
@@ -340,8 +401,12 @@ export const GlobalUpdatePrompt: React.FC = () => {
     // Acquire lock and start download
     localStorage.setItem("thegai_update_downloading", update.version);
     localStorage.setItem("thegai_update_download_time", now.toString());
-    
-    updateGlobalState({ isChecking: false, isDownloading: true, downloadProgress: 0 });
+
+    updateGlobalState({
+      isChecking: false,
+      isDownloading: true,
+      downloadProgress: 0,
+    });
 
     try {
       let downloadedBytes = 0;
@@ -369,7 +434,10 @@ export const GlobalUpdatePrompt: React.FC = () => {
           totalBytes = event.data.contentLength ?? 0;
         } else if (event.event === "Progress") {
           downloadedBytes += event.data.chunkLength;
-          const progress = totalBytes > 0 ? Math.round((downloadedBytes / totalBytes) * 100) : 50;
+          const progress =
+            totalBytes > 0
+              ? Math.round((downloadedBytes / totalBytes) * 100)
+              : 50;
           updateGlobalState({ downloadProgress: Math.min(progress, 99) });
           if (totalBytes > 0 && downloadedBytes >= totalBytes) {
             finalizeDownload();
@@ -384,7 +452,10 @@ export const GlobalUpdatePrompt: React.FC = () => {
       console.error("[Updater] Background download failed:", err);
       localStorage.removeItem("thegai_update_downloading");
       localStorage.removeItem("thegai_update_download_time");
-      updateGlobalState({ isDownloading: false, error: err?.message || String(err) });
+      updateGlobalState({
+        isDownloading: false,
+        error: err?.message || String(err),
+      });
     } finally {
       isCheckingRef.current = false;
     }
@@ -402,8 +473,11 @@ export const GlobalUpdatePrompt: React.FC = () => {
       updateGlobalState({ showPrompt: false });
       await relaunch();
     } catch (err: any) {
-      console.error("[Updater] Direct install failed, falling back to downloadAndInstall:", err);
-      
+      console.error(
+        "[Updater] Direct install failed, falling back to downloadAndInstall:",
+        err,
+      );
+
       // Fallback: If direct install fails, try downloadAndInstall (in case files were cleared from temp)
       try {
         await activeUpdateRef.current.downloadAndInstall();
@@ -411,8 +485,14 @@ export const GlobalUpdatePrompt: React.FC = () => {
         updateGlobalState({ showPrompt: false });
         await relaunch();
       } catch (fallbackErr: any) {
-        console.error("[Updater] Fallback installation also failed:", fallbackErr);
-        updateGlobalState({ isChecking: false, error: fallbackErr?.message || String(fallbackErr) });
+        console.error(
+          "[Updater] Fallback installation also failed:",
+          fallbackErr,
+        );
+        updateGlobalState({
+          isChecking: false,
+          error: fallbackErr?.message || String(fallbackErr),
+        });
         alert(t("footer.updateNowError"));
       }
     }
@@ -439,10 +519,7 @@ export const GlobalUpdatePrompt: React.FC = () => {
               {t("footer.installingUpdate")}
             </h2>
             <p className="text-sm text-text/60">
-              {startupError 
-                ? t("footer.updateNowError") 
-                : t("common.loading")
-              }
+              {startupError ? t("footer.updateNowError") : t("common.loading")}
             </p>
           </div>
           {!startupError && (
@@ -456,14 +533,18 @@ export const GlobalUpdatePrompt: React.FC = () => {
   }
 
   // 2. Ready to Install Choice Modal (Only shown in 'primary' or 'main' windows)
-  const showPromptVisible = isPrimaryWindow && updateState.showPrompt && activeUpdateRef.current;
+  const showPromptVisible =
+    isPrimaryWindow && updateState.showPrompt && activeUpdateRef.current;
 
-  console.log("[Updater] Render variables:", JSON.stringify({
-    updateState,
-    hasActiveUpdate: !!activeUpdateRef.current,
-    currentLabel: currentWindowLabel,
-    showPromptVisible,
-  }));
+  console.log(
+    "[Updater] Render variables:",
+    JSON.stringify({
+      updateState,
+      hasActiveUpdate: !!activeUpdateRef.current,
+      currentLabel: currentWindowLabel,
+      showPromptVisible,
+    }),
+  );
 
   if (!isPrimaryWindow) {
     return null;

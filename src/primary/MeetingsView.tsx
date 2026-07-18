@@ -1,4 +1,10 @@
-import React, { useCallback, useEffect, useState, useMemo, useRef } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useState,
+  useMemo,
+  useRef,
+} from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { readFile } from "@tauri-apps/plugin-fs";
@@ -270,7 +276,9 @@ const CopySummaryButton: React.FC<CopySummaryButtonProps> = ({
           transition={{ type: "spring", stiffness: 350, damping: 20 }}
           className="overflow-hidden whitespace-nowrap text-xs font-semibold"
         >
-          {isCopied ? t("settings.meetings.copiedState") : t("settings.meetings.copySummary")}
+          {isCopied
+            ? t("settings.meetings.copiedState")
+            : t("settings.meetings.copySummary")}
         </motion.span>
       </div>
     </motion.button>
@@ -347,7 +355,9 @@ const RegenerateButton: React.FC<RegenerateButtonProps> = ({
       transition={{ type: "spring", stiffness: 400, damping: 17 }}
     >
       <div className="flex items-center gap-1.5">
-        <RefreshCw className={`w-4 h-4 ${isRegenerating ? "animate-spin" : ""}`} />
+        <RefreshCw
+          className={`w-4 h-4 ${isRegenerating ? "animate-spin" : ""}`}
+        />
         <motion.span
           initial={{ width: 0, opacity: 0 }}
           animate={{
@@ -357,7 +367,9 @@ const RegenerateButton: React.FC<RegenerateButtonProps> = ({
           transition={{ type: "spring", stiffness: 350, damping: 20 }}
           className="overflow-hidden whitespace-nowrap text-xs font-semibold"
         >
-          {isRegenerating ? t("settings.meetings.regenerating") : t("settings.meetings.regenerate")}
+          {isRegenerating
+            ? t("settings.meetings.regenerating")
+            : t("settings.meetings.regenerate")}
         </motion.span>
       </div>
     </motion.button>
@@ -384,7 +396,7 @@ const HoldToDeleteButton: React.FC<HoldToDeleteButtonProps> = ({
     if (e.button !== 0) return; // Only trigger for left-click/tap
     isPointerActiveRef.current = true;
     setIsHolding(true);
-    
+
     if (progressRef.current) {
       progressRef.current.style.transition = "clip-path 2s linear";
       progressRef.current.style.clipPath = "inset(0 0% 0 0)";
@@ -402,7 +414,7 @@ const HoldToDeleteButton: React.FC<HoldToDeleteButtonProps> = ({
       timerRef.current = null;
     }
     setIsHolding(false);
-    
+
     if (progressRef.current) {
       progressRef.current.style.transition = "clip-path 200ms ease-out";
       progressRef.current.style.clipPath = "inset(0 100% 0 0)";
@@ -463,7 +475,9 @@ const HoldToDeleteButton: React.FC<HoldToDeleteButtonProps> = ({
       />
 
       <div className="relative flex items-center gap-1.5 z-10">
-        <Trash2 className={`w-4 h-4 ${isHolding ? "animate-pulse text-alarm-red" : ""}`} />
+        <Trash2
+          className={`w-4 h-4 ${isHolding ? "animate-pulse text-alarm-red" : ""}`}
+        />
         <motion.span
           initial={{ width: 0, opacity: 0 }}
           animate={{
@@ -473,7 +487,9 @@ const HoldToDeleteButton: React.FC<HoldToDeleteButtonProps> = ({
           transition={{ type: "spring", stiffness: 350, damping: 20 }}
           className="overflow-hidden whitespace-nowrap text-xs font-semibold"
         >
-          {isHolding ? t("settings.meetings.keepHolding") : t("settings.meetings.holdToDelete")}
+          {isHolding
+            ? t("settings.meetings.keepHolding")
+            : t("settings.meetings.holdToDelete")}
         </motion.span>
       </div>
     </motion.button>
@@ -830,7 +846,9 @@ export const MeetingsView: React.FC = () => {
       if (result.status === "ok") {
         toast.success(t("settings.meetings.regenerateSuccess"));
       } else {
-        toast.error(t("settings.meetings.regenerateError") + ": " + result.error);
+        toast.error(
+          t("settings.meetings.regenerateError") + ": " + result.error,
+        );
       }
     } catch (error: any) {
       console.error("Failed to regenerate summary:", error);

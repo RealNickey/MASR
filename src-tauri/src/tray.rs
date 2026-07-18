@@ -179,7 +179,7 @@ pub fn update_tray_menu(app: &AppHandle, state: &TrayIconState, locale: Option<&
                 &quit_i,
             ],
         )
-        .expect("failed to create menu")
+        .expect("failed to create menu"),
     };
 
     let tray = app.state::<TrayIcon>();

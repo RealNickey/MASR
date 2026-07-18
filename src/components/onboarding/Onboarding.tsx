@@ -35,7 +35,8 @@ const Onboarding: React.FC<OnboardingProps> = ({
 
   const visibleModels = models;
 
-  const filterDownloadedModels = (m: ModelInfo) => isPreview ? true : !m.is_downloaded;
+  const filterDownloadedModels = (m: ModelInfo) =>
+    isPreview ? true : !m.is_downloaded;
 
   // Watch for the selected model to finish downloading + verifying + extracting
   useEffect(() => {
@@ -74,7 +75,11 @@ const Onboarding: React.FC<OnboardingProps> = ({
 
   const handleDownloadModel = async (modelId: string) => {
     if (isPreview) {
-      toast.success(t("onboarding.success", { defaultValue: "Preview: Model selected successfully!" }));
+      toast.success(
+        t("onboarding.success", {
+          defaultValue: "Preview: Model selected successfully!",
+        }),
+      );
       onModelSelected();
       return;
     }

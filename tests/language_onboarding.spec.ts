@@ -2,7 +2,9 @@ import { test, expect } from "@playwright/test";
 import { setupMocks, getMockState } from "./helpers";
 
 test.describe("Language Onboarding & Transcript Language Settings", () => {
-  test("triggers onboarding and allows choosing Malayalam", async ({ page }) => {
+  test("triggers onboarding and allows choosing Malayalam", async ({
+    page,
+  }) => {
     // Pass overrides to setupMocks to ensure it starts with correct state
     await setupMocks(page, false, {
       hasModelsAvailable: false,
@@ -45,7 +47,9 @@ test.describe("Language Onboarding & Transcript Language Settings", () => {
     expect(state.selectedModel).toBe("thegav1");
   });
 
-  test("allows switching transcript language in General settings", async ({ page }) => {
+  test("allows switching transcript language in General settings", async ({
+    page,
+  }) => {
     // Start with models available and selected model set to English
     await setupMocks(page, false, {
       hasModelsAvailable: true,
@@ -62,12 +66,14 @@ test.describe("Language Onboarding & Transcript Language Settings", () => {
     // Note: react-select is used for Select. Let's click the container first.
     const selectContainer = page.locator(".w-56");
     await expect(selectContainer).toBeVisible();
-    
+
     // We can also click on react-select control
     await selectContainer.click();
-    
+
     // Select Malayalam from dropdown option
-    const option = page.locator("div[id*='-option-']").locator("text=Malayalam");
+    const option = page
+      .locator("div[id*='-option-']")
+      .locator("text=Malayalam");
     await expect(option).toBeVisible();
     await option.click();
 
@@ -107,7 +113,9 @@ test.describe("Language Onboarding & Transcript Language Settings", () => {
     expect(state.selectedModel).toBe("parakeet-tdt-0.6b-v3");
   });
 
-  test("allows switching transcript language to English in General settings", async ({ page }) => {
+  test("allows switching transcript language to English in General settings", async ({
+    page,
+  }) => {
     // Start with Malayalam model
     await setupMocks(page, false, {
       hasModelsAvailable: true,
@@ -122,7 +130,7 @@ test.describe("Language Onboarding & Transcript Language Settings", () => {
     const selectContainer = page.locator(".w-56");
     await expect(selectContainer).toBeVisible();
     await selectContainer.click();
-    
+
     // Select English from dropdown option
     const option = page.locator("div[id*='-option-']").locator("text=English");
     await expect(option).toBeVisible();

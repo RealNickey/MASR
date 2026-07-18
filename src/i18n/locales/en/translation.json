@@ -133,6 +133,22 @@
       "continue": "Continue"
     }
   },
+  "initialSetup": {
+    "title": "Setting up private compute cluster",
+    "description": "Preparing secure local speech processing on this device.",
+    "transfer": "{{downloaded}} of {{total}}",
+    "insufficientStorage": "Not enough storage",
+    "storageDescription": "Free up space to continue. This setup needs {{required}}, but only {{available}} is available.",
+    "phases": {
+      "checking_storage": "Checking available storage",
+      "downloading": "Downloading securely",
+      "verifying": "Verifying downloaded files",
+      "extracting": "Preparing local compute",
+      "retrying": "Connection interrupted — retrying",
+      "ready": "Setup complete",
+      "insufficient_storage": "Not enough storage"
+    }
+  },
   "modelSelector": {
     "custom": "Custom",
     "active": "Active",
@@ -541,7 +557,7 @@
       "sendChat": "Send message",
       "deleteConfirmation": "Are you sure you want to delete this meeting summary?",
       "ignoredUnsupportedFiles": "Ignored unsupported file(s): {{files}}",
-       "copied": "Copied",
+      "copied": "Copied",
       "copy": "Copy",
       "copySummary": "Copy Summary",
       "copiedState": "Copied!",
@@ -669,6 +685,10 @@
       "appDataDirectory": {
         "title": "App Data Directory",
         "description": "Location where ThegAi stores its data"
+      },
+      "recordingsDirectory": {
+        "title": "Recordings Folder",
+        "description": "Location where meeting recordings are saved"
       },
       "sourceCode": {
         "title": "Source Code",

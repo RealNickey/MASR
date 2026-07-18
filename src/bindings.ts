@@ -600,6 +600,14 @@ async getModelInfo(modelId: string) : Promise<Result<ModelInfo | null, string>> 
     else return { status: "error", error: e  as any };
 }
 },
+async getInitialSetupStatus() : Promise<Result<InitialSetupStatus, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("get_initial_setup_status") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async downloadModel(modelId: string) : Promise<Result<null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("download_model", { modelId }) };
@@ -1025,6 +1033,8 @@ export type MeetingOverlaySnapshot = { sequence: number; mode: MeetingOverlayMod
 export type MeetingPromptPayload = { provider: string; title: string; source: MeetingPromptSource; start_time: string; join_url: string | null }
 export type MeetingPromptSource = "LocalDetection" | "GoogleCalendar"
 export type ModelInfo = { id: string; name: string; description: string; filename: string; url: string | null; sha256: string | null; size_mb: number; is_downloaded: boolean; is_downloading: boolean; partial_size: number; is_directory: boolean; engine_type: EngineType; accuracy_score: number; speed_score: number; supports_translation: boolean; is_recommended: boolean; supported_languages: string[]; supports_language_selection: boolean; is_custom: boolean }
+export type InitialSetupPhase = "checking_storage" | "downloading" | "verifying" | "extracting" | "retrying" | "ready" | "insufficient_storage"
+export type InitialSetupStatus = { phase: InitialSetupPhase; downloaded: number; total: number; english_model_id: string | null; available_bytes: number | null; required_bytes: number }
 export type ModelLoadStatus = { is_loaded: boolean; current_model: string | null }
 export type ModelUnloadTimeout = "never" | "immediately" | "min_2" | "min_5" | "min_10" | "min_15" | "hour_1" | "sec_15"
 export type OllamaStatus = { connected: boolean; model_count: number; error: string | null }

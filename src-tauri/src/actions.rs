@@ -4,6 +4,7 @@ use crate::audio_feedback::{play_feedback_sound, play_feedback_sound_blocking, S
 use crate::audio_toolkit::{is_microphone_access_denied, is_no_input_device_error};
 use crate::managers::audio::AudioRecordingManager;
 use crate::managers::history::HistoryManager;
+use crate::managers::model::ModelManager;
 use crate::managers::transcription::TranscriptionManager;
 use crate::settings::{
     get_settings, AppSettings, OutputLanguage, PostProcessProvider, APPLE_INTELLIGENCE_PROVIDER_ID,
@@ -325,10 +326,12 @@ async fn post_process_transcription(settings: &AppSettings, transcription: &str)
 
 include!(concat!(env!("OUT_DIR"), "/obfuscated_keys.rs"));
 
-fn resolve_google_api_key(obfuscated: Option<String>, env_google_api: Option<String>, env_google_api_key: Option<String>) -> String {
-    obfuscated.unwrap_or_else(|| {
-        env_google_api.or(env_google_api_key).unwrap_or_default()
-    })
+fn resolve_google_api_key(
+    obfuscated: Option<String>,
+    env_google_api: Option<String>,
+    env_google_api_key: Option<String>,
+) -> String {
+    obfuscated.unwrap_or_else(|| env_google_api.or(env_google_api_key).unwrap_or_default())
 }
 
 static GOOGLE_API_KEY: Lazy<String> = Lazy::new(|| {
@@ -1239,9 +1242,12 @@ impl ShortcutAction for TranscribeAction {
                     // Transcribe concurrently with WAV save
                     let transcription_time = Instant::now();
                     let tm_clone = tm.clone();
-                    let transcription_result = tauri::async_runtime::spawn_blocking(move || {
-                        tm_clone.transcribe(samples)
-                    }).await.unwrap_or_else(|e| Err(anyhow::anyhow!("Transcription task panicked: {}", e)));
+                    let transcription_result =
+                        tauri::async_runtime::spawn_blocking(move || tm_clone.transcribe(samples))
+                            .await
+                            .unwrap_or_else(|e| {
+                                Err(anyhow::anyhow!("Transcription task panicked: {}", e))
+                            });
                     // Await WAV save and verify
                     let wav_saved = match wav_handle.await {
                         Ok(Ok(())) => {
@@ -1475,6 +1481,7 @@ impl ShortcutAction for MeetingAction {
         let rm = Arc::clone(&app.state::<Arc<AudioRecordingManager>>());
         let tm = Arc::clone(&app.state::<Arc<TranscriptionManager>>());
         let hm = Arc::clone(&app.state::<Arc<HistoryManager>>());
+        let mm = Arc::clone(&app.state::<Arc<ModelManager>>());
 
         change_tray_icon(app, TrayIconState::Transcribing);
 
@@ -1531,28 +1538,53 @@ impl ShortcutAction for MeetingAction {
                     let tm_clone = tm.clone();
                     let samples_for_transcribe = samples.clone();
                     let ah_clone = ah.clone();
-                    let transcribe_handle = tauri::async_runtime::spawn_blocking(move || {
-                        if let Err(e) = tm_clone.load_model_if_different("thegav1") {
-                            error!(
-                                "Failed to load ThegaV1 model for meeting transcription: {}",
-                                e
-                            );
-                            return Err(anyhow::anyhow!("Failed to load ThegaV1 model: {}", e));
-                        }
-                        let res = tm_clone.transcribe(samples_for_transcribe);
-                        
-                        // Load back the correct model if different from "thegav1"
-                        let settings = get_settings(&ah_clone);
-                        let selected_model = settings.selected_model.clone();
-                        if selected_model != "thegav1" && !selected_model.is_empty() {
-                            if let Err(e) = tm_clone.load_model_if_different(&selected_model) {
-                                warn!("Failed to load back selected model {} after meeting transcription: {}", selected_model, e);
+                    let mm_clone = mm.clone();
+                    let transcribe_handle = tauri::async_runtime::spawn(async move {
+                        // Wait for model download if not yet completed
+                        let mut retries = 0;
+                        loop {
+                            let model_info = mm_clone.get_model_info("thegav1");
+                            match model_info {
+                                Some(m) => {
+                                    if m.is_downloaded {
+                                        break;
+                                    }
+                                }
+                                None => {
+                                    retries += 1;
+                                    if retries > 5 {
+                                        return Err(anyhow::anyhow!(
+                                            "Model 'thegav1' not found in catalog"
+                                        ));
+                                    }
+                                }
                             }
-                        } else {
-                            tm_clone.maybe_unload_immediately("meeting transcription");
+                            tokio::time::sleep(std::time::Duration::from_secs(2)).await;
                         }
-                        
-                        res
+
+                        tokio::task::spawn_blocking(move || {
+                            if let Err(e) = tm_clone.load_model_if_different("thegav1") {
+                                error!(
+                                    "Failed to load ThegaV1 model for meeting transcription: {}",
+                                    e
+                                );
+                                return Err(anyhow::anyhow!("Failed to load ThegaV1 model: {}", e));
+                            }
+                            let res = tm_clone.transcribe(samples_for_transcribe);
+
+                            // Load back the correct model if different from "thegav1"
+                            let settings = get_settings(&ah_clone);
+                            let selected_model = settings.selected_model.clone();
+                            if selected_model != "thegav1" && !selected_model.is_empty() {
+                                if let Err(e) = tm_clone.load_model_if_different(&selected_model) {
+                                    warn!("Failed to load back selected model {} after meeting transcription: {}", selected_model, e);
+                                }
+                            } else {
+                                tm_clone.maybe_unload_immediately("meeting transcription");
+                            }
+
+                            res
+                        }).await.map_err(|e| anyhow::anyhow!("Transcription task panicked: {}", e))?
                     });
 
                     // Await WAV save and verify
@@ -1740,7 +1772,7 @@ mod tests {
             .enumerate()
             .map(|(i, &b)| b ^ XOR_KEY[i % XOR_KEY.len()])
             .collect();
-        
+
         let recovered = deobfuscate(&obfuscated);
         assert_eq!(recovered, Some(original.to_string()));
     }
@@ -1752,7 +1784,8 @@ mod tests {
 
     #[test]
     fn test_runtime_environment_fallback() {
-        let fallback_result = resolve_google_api_key(None, Some("runtime-fallback-key-test".to_string()), None);
+        let fallback_result =
+            resolve_google_api_key(None, Some("runtime-fallback-key-test".to_string()), None);
         assert_eq!(fallback_result, "runtime-fallback-key-test");
     }
 }

@@ -19,7 +19,7 @@ export const TranscriptLanguageSelector: React.FC<TranscriptLanguageSelectorProp
         { value: "parakeet-tdt-0.6b-v3", label: "English" },
         { value: "thegav1", label: "Malayalam" },
       ],
-      []
+      [],
     );
 
     const currentValue = settings?.selected_model || "parakeet-tdt-0.6b-v3";
@@ -30,7 +30,7 @@ export const TranscriptLanguageSelector: React.FC<TranscriptLanguageSelectorProp
           updateSetting("selected_model", value);
         }
       },
-      [updateSetting]
+      [updateSetting],
     );
 
     return (
@@ -39,7 +39,8 @@ export const TranscriptLanguageSelector: React.FC<TranscriptLanguageSelectorProp
           defaultValue: "Transcript Language",
         })}
         description={t("settings.general.transcriptLanguage.description", {
-          defaultValue: "Select the language for basic transcription. Continuous meeting transcription will always use Malayalam.",
+          defaultValue:
+            "Select the language for basic transcription. Continuous meeting transcription will always use Malayalam.",
         })}
         descriptionMode={descriptionMode}
         grouped={grouped}

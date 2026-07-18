@@ -70,7 +70,9 @@ const RecordingOverlay: React.FC = () => {
         barGap={2}
         mode="static"
         fadeEdges={true}
-        barColor={isMeeting ? "var(--color-terracotta)" : "var(--color-forest-green)"}
+        barColor={
+          isMeeting ? "var(--color-terracotta)" : "var(--color-forest-green)"
+        }
       />
     </div>
   );

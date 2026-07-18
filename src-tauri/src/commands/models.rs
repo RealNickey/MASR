@@ -1,5 +1,5 @@
-use crate::managers::model::{ModelInfo, ModelManager};
-use crate::managers::transcription::{ModelStateEvent, TranscriptionManager, LoadModelStatus};
+use crate::managers::model::{InitialSetupStatus, ModelInfo, ModelManager};
+use crate::managers::transcription::{LoadModelStatus, ModelStateEvent, TranscriptionManager};
 use crate::settings::{get_settings, write_settings, ModelUnloadTimeout};
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter, Manager, State};
@@ -19,6 +19,14 @@ pub async fn get_model_info(
     model_id: String,
 ) -> Result<Option<ModelInfo>, String> {
     Ok(model_manager.get_model_info(&model_id))
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn get_initial_setup_status(
+    model_manager: State<'_, Arc<ModelManager>>,
+) -> Result<InitialSetupStatus, String> {
+    Ok(model_manager.get_initial_setup_status())
 }
 
 #[tauri::command]
@@ -146,7 +154,10 @@ pub fn switch_active_model(app: &AppHandle, model_id: &str) -> Result<(), String
     // Load the model. On failure, revert the persisted selection.
     match transcription_manager.load_model(model_id) {
         Ok(LoadModelStatus::WaitingForDownload) => {
-            log::info!("Model {} is currently downloading. Selection updated.", model_id);
+            log::info!(
+                "Model {} is currently downloading. Selection updated.",
+                model_id
+            );
         }
         Ok(LoadModelStatus::Loaded) => {}
         Err(e) => {

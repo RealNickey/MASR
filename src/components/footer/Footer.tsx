@@ -39,7 +39,7 @@ const Footer: React.FC<FooterProps> = ({ simulateProd }) => {
         <div className="flex items-center gap-1">
           <UpdateChecker />
           <span>•</span>
-          { }
+          {}
           <span>v{version}</span>
         </div>
       </div>

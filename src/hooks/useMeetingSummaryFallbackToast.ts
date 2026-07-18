@@ -12,17 +12,26 @@ interface FallbackPayload {
 
 export function useMeetingSummaryFallbackToast() {
   useEffect(() => {
-    const unlisten = listen<FallbackPayload>("meeting-summary-fallback", (event) => {
-      if (import.meta.env.DEV) {
-        const { failed_model, failed_provider, error, next_model, next_provider } = event.payload;
-        const description = next_model
-          ? `Model ${failed_model} (${failed_provider}) failed: ${error}. Retrying with ${next_model} (${next_provider})...`
-          : `Model ${failed_model} (${failed_provider}) failed: ${error}. No more models in fallback chain.`;
-        toast.warning("Meeting Summary Fallback", {
-          description,
-        });
-      }
-    });
+    const unlisten = listen<FallbackPayload>(
+      "meeting-summary-fallback",
+      (event) => {
+        if (import.meta.env.DEV) {
+          const {
+            failed_model,
+            failed_provider,
+            error,
+            next_model,
+            next_provider,
+          } = event.payload;
+          const description = next_model
+            ? `Model ${failed_model} (${failed_provider}) failed: ${error}. Retrying with ${next_model} (${next_provider})...`
+            : `Model ${failed_model} (${failed_provider}) failed: ${error}. No more models in fallback chain.`;
+          toast.warning("Meeting Summary Fallback", {
+            description,
+          });
+        }
+      },
+    );
     return () => {
       unlisten.then((fn) => fn());
     };

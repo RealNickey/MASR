@@ -599,7 +599,9 @@ impl TranscriptionManager {
                 // Check if the selected model is currently downloading
                 let settings = get_settings(&self.app_handle);
                 let selected_model = settings.selected_model.clone();
-                let is_downloading = self.model_manager.get_model_info(&selected_model)
+                let is_downloading = self
+                    .model_manager
+                    .get_model_info(&selected_model)
                     .map_or(false, |info| info.is_downloading);
 
                 if is_downloading {

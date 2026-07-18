@@ -15,11 +15,14 @@ interface UpdateCheckerProps {
 
 const UpdateChecker: React.FC<UpdateCheckerProps> = ({ className = "" }) => {
   const { t } = useTranslation();
-  
-  const [updateState, setUpdateState] = useState<GlobalUpdateState | null>(null);
+
+  const [updateState, setUpdateState] = useState<GlobalUpdateState | null>(
+    null,
+  );
   const [showUpToDate, setShowUpToDate] = useState(false);
-  const [showPortableUpdateDialog, setShowPortableUpdateDialog] = useState(false);
-  
+  const [showPortableUpdateDialog, setShowPortableUpdateDialog] =
+    useState(false);
+
   const wasCheckingRef = useRef(false);
   const isManualCheckRef = useRef(false);
   const upToDateTimeoutRef = useRef<ReturnType<typeof setTimeout>>();
@@ -28,7 +31,7 @@ const UpdateChecker: React.FC<UpdateCheckerProps> = ({ className = "" }) => {
     // Subscribe to global update state
     const unsubscribe = subscribeToUpdateState((state) => {
       setUpdateState(state);
-      
+
       // Handle "Up to date" transient message for manual checks
       if (wasCheckingRef.current && !state.isChecking) {
         if (!state.updateAvailable && isManualCheckRef.current) {
@@ -42,7 +45,7 @@ const UpdateChecker: React.FC<UpdateCheckerProps> = ({ className = "" }) => {
         }
         isManualCheckRef.current = false;
       }
-      
+
       wasCheckingRef.current = state.isChecking;
     });
 
@@ -67,7 +70,7 @@ const UpdateChecker: React.FC<UpdateCheckerProps> = ({ className = "" }) => {
     }
 
     if (updateState?.updateReady) {
-      // Trigger update choice modal again by dispatching event, 
+      // Trigger update choice modal again by dispatching event,
       // or we can just run triggerManualUpdateCheck which will trigger another check & show prompt.
       triggerManualUpdateCheck();
     } else {
@@ -77,11 +80,11 @@ const UpdateChecker: React.FC<UpdateCheckerProps> = ({ className = "" }) => {
 
   const getUpdateStatusText = () => {
     if (!updateState) return t("footer.checkForUpdates");
-    
+
     if (updateState.isChecking) {
       return t("footer.checkingUpdates");
     }
-    
+
     if (updateState.isDownloading) {
       const progress = updateState.downloadProgress;
       if (progress > 0 && progress < 100) {
@@ -114,11 +117,12 @@ const UpdateChecker: React.FC<UpdateCheckerProps> = ({ className = "" }) => {
   const downloadProgress = updateState?.downloadProgress ?? 0;
 
   const isUpdateDisabled = isChecking || isDownloading;
-  
+
   // Can click if not currently checking/downloading and:
   // - we have an update ready, OR
   // - we are not checking and not currently showing "Up to date"
-  const isUpdateClickable = !isUpdateDisabled && (updateReady || (!isChecking && !showUpToDate));
+  const isUpdateClickable =
+    !isUpdateDisabled && (updateReady || (!isChecking && !showUpToDate));
 
   return (
     <>
