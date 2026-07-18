@@ -111,7 +111,7 @@ test.describe("Meeting Assistant", () => {
 
     await page.reload();
     await page.getByText("Meetings").click();
-    await expect(page.getByText("Processing")).toBeVisible();
+    await expect(page.getByText("Processing", { exact: true })).toBeVisible();
 
     await setMockState(page, {
       historyEntries: [

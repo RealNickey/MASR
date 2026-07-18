@@ -108,9 +108,9 @@ test.describe("Language Onboarding & Transcript Language Settings", () => {
     // Onboarding should finish and we should land on main app settings layout
     await expect(page.locator("text=Shortcuts & Language")).toBeVisible();
 
-    // Verify mock state has updated the selected model to parakeet-tdt-0.6b-v3
+    // English onboarding uses the default model reported by initial setup.
     const state = await getMockState(page);
-    expect(state.selectedModel).toBe("parakeet-tdt-0.6b-v3");
+    expect(state.selectedModel).toBe("turbo");
   });
 
   test("allows switching transcript language to English in General settings", async ({
