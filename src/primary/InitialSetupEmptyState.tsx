@@ -41,7 +41,7 @@ export function InitialSetupEmptyState({
       </h2>
       <p className="mt-2 max-w-md text-sm leading-6 text-bark-grey">
         {isStorageError
-          ? `Free up space to continue. This setup needs ${(formatBytes(status.required_bytes))}, but only ${(formatBytes(status.available_bytes ?? 0))} is available.`
+          ? `Free up space to continue. This setup needs ${formatBytes(status.required_bytes)}, but only ${formatBytes(status.available_bytes ?? 0)} is available.`
           : "Preparing secure local speech processing on this device."}
       </p>
 
@@ -59,7 +59,7 @@ export function InitialSetupEmptyState({
           </div>
           {status.total > 0 && (
             <p className="mt-3 text-xs text-bark-grey">
-              {`${(formatBytes(status.downloaded))} of ${(formatBytes(status.total))}`}
+              {`${formatBytes(status.downloaded)} of ${formatBytes(status.total)}`}
             </p>
           )}
         </div>

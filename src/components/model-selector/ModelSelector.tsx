@@ -160,7 +160,7 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({ onError }) => {
         const modelName = model
           ? getTranslatedModelName(model)
           : "Verifying...".replace("...", "");
-        return `Verifying ${(modelName)}...`;
+        return `Verifying ${modelName}...`;
       } else {
         return "Verifying...";
       }
@@ -174,9 +174,9 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({ onError }) => {
         const modelName = model
           ? getTranslatedModelName(model)
           : "Extracting...".replace("...", "");
-        return `Extracting ${(modelName)}...`;
+        return `Extracting ${modelName}...`;
       } else {
-        return `Extracting ${(extractingKeys.length)} models...`;
+        return `Extracting ${extractingKeys.length} models...`;
       }
     }
 
@@ -188,9 +188,9 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({ onError }) => {
           0,
           Math.min(100, Math.round(progress.percentage)),
         );
-        return `Downloading ${(percentage)}%`;
+        return `Downloading ${percentage}%`;
       } else {
-        return `Downloading ${(progressValues.length)} models...`;
+        return `Downloading ${progressValues.length} models...`;
       }
     }
 
@@ -203,11 +203,11 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({ onError }) => {
           : "Model Ready";
       case "loading":
         return currentModelInfo
-          ? `Loading ${(getTranslatedModelName(currentModelInfo))}...`
+          ? `Loading ${getTranslatedModelName(currentModelInfo)}...`
           : "Loading...";
       case "extracting":
         return currentModelInfo
-          ? `Extracting ${(getTranslatedModelName(currentModelInfo))}...`
+          ? `Extracting ${getTranslatedModelName(currentModelInfo)}...`
           : "Extracting...";
       case "error":
         return modelError || "Model Error";

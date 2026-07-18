@@ -2,14 +2,9 @@ name: "test"
 on:
   workflow_dispatch:
   push:
-    branches: [main]
-    paths:
-      - "src-tauri/**"
-      - ".github/workflows/**"
+    branches: [dev, main]
   pull_request:
-    paths:
-      - "src-tauri/**"
-      - ".github/workflows/**"
+    branches: [dev, main]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}

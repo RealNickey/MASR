@@ -274,9 +274,7 @@ const CopySummaryButton: React.FC<CopySummaryButtonProps> = ({
           transition={{ type: "spring", stiffness: 350, damping: 20 }}
           className="overflow-hidden whitespace-nowrap text-xs font-semibold"
         >
-          {isCopied
-            ? "Copied!"
-            : "Copy Summary"}
+          {isCopied ? "Copied!" : "Copy Summary"}
         </motion.span>
       </div>
     </motion.button>
@@ -363,9 +361,7 @@ const RegenerateButton: React.FC<RegenerateButtonProps> = ({
           transition={{ type: "spring", stiffness: 350, damping: 20 }}
           className="overflow-hidden whitespace-nowrap text-xs font-semibold"
         >
-          {isRegenerating
-            ? "Regenerating..."
-            : "Regenerate"}
+          {isRegenerating ? "Regenerating..." : "Regenerate"}
         </motion.span>
       </div>
     </motion.button>
@@ -482,9 +478,7 @@ const HoldToDeleteButton: React.FC<HoldToDeleteButtonProps> = ({
           transition={{ type: "spring", stiffness: 350, damping: 20 }}
           className="overflow-hidden whitespace-nowrap text-xs font-semibold"
         >
-          {isHolding
-            ? "Keep holding..."
-            : "Hold to Delete"}
+          {isHolding ? "Keep holding..." : "Hold to Delete"}
         </motion.span>
       </div>
     </motion.button>
@@ -581,7 +575,8 @@ export const MeetingsView: React.FC = () => {
 
       if (ignoredFiles.length > 0) {
         toast.error(
-          `Ignored unsupported file(s): ${(ignoredFiles.join(", "))}` || `Ignored unsupported file(s): ${ignoredFiles.join(", ")}`,
+          `Ignored unsupported file(s): ${ignoredFiles.join(", ")}` ||
+            `Ignored unsupported file(s): ${ignoredFiles.join(", ")}`,
         );
       }
 
@@ -671,78 +666,75 @@ export const MeetingsView: React.FC = () => {
   }, [selectedMeeting?.id]);
 
   // Helper to extract parsed title, subtitle, and time pill
-  const getMeetingMetadata = useCallback(
-    (entry: HistoryEntry) => {
-      let displayTitle = "";
-      let tags: string[] = [];
+  const getMeetingMetadata = useCallback((entry: HistoryEntry) => {
+    let displayTitle = "";
+    let tags: string[] = [];
 
-      if (entry.post_processed_text) {
-        // 1. Try matching H1 title
-        const h1Match = entry.post_processed_text.match(/^#\s+(.+)$/m);
-        if (h1Match) {
-          displayTitle = h1Match[1].trim();
-        } else {
-          // 2. Try JSON parsing
-          try {
-            const parsed = JSON.parse(entry.post_processed_text);
-            displayTitle = parsed.title || parsed.summary || "";
-          } catch (e) {}
-        }
-
-        // 3. Try parsing comma-separated tags line: "Tags: tag1, tag2, tag3"
-        const tagsMatch = entry.post_processed_text.match(/^Tags:\s*(.+)$/im);
-        if (tagsMatch) {
-          tags = tagsMatch[1]
-            .split(",")
-            .map((t) => t.trim())
-            .filter(Boolean)
-            .slice(0, 3);
-        }
-
-        // 4. Fallback title generator from summary content first sentence
-        if (!displayTitle) {
-          let cleanText = entry.post_processed_text
-            .replace(/^#+\s+.+$/gm, "") // Remove headers
-            .replace(/^Tags:\s*.+$/gim, "") // Remove tags
-            .trim();
-
-          const sentenceMatch = cleanText.match(/^([^.!?\n]+)/);
-          if (sentenceMatch) {
-            displayTitle = sentenceMatch[1].trim();
-          }
-        }
+    if (entry.post_processed_text) {
+      // 1. Try matching H1 title
+      const h1Match = entry.post_processed_text.match(/^#\s+(.+)$/m);
+      if (h1Match) {
+        displayTitle = h1Match[1].trim();
+      } else {
+        // 2. Try JSON parsing
+        try {
+          const parsed = JSON.parse(entry.post_processed_text);
+          displayTitle = parsed.title || parsed.summary || "";
+        } catch (e) {}
       }
 
+      // 3. Try parsing comma-separated tags line: "Tags: tag1, tag2, tag3"
+      const tagsMatch = entry.post_processed_text.match(/^Tags:\s*(.+)$/im);
+      if (tagsMatch) {
+        tags = tagsMatch[1]
+          .split(",")
+          .map((t) => t.trim())
+          .filter(Boolean)
+          .slice(0, 3);
+      }
+
+      // 4. Fallback title generator from summary content first sentence
       if (!displayTitle) {
-        if (entry.transcription_text === "") {
-          displayTitle = "Processing";
-        } else {
-          displayTitle = "Detected Meeting";
+        let cleanText = entry.post_processed_text
+          .replace(/^#+\s+.+$/gm, "") // Remove headers
+          .replace(/^Tags:\s*.+$/gim, "") // Remove tags
+          .trim();
+
+        const sentenceMatch = cleanText.match(/^([^.!?\n]+)/);
+        if (sentenceMatch) {
+          displayTitle = sentenceMatch[1].trim();
         }
       }
+    }
 
-      let monthDate = "";
-      let timeStr = "";
-      try {
-        const date = new Date(entry.timestamp * 1000);
-        monthDate = new Intl.DateTimeFormat("en", {
-          month: "long",
-          day: "numeric",
-        }).format(date);
-        timeStr = new Intl.DateTimeFormat("en", {
-          hour: "numeric",
-          minute: "2-digit",
-          hour12: true,
-        }).format(date);
-      } catch (e) {
-        monthDate = "Unknown Date";
-        timeStr = "";
+    if (!displayTitle) {
+      if (entry.transcription_text === "") {
+        displayTitle = "Processing";
+      } else {
+        displayTitle = "Detected Meeting";
       }
+    }
 
-      return { title: displayTitle, subtitle: monthDate, time: timeStr, tags };
-    },
-    [],
-  );
+    let monthDate = "";
+    let timeStr = "";
+    try {
+      const date = new Date(entry.timestamp * 1000);
+      monthDate = new Intl.DateTimeFormat("en", {
+        month: "long",
+        day: "numeric",
+      }).format(date);
+      timeStr = new Intl.DateTimeFormat("en", {
+        hour: "numeric",
+        minute: "2-digit",
+        hour12: true,
+      }).format(date);
+    } catch (e) {
+      monthDate = "Unknown Date";
+      timeStr = "";
+    }
+
+    return { title: displayTitle, subtitle: monthDate, time: timeStr, tags };
+  }, []);
 
   const processedSearchEntries = useMemo(() => {
     return entries.map((entry) => {
@@ -816,9 +808,7 @@ export const MeetingsView: React.FC = () => {
         if (result.status !== "ok") {
           void loadMeetings();
         } else {
-          toast.success(
-            "Entry deleted successfully.",
-          );
+          toast.success("Entry deleted successfully.");
         }
       } catch {
         void loadMeetings();
@@ -835,9 +825,7 @@ export const MeetingsView: React.FC = () => {
       if (result.status === "ok") {
         toast.success("Summary regenerated successfully!");
       } else {
-        toast.error(
-          "Failed to regenerate summary" + ": " + result.error,
-        );
+        toast.error("Failed to regenerate summary" + ": " + result.error);
       }
     } catch (error: any) {
       console.error("Failed to regenerate summary:", error);
@@ -892,9 +880,7 @@ export const MeetingsView: React.FC = () => {
   const validateEmails = (input: string): string[] | null => {
     const trimmed = input.trim();
     if (!trimmed) {
-      setEmailsError(
-        "Recipient email is required.",
-      );
+      setEmailsError("Recipient email is required.");
       return null;
     }
     const emails = trimmed.split(/[\s,]+/).filter(Boolean);
@@ -902,7 +888,7 @@ export const MeetingsView: React.FC = () => {
     for (const email of emails) {
       if (!emailRegex.test(email)) {
         setEmailsError(
-          `Invalid email address: ${(email)}` ||
+          `Invalid email address: ${email}` ||
             `Invalid email address: ${email}`,
         );
         return null;
@@ -939,22 +925,16 @@ export const MeetingsView: React.FC = () => {
       );
 
       if (result.status === "ok") {
-        toast.success(
-          "Follow-up email and tasks sent successfully!",
-        );
+        toast.success("Follow-up email and tasks sent successfully!");
         setShowFollowUpDialog(false);
         setRecipientsInput("");
         setFollowUpMeeting(null);
       } else {
-        toast.error(
-          "Failed to send follow-up email/tasks.",
-        );
+        toast.error("Failed to send follow-up email/tasks.");
       }
     } catch (error: any) {
       console.error("Failed to send meeting follow-up:", error);
-      toast.error(
-        "Failed to send follow-up email/tasks.",
-      );
+      toast.error("Failed to send follow-up email/tasks.");
     } finally {
       setIsSendingFollowUp(false);
     }
@@ -1003,7 +983,9 @@ export const MeetingsView: React.FC = () => {
       }
     } catch (error) {
       console.error("Failed to ask meeting question:", error);
-      toast.error("Failed to get an answer from the AI. Please check your connection and LLM settings.");
+      toast.error(
+        "Failed to get an answer from the AI. Please check your connection and LLM settings.",
+      );
     } finally {
       setIsAsking(false);
     }
@@ -1248,10 +1230,7 @@ export const MeetingsView: React.FC = () => {
                 ))}
               </div>
               <p className="text-sm text-bark-grey font-medium">
-                {formatDateTime(
-                  String(selectedMeeting.timestamp),
-                  "en",
-                )}
+                {formatDateTime(String(selectedMeeting.timestamp), "en")}
               </p>
             </div>
 
@@ -1335,9 +1314,7 @@ export const MeetingsView: React.FC = () => {
                         ) : (
                           <Copy className="w-3.5 h-3.5" />
                         )}
-                        <span>
-                          {showTranscriptCopied ? "Copied" : "Copy"}
-                        </span>
+                        <span>{showTranscriptCopied ? "Copied" : "Copy"}</span>
                       </button>
                     </div>
                     <div className="text-sm text-bark-grey whitespace-pre-wrap leading-relaxed select-text font-normal font-sans max-h-96 overflow-y-auto pr-2 scrollbar-thin">
@@ -1422,11 +1399,7 @@ export const MeetingsView: React.FC = () => {
                 {isSendingFollowUp && (
                   <span className="w-3.5 h-3.5 border-2 border-orange-off-white border-t-transparent rounded-full animate-spin"></span>
                 )}
-                <span>
-                  {isSendingFollowUp
-                    ? "Sending..."
-                    : "Send"}
-                </span>
+                <span>{isSendingFollowUp ? "Sending..." : "Send"}</span>
               </button>
             </div>
           </div>

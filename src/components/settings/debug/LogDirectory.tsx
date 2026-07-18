@@ -62,7 +62,7 @@ export const LogDirectory: React.FC<LogDirectoryProps> = ({
         </div>
       ) : error ? (
         <div className="p-3 bg-red-50 border border-red-200 rounded text-xs text-red-600">
-          {`Error loading directory: ${(error)}`}
+          {`Error loading directory: ${error}`}
         </div>
       ) : (
         <PathDisplay path={logDir} onOpen={handleOpen} disabled={!logDir} />

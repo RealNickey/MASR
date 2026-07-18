@@ -19,14 +19,12 @@ import Badge from "../ui/Badge";
 import { Button } from "../ui/Button";
 
 // Get display text for model's language support
-const getLanguageDisplayText = (
-  supportedLanguages: string[],
-): string => {
+const getLanguageDisplayText = (supportedLanguages: string[]): string => {
   if (supportedLanguages.length === 1) {
     const langCode = supportedLanguages[0];
     const langName =
       LANGUAGES.find((l) => l.value === langCode)?.label || langCode;
-    return `${(langName)} Only`;
+    return `${langName} Only`;
   }
   return "Multi-language";
 };
@@ -148,9 +146,7 @@ const ModelCard: React.FC<ModelCardProps> = ({
                 {"Active"}
               </Badge>
             )}
-            {model.is_custom && (
-              <Badge variant="secondary">{"Custom"}</Badge>
-            )}
+            {model.is_custom && <Badge variant="secondary">{"Custom"}</Badge>}
             {status === "switching" && (
               <Badge variant="secondary">
                 <Loader2 className="w-3 h-3 mr-1 animate-spin" />
@@ -177,9 +173,7 @@ const ModelCard: React.FC<ModelCardProps> = ({
                 </div>
               </div>
               <div className="flex items-center gap-2">
-                <p className="text-xs text-text/60 w-24 text-end">
-                  {"speed"}
-                </p>
+                <p className="text-xs text-text/60 w-24 text-end">{"speed"}</p>
                 <div className="w-16 h-1.5 bg-mid-gray/20 rounded-full overflow-hidden">
                   <div
                     className="h-full bg-logo-primary rounded-full"
@@ -233,7 +227,7 @@ const ModelCard: React.FC<ModelCardProps> = ({
             variant="ghost"
             size="sm"
             onClick={handleDelete}
-            title={`Delete ${(displayName)}`}
+            title={`Delete ${displayName}`}
             className="flex items-center gap-1.5 text-logo-primary/85 hover:text-logo-primary hover:bg-logo-primary/10"
           >
             <Trash2 className="w-3.5 h-3.5" />
@@ -253,12 +247,12 @@ const ModelCard: React.FC<ModelCardProps> = ({
           </div>
           <div className="flex items-center justify-between text-xs mt-1">
             <span className="text-text/50">
-              {`Downloading ${(Math.round(downloadProgress))}%`}
+              {`Downloading ${Math.round(downloadProgress)}%`}
             </span>
             <div className="flex items-center gap-2">
               {downloadSpeed !== undefined && downloadSpeed > 0 && (
                 <span className="tabular-nums text-text/50">
-                  {`${(downloadSpeed.toFixed(1))} MB/s`}
+                  {`${downloadSpeed.toFixed(1)} MB/s`}
                 </span>
               )}
               {onCancel && (
@@ -284,9 +278,7 @@ const ModelCard: React.FC<ModelCardProps> = ({
           <div className="w-full h-1.5 bg-mid-gray/20 rounded-full overflow-hidden">
             <div className="h-full bg-logo-primary rounded-full animate-pulse w-full" />
           </div>
-          <p className="text-xs text-text/50 mt-1">
-            {"Verifying..."}
-          </p>
+          <p className="text-xs text-text/50 mt-1">{"Verifying..."}</p>
         </div>
       )}
       {status === "extracting" && (
@@ -294,9 +286,7 @@ const ModelCard: React.FC<ModelCardProps> = ({
           <div className="w-full h-1.5 bg-mid-gray/20 rounded-full overflow-hidden">
             <div className="h-full bg-logo-primary rounded-full animate-pulse w-full" />
           </div>
-          <p className="text-xs text-text/50 mt-1">
-            {"Extracting..."}
-          </p>
+          <p className="text-xs text-text/50 mt-1">{"Extracting..."}</p>
         </div>
       )}
     </div>

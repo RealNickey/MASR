@@ -10,7 +10,6 @@ export const DebugPaths: React.FC<DebugPathsProps> = ({
   descriptionMode = "inline",
   grouped = false,
 }) => {
-
   return (
     <SettingContainer
       title="Debug Paths"
@@ -20,28 +19,19 @@ export const DebugPaths: React.FC<DebugPathsProps> = ({
     >
       <div className="text-sm text-gray-600 space-y-2">
         <div>
-          <span className="font-medium">
-            {"App Data:"}
-          </span>{" "}
-          {}
+          <span className="font-medium">{"App Data:"}</span> {}
           <span className="font-mono text-xs select-text">
             %APPDATA%/com.thegai.app
           </span>
         </div>
         <div>
-          <span className="font-medium">
-            {"Models:"}
-          </span>{" "}
-          {}
+          <span className="font-medium">{"Models:"}</span> {}
           <span className="font-mono text-xs select-text">
             %APPDATA%/com.thegai.app/models
           </span>
         </div>
         <div>
-          <span className="font-medium">
-            {"Settings:"}
-          </span>{" "}
-          {}
+          <span className="font-medium">{"Settings:"}</span> {}
           <span className="font-mono text-xs select-text">
             %APPDATA%/com.thegai.app/settings_store.json
           </span>

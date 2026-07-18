@@ -96,9 +96,7 @@ export const HandyKeysShortcutInput: React.FC<HandyKeysShortcutInputProps> = ({
               await updateBinding(shortcutId, keysToCommit);
             } catch (error) {
               console.error("Failed to change binding:", error);
-              toast.error(
-                `Failed to set shortcut: ${(String(error))}`,
-              );
+              toast.error(`Failed to set shortcut: ${String(error)}`);
 
               // Reset to original binding on error
               if (originalBinding) {
@@ -179,9 +177,7 @@ export const HandyKeysShortcutInput: React.FC<HandyKeysShortcutInputProps> = ({
       currentKeysRef.current = "";
     } catch (error) {
       console.error("Failed to start recording:", error);
-      toast.error(
-        `Failed to set shortcut: ${(String(error))}`,
-      );
+      toast.error(`Failed to set shortcut: ${String(error)}`);
     }
   };
 
@@ -196,13 +192,13 @@ export const HandyKeysShortcutInput: React.FC<HandyKeysShortcutInputProps> = ({
     return (
       <SettingContainer
         title={"ThegAi Shortcuts"}
-        description={"Configure keyboard shortcuts to trigger speech-to-text recording"}
+        description={
+          "Configure keyboard shortcuts to trigger speech-to-text recording"
+        }
         descriptionMode={descriptionMode}
         grouped={grouped}
       >
-        <div className="text-sm text-mid-gray">
-          {"Loading shortcuts..."}
-        </div>
+        <div className="text-sm text-mid-gray">{"Loading shortcuts..."}</div>
       </SettingContainer>
     );
   }
@@ -212,13 +208,13 @@ export const HandyKeysShortcutInput: React.FC<HandyKeysShortcutInputProps> = ({
     return (
       <SettingContainer
         title={"ThegAi Shortcuts"}
-        description={"Configure keyboard shortcuts to trigger speech-to-text recording"}
+        description={
+          "Configure keyboard shortcuts to trigger speech-to-text recording"
+        }
         descriptionMode={descriptionMode}
         grouped={grouped}
       >
-        <div className="text-sm text-mid-gray">
-          {"No shortcuts configured"}
-        </div>
+        <div className="text-sm text-mid-gray">{"No shortcuts configured"}</div>
       </SettingContainer>
     );
   }
@@ -232,9 +228,7 @@ export const HandyKeysShortcutInput: React.FC<HandyKeysShortcutInputProps> = ({
         descriptionMode={descriptionMode}
         grouped={grouped}
       >
-        <div className="text-sm text-mid-gray">
-          {"No shortcuts configured"}
-        </div>
+        <div className="text-sm text-mid-gray">{"No shortcuts configured"}</div>
       </SettingContainer>
     );
   }

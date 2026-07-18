@@ -105,9 +105,7 @@ export const GlobalShortcutInput: React.FC<GlobalShortcutInputProps> = ({
             await updateBinding(editingShortcutId, newShortcut);
           } catch (error) {
             console.error("Failed to change binding:", error);
-            toast.error(
-              `Failed to set shortcut: ${(String(error))}`,
-            );
+            toast.error(`Failed to set shortcut: ${String(error)}`);
 
             // Reset to original binding on error
             if (originalBinding) {
@@ -188,8 +186,7 @@ export const GlobalShortcutInput: React.FC<GlobalShortcutInputProps> = ({
 
   // Format the current shortcut keys being recorded
   const formatCurrentKeys = (): string => {
-    if (recordedKeys.length === 0)
-      return "Press keys...";
+    if (recordedKeys.length === 0) return "Press keys...";
 
     // Use the same formatting as the display to ensure consistency
     return formatKeyCombination(recordedKeys.join("+"), osType);
@@ -205,13 +202,13 @@ export const GlobalShortcutInput: React.FC<GlobalShortcutInputProps> = ({
     return (
       <SettingContainer
         title={"ThegAi Shortcuts"}
-        description={"Configure keyboard shortcuts to trigger speech-to-text recording"}
+        description={
+          "Configure keyboard shortcuts to trigger speech-to-text recording"
+        }
         descriptionMode={descriptionMode}
         grouped={grouped}
       >
-        <div className="text-sm text-mid-gray">
-          {"Loading shortcuts..."}
-        </div>
+        <div className="text-sm text-mid-gray">{"Loading shortcuts..."}</div>
       </SettingContainer>
     );
   }
@@ -221,13 +218,13 @@ export const GlobalShortcutInput: React.FC<GlobalShortcutInputProps> = ({
     return (
       <SettingContainer
         title={"ThegAi Shortcuts"}
-        description={"Configure keyboard shortcuts to trigger speech-to-text recording"}
+        description={
+          "Configure keyboard shortcuts to trigger speech-to-text recording"
+        }
         descriptionMode={descriptionMode}
         grouped={grouped}
       >
-        <div className="text-sm text-mid-gray">
-          {"No shortcuts configured"}
-        </div>
+        <div className="text-sm text-mid-gray">{"No shortcuts configured"}</div>
       </SettingContainer>
     );
   }
@@ -241,9 +238,7 @@ export const GlobalShortcutInput: React.FC<GlobalShortcutInputProps> = ({
         descriptionMode={descriptionMode}
         grouped={grouped}
       >
-        <div className="text-sm text-mid-gray">
-          {"No shortcuts configured"}
-        </div>
+        <div className="text-sm text-mid-gray">{"No shortcuts configured"}</div>
       </SettingContainer>
     );
   }

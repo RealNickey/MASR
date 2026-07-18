@@ -30,7 +30,9 @@ export const ClipboardHandlingSetting: React.FC<ClipboardHandlingProps> =
     return (
       <SettingContainer
         title={"Clipboard Handling"}
-        description={"Don't Modify Clipboard preserves your current clipboard contents after transcription. Copy to Clipboard leaves the transcription result in your clipboard after pasting."}
+        description={
+          "Don't Modify Clipboard preserves your current clipboard contents after transcription. Copy to Clipboard leaves the transcription result in your clipboard after pasting."
+        }
         descriptionMode={descriptionMode}
         grouped={grouped}
       >

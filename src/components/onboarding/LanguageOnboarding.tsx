@@ -67,7 +67,9 @@ const LanguageOnboarding: React.FC<LanguageOnboardingProps> = ({
           {"Select Transcription Language"}
         </h2>
         <p className="text-bark-grey text-sm text-center max-w-md">
-          {"Choose your primary language for basic speech-to-text. Meetings will always use Malayalam."}
+          {
+            "Choose your primary language for basic speech-to-text. Meetings will always use Malayalam."
+          }
         </p>
       </div>
 

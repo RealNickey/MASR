@@ -59,9 +59,7 @@ const ModelDropdown: React.FC<ModelDropdownProps> = ({
                   </div>
                 </div>
                 {currentModelId === model.id && (
-                  <div className="text-xs text-logo-primary">
-                    {"Active"}
-                  </div>
+                  <div className="text-xs text-logo-primary">{"Active"}</div>
                 )}
               </div>
             </div>

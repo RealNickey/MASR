@@ -330,9 +330,7 @@ const AccessibilityOnboarding: React.FC<AccessibilityOnboardingProps> = ({
         <div className="p-4 rounded-full bg-emerald-500/20">
           <Check className="w-12 h-12 text-emerald-400" />
         </div>
-        <p className="text-lg font-medium text-text">
-          {"All set!"}
-        </p>
+        <p className="text-lg font-medium text-text">{"All set!"}</p>
       </div>
     );
   }
@@ -370,9 +368,7 @@ const AccessibilityOnboarding: React.FC<AccessibilityOnboardingProps> = ({
                 <Mic className="w-6 h-6 text-logo-primary" />
               </div>
               <div className="flex-1 min-w-0">
-                <h3 className="font-medium text-text">
-                  {"Microphone Access"}
-                </h3>
+                <h3 className="font-medium text-text">{"Microphone Access"}</h3>
                 <p className="text-sm text-text/60 mb-3 leading-relaxed">
                   {"Required to hear your voice for transcription."}
                 </p>
@@ -391,9 +387,7 @@ const AccessibilityOnboarding: React.FC<AccessibilityOnboardingProps> = ({
                     onClick={handleGrantMicrophone}
                     className="px-4 py-2 rounded-lg bg-logo-primary hover:bg-logo-primary/90 text-white text-sm font-medium transition-colors cursor-pointer"
                   >
-                    {isWindows
-                      ? "Open System Settings"
-                      : "Grant Permission"}
+                    {isWindows ? "Open System Settings" : "Grant Permission"}
                   </button>
                 )}
               </div>

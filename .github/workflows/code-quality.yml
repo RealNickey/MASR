@@ -2,36 +2,9 @@ name: "code quality"
 on:
   workflow_dispatch:
   push:
-    branches: [main]
-    paths:
-      - "src/**"
-      - "src/i18n/**"
-      - "src-tauri/resources/default_settings.json"
-      - "scripts/**"
-      - "tests/**"
-      - "package.json"
-      - "bun.lock"
-      - ".eslintrc*"
-      - "eslint.config.*"
-      - ".prettierrc*"
-      - "tsconfig*"
-      - "tailwind.config.*"
-      - ".github/workflows/**"
+    branches: [dev, main]
   pull_request:
-    paths:
-      - "src/**"
-      - "src/i18n/**"
-      - "src-tauri/resources/default_settings.json"
-      - "scripts/**"
-      - "tests/**"
-      - "package.json"
-      - "bun.lock"
-      - ".eslintrc*"
-      - "eslint.config.*"
-      - ".prettierrc*"
-      - "tsconfig*"
-      - "tailwind.config.*"
-      - ".github/workflows/**"
+    branches: [dev, main]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
@@ -59,3 +32,9 @@ jobs:
 
       - name: Run prettier
         run: bun run format:check
+
+      - name: Check translations
+        run: bun run check:translations
+
+      - name: Build frontend
+        run: bun run build
