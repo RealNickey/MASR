@@ -1,4 +1,5 @@
 use crate::audio_toolkit::{apply_custom_words, filter_transcription_output};
+#[cfg(target_os = "windows")]
 use crate::malayalam_asr::MalayalamAsr;
 use crate::managers::audio::AudioRecordingManager;
 use crate::managers::model::{EngineType, ModelManager};
@@ -52,6 +53,7 @@ enum LoadedEngine {
     GigaAM(GigaAMModel),
     Canary(CanaryModel),
     Cohere(CohereModel),
+    #[cfg(target_os = "windows")]
     ThegaV1(MalayalamAsr),
 }
 
@@ -783,6 +785,7 @@ impl TranscriptionManager {
                                 .transcribe(&audio, &options)
                                 .map_err(|e| anyhow::anyhow!("Cohere transcription failed: {}", e))
                         }
+                        #[cfg(target_os = "windows")]
                         LoadedEngine::ThegaV1(asr) => asr
                             .transcribe(&audio)
                             .map(|text| transcribe_rs::TranscriptionResult {

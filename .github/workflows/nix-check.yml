@@ -22,6 +22,10 @@ jobs:
   nix-build:
     runs-on: ubuntu-24.04
     continue-on-error: false
+    env:
+      # The application is intentionally proprietary; permit that package only
+      # in this CI evaluation rather than changing user or global Nix settings.
+      NIXPKGS_ALLOW_UNFREE: "1"
     steps:
       - uses: actions/checkout@v4
 
@@ -71,7 +75,7 @@ jobs:
         if: steps.bun-check.outputs.outdated != 'true'
         id: eval
         run: |
-          if ! nix eval .#packages.x86_64-linux.thegai.drvPath 2>eval_err.log; then
+          if ! nix eval --impure .#packages.x86_64-linux.thegai.drvPath 2>eval_err.log; then
             echo "failed=true" >> "$GITHUB_OUTPUT"
             cat eval_err.log
           fi
@@ -89,4 +93,4 @@ jobs:
       # path-filtered: a frontend or workflow edit can still break the package.
       - name: Build thegai
         if: steps.bun-check.outputs.outdated != 'true' && steps.eval.outputs.failed != 'true'
-        run: nix build .#thegai -L --show-trace
+        run: nix build --impure .#thegai -L --show-trace

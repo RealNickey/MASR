@@ -20,6 +20,7 @@ mod tray;
 mod tray_i18n;
 mod utils;
 
+#[cfg(target_os = "windows")]
 pub mod malayalam_asr;
 
 pub use cli::CliArgs;

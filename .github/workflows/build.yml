@@ -37,10 +37,6 @@ jobs:
   build:
     name: ${{ inputs.platform }} (${{ inputs.target }})
     runs-on: ${{ inputs.platform }}
-    env:
-      # Keep all build output runner-local. This deliberately overrides any
-      # developer-specific Cargo configuration without changing local builds.
-      CARGO_TARGET_DIR: ${{ runner.temp }}/tauri-target
     steps:
       - name: Enable long paths (Windows)
         if: runner.os == 'Windows'
@@ -51,6 +47,10 @@ jobs:
           git config --system core.longpaths true
 
       - uses: actions/checkout@v4
+
+      - name: Set runner-local Cargo target
+        shell: bash
+        run: echo "CARGO_TARGET_DIR=$RUNNER_TEMP/tauri-target" >> "$GITHUB_ENV"
 
       - uses: oven-sh/setup-bun@v2
         with:
@@ -95,14 +95,19 @@ jobs:
 
       - name: Set isolated release version
         if: inputs.version != ''
-        run: bun scripts/set-build-version.ts "${{ inputs.version }}"
+        shell: bash
+        env:
+          BUILD_VERSION: ${{ inputs.version }}
+        run: bun scripts/set-build-version.ts "$BUILD_VERSION"
 
       - name: Install ONNX Runtime (Intel macOS)
         if: inputs.target == 'x86_64-apple-darwin'
         shell: bash
         run: |
           ORT_VERSION="1.24.2"
-          curl -L -o ort.tgz "https://blob.handy.computer/onnxruntime-osx-x86_64-${ORT_VERSION}.tgz"
+          ORT_SHA256="590cee05699047b85e4a8115b4cec792073c2972ce78de383356a552a296a9c4"
+          curl --fail --location --retry 3 --output ort.tgz "https://blob.handy.computer/onnxruntime-osx-x86_64-${ORT_VERSION}.tgz"
+          test "$(shasum -a 256 ort.tgz | awk '{print $1}')" = "$ORT_SHA256"
           tar xzf ort.tgz
           ORT_DIR="$(pwd)/onnxruntime-osx-x86_64-${ORT_VERSION}"
           echo "ORT_LIB_LOCATION=$ORT_DIR/lib" >> "$GITHUB_ENV"
@@ -116,7 +121,9 @@ jobs:
         shell: bash
         run: |
           ORT_VERSION="1.24.2"
-          curl -L -o ort.tgz "https://blob.handy.computer/onnxruntime-linux-x86_64-${ORT_VERSION}.tgz"
+          ORT_SHA256="7e8062d5cda514fe3e31d805f9aabd50bed42d331994f66753d2dd697294b976"
+          curl --fail --location --retry 3 --output ort.tgz "https://blob.handy.computer/onnxruntime-linux-x86_64-${ORT_VERSION}.tgz"
+          test "$(sha256sum ort.tgz | awk '{print $1}')" = "$ORT_SHA256"
           tar xzf ort.tgz
           ORT_DIR="$(pwd)/onnxruntime-linux-x86_64-${ORT_VERSION}"
           echo "ORT_LIB_LOCATION=$ORT_DIR/lib" >> "$GITHUB_ENV"
@@ -147,6 +154,10 @@ jobs:
       - name: Remove libwayland-client from AppImage
         if: runner.os == 'Linux'
         shell: bash
+        env:
+          SIGN_UPDATER: ${{ inputs.sign-updater }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ inputs.sign-updater && secrets.TAURI_SIGNING_PRIVATE_KEY || '' }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ inputs.sign-updater && secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD || '' }}
         run: |
           APPIMAGE_PATH=$(find "$CARGO_TARGET_DIR" -path '*/bundle/appimage/*.AppImage' -type f | head -1)
           test -n "$APPIMAGE_PATH"
@@ -155,9 +166,19 @@ jobs:
           chmod +x "$APPIMAGE_NAME"
           "./$APPIMAGE_NAME" --appimage-extract
           find squashfs-root -name 'libwayland-client.so*' -type f -delete
-          wget -q "https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage"
+          APPIMAGETOOL_VERSION="1.9.1"
+          APPIMAGETOOL_SHA256="ed4ce84f0d9caff66f50bcca6ff6f35aae54ce8135408b3fa33abfc3cb384eb0"
+          curl --fail --location --retry 3 --output appimagetool-x86_64.AppImage "https://github.com/AppImage/appimagetool/releases/download/${APPIMAGETOOL_VERSION}/appimagetool-x86_64.AppImage"
+          test "$(sha256sum appimagetool-x86_64.AppImage | awk '{print $1}')" = "$APPIMAGETOOL_SHA256"
           chmod +x appimagetool-x86_64.AppImage
           ARCH=x86_64 ./appimagetool-x86_64.AppImage --no-appstream squashfs-root "$APPIMAGE_NAME"
+          UPDATER_ARCHIVE="${APPIMAGE_PATH}.tar.gz"
+          rm -f "$UPDATER_ARCHIVE" "${UPDATER_ARCHIVE}.sig"
+          tar -C "$(dirname "$APPIMAGE_PATH")" -czf "$UPDATER_ARCHIVE" "$APPIMAGE_NAME"
+          tar -tzf "$UPDATER_ARCHIVE" | grep -Fx "$APPIMAGE_NAME"
+          if [ "$SIGN_UPDATER" = "true" ]; then
+            bun run tauri signer sign "$UPDATER_ARCHIVE"
+          fi
           rm -rf squashfs-root appimagetool-x86_64.AppImage
 
       - name: Upload package artifacts

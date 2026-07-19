@@ -574,10 +574,7 @@ export const MeetingsView: React.FC = () => {
       }
 
       if (ignoredFiles.length > 0) {
-        toast.error(
-          `Ignored unsupported file(s): ${ignoredFiles.join(", ")}` ||
-            `Ignored unsupported file(s): ${ignoredFiles.join(", ")}`,
-        );
+        toast.error(`Ignored unsupported file(s): ${ignoredFiles.join(", ")}`);
       }
 
       if (droppedFiles.length > 0) {
@@ -887,10 +884,7 @@ export const MeetingsView: React.FC = () => {
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     for (const email of emails) {
       if (!emailRegex.test(email)) {
-        setEmailsError(
-          `Invalid email address: ${email}` ||
-            `Invalid email address: ${email}`,
-        );
+        setEmailsError(`Invalid email address: ${email}`);
         return null;
       }
     }

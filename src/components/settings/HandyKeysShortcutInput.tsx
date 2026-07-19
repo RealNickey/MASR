@@ -228,7 +228,7 @@ export const HandyKeysShortcutInput: React.FC<HandyKeysShortcutInputProps> = ({
         descriptionMode={descriptionMode}
         grouped={grouped}
       >
-        <div className="text-sm text-mid-gray">{"No shortcuts configured"}</div>
+        <div className="text-sm text-mid-gray">{"Shortcut not found"}</div>
       </SettingContainer>
     );
   }

@@ -23,7 +23,10 @@ jobs:
           GH_TOKEN: ${{ secrets.RUNTIME_DEPOT_TOKEN }}
         run: |
           latest=$(gh api repos/RealNickey/runtime-depot/releases/latest --jq .tag_name)
-          case "$latest" in v[0-9]*.[0-9]*.[0-9]*) ;; *) echo "Invalid latest release tag: $latest"; exit 1;; esac
+          if [[ ! "$latest" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Invalid latest release tag: $latest"
+            exit 1
+          fi
           base=${latest#v}
           IFS=. read -r major minor patch <<< "$base"
           echo "value=$major.$minor.$((patch + 1))" >> "$GITHUB_OUTPUT"
@@ -54,7 +57,9 @@ jobs:
       version: ${{ needs.prepare.outputs.version }}
       artifact-name: release-${{ matrix.target }}
       sign-updater: true
-    secrets: inherit
+    secrets:
+      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
 
   publish:
     needs: [prepare, build]
@@ -79,8 +84,22 @@ jobs:
           GH_TOKEN: ${{ secrets.RUNTIME_DEPOT_TOKEN }}
           VERSION: ${{ needs.prepare.outputs.version }}
         run: |
-          gh release create "v$VERSION" --repo RealNickey/runtime-depot --title "v$VERSION" --generate-notes --draft
-          find artifacts -type f -print0 | xargs -0 gh release upload "v$VERSION" --repo RealNickey/runtime-depot
+          TAG="v$VERSION"
+          REPO="RealNickey/runtime-depot"
+          if gh release view "$TAG" --repo "$REPO" --json isDraft --jq .isDraft > draft-state.txt 2>/dev/null; then
+            if [ "$(cat draft-state.txt)" != "true" ]; then
+              echo "Release $TAG is already published; refusing to overwrite it."
+              exit 1
+            fi
+            echo "Reusing existing draft release $TAG."
+          else
+            if gh api "repos/$REPO/git/ref/tags/$TAG" >/dev/null 2>&1; then
+              echo "Deleting stale tag $TAG without a release."
+              gh api --method DELETE "repos/$REPO/git/refs/tags/$TAG"
+            fi
+            gh release create "$TAG" --repo "$REPO" --title "$TAG" --generate-notes --draft
+          fi
+          find artifacts -type f -print0 | xargs -0 gh release upload "$TAG" --repo "$REPO" --clobber
 
       - name: Generate and upload updater manifest
         env:
@@ -88,5 +107,5 @@ jobs:
           GH_TOKEN: ${{ secrets.RUNTIME_DEPOT_TOKEN }}
         run: |
           bun scripts/generate-latest-json.ts "$VERSION" artifacts latest.json
-          gh release upload "v$VERSION" latest.json --repo RealNickey/runtime-depot
+          gh release upload "v$VERSION" latest.json --repo RealNickey/runtime-depot --clobber
           gh release edit "v$VERSION" --repo RealNickey/runtime-depot --draft=false

@@ -506,10 +506,7 @@ export const MeetingEntryComponent: React.FC<MeetingEntryProps> = ({
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     for (const email of emails) {
       if (!emailRegex.test(email)) {
-        setEmailsError(
-          `Invalid email address: ${email}` ||
-            `Invalid email address: ${email}`,
-        );
+        setEmailsError(`Invalid email address: ${email}`);
         return null;
       }
     }

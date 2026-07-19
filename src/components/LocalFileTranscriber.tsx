@@ -73,8 +73,7 @@ export const LocalFileTranscriber: React.FC<LocalFileTranscriberProps> = ({
     // Detach and process in background
     (async () => {
       toast.info(
-        `Started transcription for ${filesToProcess.length} file(s) in background.` ||
-          `Started transcription for ${filesToProcess.length} file(s) in background.`,
+        `Started transcription for ${filesToProcess.length} file(s) in background.`,
       );
 
       const results: { file: string; success: boolean }[] = [];
@@ -86,18 +85,12 @@ export const LocalFileTranscriber: React.FC<LocalFileTranscriberProps> = ({
           if (result.status === "ok") {
             results.push({ file, success: true });
           } else {
-            toast.error(
-              `Failed to process ${fileName}: ${result.error}` ||
-                `Failed to process ${fileName}: ${result.error}`,
-            );
+            toast.error(`Failed to process ${fileName}: ${result.error}`);
             results.push({ file, success: false });
           }
         } catch (error: any) {
           const errorMsg = error.message || error;
-          toast.error(
-            `Error processing ${fileName}: ${errorMsg}` ||
-              `Error processing ${fileName}: ${errorMsg}`,
-          );
+          toast.error(`Error processing ${fileName}: ${errorMsg}`);
           results.push({ file, success: false });
         }
       }
@@ -105,10 +98,7 @@ export const LocalFileTranscriber: React.FC<LocalFileTranscriberProps> = ({
       const successCount = results.filter((r) => r.success).length;
 
       if (successCount > 0) {
-        toast.success(
-          `Successfully processed ${successCount} file(s)` ||
-            `Successfully processed ${successCount} file(s)`,
-        );
+        toast.success(`Successfully processed ${successCount} file(s)`);
         onSuccess(targetAction);
       }
     })();

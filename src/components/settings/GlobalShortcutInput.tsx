@@ -238,7 +238,7 @@ export const GlobalShortcutInput: React.FC<GlobalShortcutInputProps> = ({
         descriptionMode={descriptionMode}
         grouped={grouped}
       >
-        <div className="text-sm text-mid-gray">{"No shortcuts configured"}</div>
+        <div className="text-sm text-mid-gray">{"Shortcut not found"}</div>
       </SettingContainer>
     );
   }

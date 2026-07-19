@@ -1,0 +1,11 @@
+{
+  "version": "0.0.2",
+  "notes": "Release 0.0.2",
+  "pub_date": "2026-07-09T18:58:00Z",
+  "platforms": {
+    "windows-x86_64": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVUZmFMTjNRNCtaSitEdWZYd05hYldYU0dGYzVHQU1tMktJYXVYSVBCQ3JLdzdzRld1REhqRkFBTnZYdnVSN2V1UzVsS0p5NDFKRkEzM1FSTnZZaTIvQk83OUdQdzRWcXdZPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzgzNjIzNDMxCWZpbGU6VGhlZ0FpXzAuMC4yX3g2NC1zZXR1cC5leGUKcGVleFV1NGNIUkF6Nnp4aUxrbDNQU0RsdXA3bFVzbDFrUkZkUFdoVG93bHFsY0gwNG5lYXZ3d3dCbmtFVDBHczE5M2kzQWxRd2sxUXBDUUNteHgxQWc9PQo=",
+      "url": "https://github.com/RealNickey/runtime-depot/releases/download/v0.0.2/ThegAi_0.0.2_x64-setup.exe"
+    }
+  }
+}
