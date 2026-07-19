@@ -3,7 +3,12 @@ import path from "node:path";
 import ts from "typescript";
 
 const root = process.cwd();
-const en = JSON.parse(fs.readFileSync(path.join(root, "src/i18n/locales/en/translation.json"), "utf8"));
+const en = JSON.parse(
+  fs.readFileSync(
+    path.join(root, "src/i18n/locales/en/translation.json"),
+    "utf8",
+  ),
+);
 const files = [];
 function visit(dir) {
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
@@ -23,7 +28,10 @@ fs.mkdirSync(outRoot, { recursive: true });
 
 function expressionFor(value, values) {
   if (typeof value !== "string") return null;
-  const replaced = value.replace(/{{\s*([\w.]+)\s*}}/g, (_, name) => `\${(${values.get(name) || name})}`);
+  const replaced = value.replace(
+    /{{\s*([\w.]+)\s*}}/g,
+    (_, name) => `\${(${values.get(name) || name})}`,
+  );
   if (!replaced.includes("${")) return JSON.stringify(value);
   return `\`${replaced.replace(/`/g, "\\`")}\``;
 }
@@ -32,12 +40,17 @@ function optionValues(node, sf) {
   const values = new Map();
   let fallback = null;
   if (!node) return { values, fallback };
-  if (ts.isStringLiteralLike(node)) return { values, fallback: node.getText(sf) };
+  if (ts.isStringLiteralLike(node))
+    return { values, fallback: node.getText(sf) };
   if (!ts.isObjectLiteralExpression(node)) return { values, fallback };
   for (const property of node.properties) {
     if (ts.isPropertyAssignment(property)) {
       const name = property.name.getText(sf).replace(/["']/g, "");
-      if (name === "defaultValue" && ts.isStringLiteralLike(property.initializer)) fallback = property.initializer.getText(sf);
+      if (
+        name === "defaultValue" &&
+        ts.isStringLiteralLike(property.initializer)
+      )
+        fallback = property.initializer.getText(sf);
       else values.set(name, property.initializer.getText(sf));
     } else if (ts.isShorthandPropertyAssignment(property)) {
       values.set(property.name.text, property.name.text);
@@ -55,7 +68,11 @@ function replacementFor(node, sf) {
   if (typeof direct === "string") return expressionFor(direct, values);
   const one = lookup(`${key}_one`);
   const other = lookup(`${key}_other`);
-  if (typeof one === "string" && typeof other === "string" && values.has("count")) {
+  if (
+    typeof one === "string" &&
+    typeof other === "string" &&
+    values.has("count")
+  ) {
     const count = values.get("count");
     const oneExpr = expressionFor(one, values);
     const otherExpr = expressionFor(other, values);
@@ -68,44 +85,97 @@ const skipped = [];
 let transformed = 0;
 for (const file of files) {
   const source = fs.readFileSync(file, "utf8");
-  const sf = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true, file.endsWith("x") ? ts.ScriptKind.TSX : ts.ScriptKind.TS);
+  const sf = ts.createSourceFile(
+    file,
+    source,
+    ts.ScriptTarget.Latest,
+    true,
+    file.endsWith("x") ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
+  );
   const edits = [];
   function walk(node) {
-    const isT = ts.isCallExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === "t";
-    const isI18nT = ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression) && node.expression.expression.getText(sf) === "i18n" && node.expression.name.text === "t";
+    const isT =
+      ts.isCallExpression(node) &&
+      ts.isIdentifier(node.expression) &&
+      node.expression.text === "t";
+    const isI18nT =
+      ts.isCallExpression(node) &&
+      ts.isPropertyAccessExpression(node.expression) &&
+      node.expression.expression.getText(sf) === "i18n" &&
+      node.expression.name.text === "t";
     if (isT || isI18nT) {
       const [key] = node.arguments;
       const keyText = key && ts.isStringLiteralLike(key) ? key.text : null;
-      report.push({ file: path.relative(root, file), line: sf.getLineAndCharacterOfPosition(node.getStart(sf)).line + 1, key: keyText, resolved: keyText ? lookup(keyText) : null, args: node.arguments.map((arg) => arg.getText(sf)), text: node.getText(sf) });
+      report.push({
+        file: path.relative(root, file),
+        line: sf.getLineAndCharacterOfPosition(node.getStart(sf)).line + 1,
+        key: keyText,
+        resolved: keyText ? lookup(keyText) : null,
+        args: node.arguments.map((arg) => arg.getText(sf)),
+        text: node.getText(sf),
+      });
       const replacement = replacementFor(node, sf);
-      if (replacement) edits.push({ start: node.getStart(sf), end: node.getEnd(), replacement });
-      else skipped.push({ file: path.relative(root, file), line: sf.getLineAndCharacterOfPosition(node.getStart(sf)).line + 1, text: node.getText(sf) });
+      if (replacement)
+        edits.push({
+          start: node.getStart(sf),
+          end: node.getEnd(),
+          replacement,
+        });
+      else
+        skipped.push({
+          file: path.relative(root, file),
+          line: sf.getLineAndCharacterOfPosition(node.getStart(sf)).line + 1,
+          text: node.getText(sf),
+        });
     }
     ts.forEachChild(node, walk);
   }
   walk(sf);
-  const nonOverlapping = edits.sort((a, b) => b.start - a.start).filter((edit, index, all) => !all.slice(0, index).some((higher) => higher.start < edit.end));
+  const nonOverlapping = edits
+    .sort((a, b) => b.start - a.start)
+    .filter(
+      (edit, index, all) =>
+        !all.slice(0, index).some((higher) => higher.start < edit.end),
+    );
   let updated = source;
   for (const edit of nonOverlapping) {
-    updated = updated.slice(0, edit.start) + edit.replacement + updated.slice(edit.end);
+    updated =
+      updated.slice(0, edit.start) + edit.replacement + updated.slice(edit.end);
     transformed += 1;
   }
   updated = updated
     .replace(/^import \{ useTranslation \} from "react-i18next";\r?\n/gm, "")
-    .replace(/^import \{ Trans, useTranslation \} from "react-i18next";\r?\n/gm, 'import { Trans } from "react-i18next";\n')
+    .replace(
+      /^import \{ Trans, useTranslation \} from "react-i18next";\r?\n/gm,
+      'import { Trans } from "react-i18next";\n',
+    )
     .replace(/^\s*const \{ t \} = useTranslation\(\);\r?\n/gm, "")
-    .replace(/const \{ t, i18n \} = useTranslation\(\);/g, "const { i18n } = useTranslation();");
+    .replace(
+      /const \{ t, i18n \} = useTranslation\(\);/g,
+      "const { i18n } = useTranslation();",
+    );
   const target = path.join(outRoot, path.relative(root, file));
   fs.mkdirSync(path.dirname(target), { recursive: true });
   fs.writeFileSync(target, updated);
 }
-const unresolved = report.filter((entry) => entry.resolved === undefined || entry.resolved === null || entry.key === null);
+const unresolved = report.filter(
+  (entry) =>
+    entry.resolved === undefined ||
+    entry.resolved === null ||
+    entry.key === null,
+);
 const nonString = report.filter((entry) => typeof entry.resolved !== "string");
-console.log(JSON.stringify({
-  calls: report.length,
-  transformed,
-  files: new Set(report.map((entry) => entry.file)).size,
-  unresolved,
-  nonString,
-  skipped,
-}, null, 2));
+console.log(
+  JSON.stringify(
+    {
+      calls: report.length,
+      transformed,
+      files: new Set(report.map((entry) => entry.file)).size,
+      unresolved,
+      nonString,
+      skipped,
+    },
+    null,
+    2,
+  ),
+);
