@@ -130,11 +130,24 @@ jobs:
             src-tauri/tauri.conf.json > tmp.json
           mv tmp.json src-tauri/tauri.conf.json
 
-      - name: Build packages
+      - name: Build unsigned packages
+        if: !inputs.sign-updater
         uses: tauri-apps/tauri-action@v0
         env:
-          TAURI_SIGNING_PRIVATE_KEY: ${{ inputs.sign-updater && secrets.TAURI_SIGNING_PRIVATE_KEY || '' }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ inputs.sign-updater && secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD || '' }}
+          GGML_NATIVE: ${{ runner.os != 'macOS' && 'OFF' || '' }}
+          GGML_AVX: ${{ runner.os != 'macOS' && 'OFF' || '' }}
+          GGML_AVX2: ${{ runner.os != 'macOS' && 'OFF' || '' }}
+          GGML_FMA: ${{ runner.os != 'macOS' && 'OFF' || '' }}
+          GGML_F16C: ${{ runner.os != 'macOS' && 'OFF' || '' }}
+        with:
+          args: ${{ inputs.build-args }}
+
+      - name: Build signed packages
+        if: inputs.sign-updater
+        uses: tauri-apps/tauri-action@v0
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
           GGML_NATIVE: ${{ runner.os != 'macOS' && 'OFF' || '' }}
           GGML_AVX: ${{ runner.os != 'macOS' && 'OFF' || '' }}
           GGML_AVX2: ${{ runner.os != 'macOS' && 'OFF' || '' }}
