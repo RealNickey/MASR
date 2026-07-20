@@ -19,7 +19,9 @@ export const AutostartToggle: React.FC<AutostartToggleProps> = React.memo(
         onChange={(enabled) => updateSetting("autostart_enabled", enabled)}
         isUpdating={isUpdating("autostart_enabled")}
         label={"Launch on Startup"}
-        description={"Automatically start ThegAi when you log in to your computer."}
+        description={
+          "Automatically start ThegAi when you log in to your computer."
+        }
         descriptionMode={descriptionMode}
         grouped={grouped}
       />

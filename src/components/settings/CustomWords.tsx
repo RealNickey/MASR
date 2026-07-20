@@ -25,9 +25,7 @@ export const CustomWords: React.FC<CustomWordsProps> = React.memo(
         sanitizedWord.length <= 50
       ) {
         if (customWords.includes(sanitizedWord)) {
-          toast.error(
-            `"${(sanitizedWord)}" already exists`,
-          );
+          toast.error(`"${sanitizedWord}" already exists`);
           return;
         }
         updateSetting("custom_words", [...customWords, sanitizedWord]);
@@ -53,7 +51,9 @@ export const CustomWords: React.FC<CustomWordsProps> = React.memo(
       <>
         <SettingContainer
           title={"Custom Words"}
-          description={"Add words that are often misheard or misspelled during transcription. The system will automatically correct similar-sounding words to match your list."}
+          description={
+            "Add words that are often misheard or misspelled during transcription. The system will automatically correct similar-sounding words to match your list."
+          }
           descriptionMode={descriptionMode}
           grouped={grouped}
         >
@@ -95,7 +95,7 @@ export const CustomWords: React.FC<CustomWordsProps> = React.memo(
                 variant="secondary"
                 size="sm"
                 className="inline-flex items-center gap-1 cursor-pointer"
-                aria-label={`Remove ${(word)}`}
+                aria-label={`Remove ${word}`}
               >
                 <span>{word}</span>
                 <svg

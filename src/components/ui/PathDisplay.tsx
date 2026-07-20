@@ -12,7 +12,6 @@ export const PathDisplay: React.FC<PathDisplayProps> = ({
   onOpen,
   disabled = false,
 }) => {
-
   return (
     <div className="flex items-center gap-2">
       <div className="flex-1 min-w-0 px-3.5 py-2.5 bg-orange-off-white border border-stone-mist rounded-inputs text-[13px] font-mono break-all select-text cursor-text text-charcoal">

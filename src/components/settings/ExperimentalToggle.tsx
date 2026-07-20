@@ -19,7 +19,9 @@ export const ExperimentalToggle: React.FC<ExperimentalToggleProps> = React.memo(
         onChange={(enabled) => updateSetting("experimental_enabled", enabled)}
         isUpdating={isUpdating("experimental_enabled")}
         label={"Experimental Features"}
-        description={"Enable experimental features that are still in development."}
+        description={
+          "Enable experimental features that are still in development."
+        }
         descriptionMode={descriptionMode}
         grouped={grouped}
       />

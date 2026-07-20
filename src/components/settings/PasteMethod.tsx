@@ -22,7 +22,7 @@ export const PasteMethodSetting: React.FC<PasteMethodProps> = React.memo(
       const options = [
         {
           value: "ctrl_v",
-          label: `Clipboard (${(mod)}+V)`,
+          label: `Clipboard (${mod}+V)`,
         },
         {
           value: "direct",
@@ -68,7 +68,9 @@ export const PasteMethodSetting: React.FC<PasteMethodProps> = React.memo(
     return (
       <SettingContainer
         title={"Paste Method"}
-        description={"Choose how text is inserted. Direct: simulates typing via system input. None: skips paste, only updates history/clipboard."}
+        description={
+          "Choose how text is inserted. Direct: simulates typing via system input. None: skips paste, only updates history/clipboard."
+        }
         descriptionMode={descriptionMode}
         grouped={grouped}
         tooltipPosition="bottom"

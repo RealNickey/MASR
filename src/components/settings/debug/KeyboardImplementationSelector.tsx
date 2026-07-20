@@ -39,7 +39,9 @@ export const KeyboardImplementationSelector: React.FC<
 
       // If any bindings were reset due to incompatibility, notify the user
       if (result.data.reset_bindings.length > 0) {
-        toast.warning("Keyboard shortcuts were incompatible and reset to defaults");
+        toast.warning(
+          "Keyboard shortcuts were incompatible and reset to defaults",
+        );
       }
 
       await refreshSettings();

@@ -121,7 +121,9 @@ export const AccelerationSelector: FC<AccelerationSelectorProps> = ({
       {showWhisperAcceleration && (
         <SettingContainer
           title={"Whisper Acceleration"}
-          description={"Hardware acceleration for Whisper models. Auto uses GPU if available (Metal on macOS, Vulkan on Windows/Linux)."}
+          description={
+            "Hardware acceleration for Whisper models. Auto uses GPU if available (Metal on macOS, Vulkan on Windows/Linux)."
+          }
           descriptionMode={descriptionMode}
           grouped={grouped}
           layout="horizontal"
@@ -140,7 +142,9 @@ export const AccelerationSelector: FC<AccelerationSelectorProps> = ({
       {ortOptions.length > 2 && (
         <SettingContainer
           title={"ONNX Acceleration"}
-          description={"Hardware acceleration for ONNX models (Parakeet, Canary, Moonshine, etc.). DirectML on Windows is experimental. Models may fail to transcribe."}
+          description={
+            "Hardware acceleration for ONNX models (Parakeet, Canary, Moonshine, etc.). DirectML on Windows is experimental. Models may fail to transcribe."
+          }
           descriptionMode={descriptionMode}
           grouped={grouped}
           layout="horizontal"

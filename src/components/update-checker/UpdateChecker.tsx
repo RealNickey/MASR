@@ -13,7 +13,6 @@ interface UpdateCheckerProps {
 }
 
 const UpdateChecker: React.FC<UpdateCheckerProps> = ({ className = "" }) => {
-
   const [updateState, setUpdateState] = useState<GlobalUpdateState | null>(
     null,
   );
@@ -86,7 +85,7 @@ const UpdateChecker: React.FC<UpdateCheckerProps> = ({ className = "" }) => {
     if (updateState.isDownloading) {
       const progress = updateState.downloadProgress;
       if (progress > 0 && progress < 100) {
-        return `Downloading... ${(progress.toString().padStart(3))}%`;
+        return `Downloading... ${progress.toString().padStart(3)}%`;
       }
       return progress === 100 ? "Installing..." : "Preparing...";
     }
@@ -129,7 +128,9 @@ const UpdateChecker: React.FC<UpdateCheckerProps> = ({ className = "" }) => {
               {"Manual update required"}
             </h2>
             <p className="text-sm text-text/70">
-              {"Portable installs cannot be updated automatically. To update: download the latest NSIS installer from GitHub Releases, install it to the same folder, then copy your Data/ folder (settings, models, recordings) from the old version to the new one."}
+              {
+                "Portable installs cannot be updated automatically. To update: download the latest NSIS installer from GitHub Releases, install it to the same folder, then copy your Data/ folder (settings, models, recordings) from the old version to the new one."
+              }
             </p>
             <div className="flex gap-2 justify-end">
               <button

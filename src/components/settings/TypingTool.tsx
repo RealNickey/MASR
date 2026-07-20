@@ -61,7 +61,9 @@ export const TypingToolSetting: React.FC<TypingToolProps> = React.memo(
     return (
       <SettingContainer
         title={"Typing Tool"}
-        description={"Choose which Linux typing tool to use for Direct paste method. Auto will automatically detect and use the best available tool for your system."}
+        description={
+          "Choose which Linux typing tool to use for Direct paste method. Auto will automatically detect and use the best available tool for your system."
+        }
         descriptionMode={descriptionMode}
         grouped={grouped}
         tooltipPosition="bottom"

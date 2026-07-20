@@ -12,7 +12,6 @@ export const RecordingsDirectory: React.FC<RecordingsDirectoryProps> = ({
   descriptionMode = "inline",
   grouped = false,
 }) => {
-
   const handleOpen = async () => {
     try {
       await commands.openRecordingsFolder();

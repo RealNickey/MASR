@@ -126,8 +126,8 @@ export const ModelsSettings: React.FC = () => {
 
     const confirmed = await ask(
       isActive
-        ? `${(modelName)} is your active model. Deleting it will stop transcriptions until you select a new model. Are you sure?`
-        : `Are you sure you want to delete ${(modelName)}? You will need to download it again to use it.`,
+        ? `${modelName} is your active model. Deleting it will stop transcriptions until you select a new model. Are you sure?`
+        : `Are you sure you want to delete ${modelName}? You will need to download it again to use it.`,
       {
         title: "Delete Model",
         kind: "warning",
@@ -206,11 +206,11 @@ export const ModelsSettings: React.FC = () => {
   return (
     <div className="max-w-3xl w-full mx-auto space-y-4">
       <div className="mb-4">
-        <h1 className="text-xl font-semibold mb-2">
-          {"Transcription Models"}
-        </h1>
+        <h1 className="text-xl font-semibold mb-2">{"Transcription Models"}</h1>
         <p className="text-sm text-text/60">
-          {"Select a transcription model or download additional models. Different models offer varying levels of accuracy and speed."}
+          {
+            "Select a transcription model or download additional models. Different models offer varying levels of accuracy and speed."
+          }
         </p>
       </div>
       {filteredModels.length > 0 ? (

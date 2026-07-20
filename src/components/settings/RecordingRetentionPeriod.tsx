@@ -28,7 +28,7 @@ export const RecordingRetentionPeriodSelector: React.FC<RecordingRetentionPeriod
       { value: "never", label: "Never" },
       {
         value: "preserve_limit",
-        label: `Keep latest ${(Number(historyLimit))}`,
+        label: `Keep latest ${Number(historyLimit)}`,
       },
       { value: "days3", label: "After 3 days" },
       { value: "weeks2", label: "After 2 weeks" },

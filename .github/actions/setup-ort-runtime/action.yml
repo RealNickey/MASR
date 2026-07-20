@@ -49,7 +49,11 @@ runs:
         archive="$RUNNER_TEMP/onnxruntime-$platform-$version.tgz"
         extract="$RUNNER_TEMP/onnxruntime-$platform-$version"
         curl --fail --location --retry 3 --output "$archive" "https://github.com/microsoft/onnxruntime/releases/download/v$version/onnxruntime-$platform-$version.tgz"
-        echo "$expected  $archive" | sha256sum --check --status
+        if command -v sha256sum >/dev/null; then
+          echo "$expected  $archive" | sha256sum --check --status
+        else
+          test "$(shasum -a 256 "$archive" | awk '{print $1}')" = "$expected"
+        fi
         mkdir -p "$extract"
         tar -xzf "$archive" -C "$extract"
         lib="$extract/onnxruntime-$platform-$version/lib"

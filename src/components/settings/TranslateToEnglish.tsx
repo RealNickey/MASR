@@ -19,7 +19,9 @@ export const TranslateToEnglish: React.FC<TranslateToEnglishProps> = React.memo(
         onChange={(enabled) => updateSetting("translate_to_english", enabled)}
         isUpdating={isUpdating("translate_to_english")}
         label={"Translate to English"}
-        description={"Automatically translate speech from other languages to English during transcription."}
+        description={
+          "Automatically translate speech from other languages to English during transcription."
+        }
         descriptionMode={descriptionMode}
         grouped={grouped}
       />

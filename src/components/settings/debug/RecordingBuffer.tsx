@@ -25,7 +25,9 @@ export const RecordingBuffer: React.FC<RecordingBufferProps> = ({
       max={1500}
       step={50}
       label={"Extra Recording Buffer"}
-      description={"Extra time (in milliseconds) to keep recording after you release the key, to capture trailing audio. 0 = no extra buffer."}
+      description={
+        "Extra time (in milliseconds) to keep recording after you release the key, to capture trailing audio. 0 = no extra buffer."
+      }
       descriptionMode={descriptionMode}
       grouped={grouped}
       formatValue={(v) => `${v}ms`}
