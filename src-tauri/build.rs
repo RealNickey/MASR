@@ -2,10 +2,47 @@ fn main() {
     #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
     build_apple_intelligence_bridge();
 
+    stage_onnx_runtime_for_bundle();
     generate_tray_translations();
     generate_obfuscated_keys();
 
     tauri_build::build()
+}
+
+/// Keep the CPU ONNX Runtime beside the packaged Windows app. CI supplies the
+/// pinned archive path through ORT_LIB_LOCATION; the destination is ignored so
+/// a binary is never committed to the repository.
+fn stage_onnx_runtime_for_bundle() {
+    use std::env;
+    use std::fs;
+    use std::path::Path;
+
+    println!("cargo:rerun-if-env-changed=ORT_LIB_LOCATION");
+
+    let Ok(lib_dir) = env::var("ORT_LIB_LOCATION") else {
+        return;
+    };
+
+    #[cfg(target_os = "windows")]
+    let runtime_name = "onnxruntime.dll";
+    #[cfg(target_os = "linux")]
+    let runtime_name = "libonnxruntime.so";
+    #[cfg(target_os = "macos")]
+    let runtime_name = "libonnxruntime.1.24.2.dylib";
+
+    let source = Path::new(&lib_dir).join(runtime_name);
+    if !source.is_file() {
+        println!(
+            "cargo:warning=ORT_LIB_LOCATION does not contain {}: {}",
+            runtime_name,
+            source.display()
+        );
+        return;
+    }
+
+    let destination = Path::new(runtime_name);
+    fs::copy(&source, &destination).expect("Failed to stage ONNX Runtime for Tauri bundle");
+    println!("cargo:rerun-if-changed={}", source.display());
 }
 
 /// Generate tray menu translations from frontend locale files.

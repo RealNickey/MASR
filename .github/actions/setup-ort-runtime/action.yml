@@ -1,0 +1,58 @@
+name: Set up pinned CPU ONNX Runtime
+description: Downloads, checksums, and stages the CPU runtime required by Malayalam ASR.
+inputs:
+  target:
+    description: windows-x64, linux-x64, or macos-arm64
+    required: true
+runs:
+  using: composite
+  steps:
+    - name: Download and stage ONNX Runtime (Windows)
+      if: runner.os == 'Windows'
+      shell: pwsh
+      env:
+        MASR_ORT_TARGET: ${{ inputs.target }}
+      run: |
+        if ($env:MASR_ORT_TARGET -ne 'windows-x64') { throw "Unsupported Windows ORT target: $env:MASR_ORT_TARGET" }
+        $version = '1.24.2'
+        $expected = '8e3e9c826375352e29cb2614fe44f3d7a4b0ff7b8028ad7a456af9d949a7e8b0'
+        $archive = Join-Path $env:RUNNER_TEMP 'onnxruntime-win-x64-1.24.2.zip'
+        $extract = Join-Path $env:RUNNER_TEMP 'onnxruntime-win-x64-1.24.2'
+        Invoke-WebRequest -Uri "https://github.com/microsoft/onnxruntime/releases/download/v$version/onnxruntime-win-x64-$version.zip" -OutFile $archive
+        if ((Get-FileHash $archive -Algorithm SHA256).Hash.ToLowerInvariant() -ne $expected) { throw 'ONNX Runtime checksum mismatch' }
+        Expand-Archive -Path $archive -DestinationPath $extract -Force
+        $lib = Join-Path $extract "onnxruntime-win-x64-$version\lib"
+        $env:MASR_ORT_LIB_DIR = $lib
+        "MASR_ORT_LIB_DIR=$lib" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+        'ORT_LIB_LOCATION=' + $lib | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+        'ORT_PREFER_DYNAMIC_LINK=1' | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+        bun scripts/stage-ort-runtime.mjs
+    - name: Download and stage ONNX Runtime (Linux or macOS)
+      if: runner.os != 'Windows'
+      shell: bash
+      env:
+        MASR_ORT_TARGET: ${{ inputs.target }}
+      run: |
+        set -euo pipefail
+        case "$MASR_ORT_TARGET" in
+          linux-x64)
+            platform='linux-x64'
+            expected='43725474ba5663642e17684717946693850e2005efbd724ac72da278fead25e6'
+            ;;
+          macos-arm64)
+            platform='osx-arm64'
+            expected='0af4fa503e8ea285245b47ee42d0a7461b8156a81270857da0c1d4ecf858abde'
+            ;;
+          *) echo "Unsupported ORT target: $MASR_ORT_TARGET" >&2; exit 1 ;;
+        esac
+        version='1.24.2'
+        archive="$RUNNER_TEMP/onnxruntime-$platform-$version.tgz"
+        extract="$RUNNER_TEMP/onnxruntime-$platform-$version"
+        curl --fail --location --retry 3 --output "$archive" "https://github.com/microsoft/onnxruntime/releases/download/v$version/onnxruntime-$platform-$version.tgz"
+        echo "$expected  $archive" | sha256sum --check --status
+        mkdir -p "$extract"
+        tar -xzf "$archive" -C "$extract"
+        lib="$extract/onnxruntime-$platform-$version/lib"
+        export MASR_ORT_LIB_DIR="$lib"
+        printf 'MASR_ORT_LIB_DIR=%s\nORT_LIB_LOCATION=%s\nORT_PREFER_DYNAMIC_LINK=1\n' "$lib" "$lib" >> "$GITHUB_ENV"
+        bun scripts/stage-ort-runtime.mjs

@@ -1,0 +1,43 @@
+name: Set up pinned Malayalam model
+description: Downloads, checksums, extracts, and caches the external Malayalam model archive.
+runs:
+  using: composite
+  steps:
+    - name: Restore Malayalam model archive cache
+      id: cache
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/masr/thegav1.tar.gz
+        key: thegav1-976753f720cc2ccb68155f150b74ed0ba200f364d0346590a2d9a01868611c4d
+    - name: Download and extract Malayalam model (Windows)
+      if: runner.os == 'Windows'
+      shell: pwsh
+      run: |
+        $expected = '976753f720cc2ccb68155f150b74ed0ba200f364d0346590a2d9a01868611c4d'
+        $archive = Join-Path $HOME '.cache\masr\thegav1.tar.gz'
+        if (-not (Test-Path $archive)) {
+          New-Item -ItemType Directory -Force -Path (Split-Path $archive) | Out-Null
+          Invoke-WebRequest -Uri 'https://github.com/RealNickey/runtime-depot/releases/download/v1.0.0/thegav1.tar.gz' -OutFile $archive
+        }
+        if ((Get-FileHash $archive -Algorithm SHA256).Hash.ToLowerInvariant() -ne $expected) { throw 'Malayalam model checksum mismatch' }
+        $extract = Join-Path $env:RUNNER_TEMP 'thegav1'
+        tar -xzf $archive -C $env:RUNNER_TEMP
+        $model = Get-ChildItem -Path $env:RUNNER_TEMP -Filter model.onnx -Recurse -File | Select-Object -First 1
+        if (-not $model) { throw 'Extracted Malayalam archive does not contain model.onnx' }
+        "MASR_MALAYALAM_MODEL_DIR=$($model.DirectoryName)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+    - name: Download and extract Malayalam model (Linux or macOS)
+      if: runner.os != 'Windows'
+      shell: bash
+      run: |
+        set -euo pipefail
+        expected='976753f720cc2ccb68155f150b74ed0ba200f364d0346590a2d9a01868611c4d'
+        archive="$HOME/.cache/masr/thegav1.tar.gz"
+        if [ ! -f "$archive" ]; then
+          mkdir -p "$(dirname "$archive")"
+          curl --fail --location --retry 3 --output "$archive" 'https://github.com/RealNickey/runtime-depot/releases/download/v1.0.0/thegav1.tar.gz'
+        fi
+        echo "$expected  $archive" | sha256sum --check --status
+        tar -xzf "$archive" -C "$RUNNER_TEMP"
+        model="$(find "$RUNNER_TEMP" -name model.onnx -type f -print -quit)"
+        test -n "$model"
+        printf 'MASR_MALAYALAM_MODEL_DIR=%s\n' "$(dirname "$model")" >> "$GITHUB_ENV"

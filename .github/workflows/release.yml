@@ -1,259 +1,142 @@
-name: Publish release
+name: Publish Windows beta
 
-# Releases are intentionally made only after a change lands on main. Development
-# work belongs on dev (or a PR into dev); this workflow never publishes from it.
+# A release is only created by merging the reviewed dev -> main promotion PR.
+# Direct pushes to main deliberately cannot reach a signing or publishing job.
 on:
-  push:
+  pull_request:
     branches: [main]
-  workflow_dispatch:
+    types: [closed]
 
 concurrency:
-  group: publish-${{ github.ref }}
+  group: windows-beta-release-${{ github.event.pull_request.merge_commit_sha }}
   cancel-in-progress: false
 
-env:
-  DEPOT_REPOSITORY: RealNickey/runtime-depot
+permissions:
+  contents: read
 
 jobs:
-  version:
-    name: Calculate release version
-    runs-on: ubuntu-latest
+  release-windows:
+    name: Build and sign Windows x64 beta
+    if: >-
+      github.event.pull_request.merged == true &&
+      github.event.pull_request.head.ref == 'dev' &&
+      github.repository == 'RealNickey/MASR'
+    runs-on: windows-latest
+    timeout-minutes: 75
     outputs:
       version: ${{ steps.version.outputs.value }}
     steps:
       - uses: actions/checkout@v4
-
-      # Keep the source manifests on their development baseline. The CI run
-      # number supplies a strictly increasing release patch version without a
-      # release commit (and the resulting build is the version users install).
-      - id: version
-        shell: bash
-        run: |
-          base=$(jq -r '.version' package.json)
-          IFS=. read -r major minor patch <<< "$base"
-          version="$major.$minor.$((patch + GITHUB_RUN_NUMBER))"
-          echo "Publishing v$version"
-          echo "value=$version" >> "$GITHUB_OUTPUT"
-
-  build:
-    name: ${{ matrix.name }}
-    needs: version
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - name: Windows x64
-            os: windows-latest
-            target: x86_64-pc-windows-msvc
-            args: --bundles nsis,msi
-          - name: macOS Apple Silicon
-            os: macos-14
-            target: aarch64-apple-darwin
-            args: --target aarch64-apple-darwin
-          - name: macOS Intel
-            os: macos-13
-            target: x86_64-apple-darwin
-            args: --target x86_64-apple-darwin
-          - name: Linux x64
-            os: ubuntu-22.04
-            target: x86_64-unknown-linux-gnu
-            args: --bundles deb,appimage,rpm
-
-    runs-on: ${{ matrix.os }}
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@v4
-
+        with:
+          ref: ${{ github.event.pull_request.merge_commit_sha }}
       - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.9
       - uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.target }}
-
-      - name: Install Linux packaging dependencies
-        if: runner.os == 'Linux'
+          targets: x86_64-pc-windows-msvc
+      - name: Read coordinated source version
+        id: version
+        shell: pwsh
         run: |
-          sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libasound2-dev libopenblas-dev libx11-dev libxtst-dev libxrandr-dev libgtk-layer-shell0 libgtk-layer-shell-dev rpm
-
-      - name: Install Windows Vulkan SDK
-        if: runner.os == 'Windows'
-        uses: humbletim/install-vulkan-sdk@v1.2
+          $package = Get-Content package.json -Raw | ConvertFrom-Json
+          $cargo = (Select-String -Path src-tauri/Cargo.toml -Pattern '^version\s*=\s*"([^"]+)"').Matches[0].Groups[1].Value
+          $tauri = (Get-Content src-tauri/tauri.conf.json -Raw | ConvertFrom-Json).version
+          if (($package.version -ne $cargo) -or ($package.version -ne $tauri)) { throw 'Release manifests do not agree on one version' }
+          "value=$($package.version)" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+      - name: Shorten Cargo target directory
+        shell: pwsh
+        run: |
+          $target = "$(Split-Path -Qualifier $env:GITHUB_WORKSPACE)\t"
+          "CARGO_TARGET_DIR=$target" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+      - uses: humbletim/install-vulkan-sdk@v1.2
         with:
           version: 1.4.309.0
           cache: true
-
-      # whisper-rs creates deeply nested CMake paths; this keeps Windows below
-      # MAX_PATH and mirrors the known-good local/CI build configuration.
-      - name: Shorten Windows build path
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          $drive = Split-Path -Qualifier $env:GITHUB_WORKSPACE
-          $targetDir = "$drive\t"
-          New-Item -ItemType Directory -Force -Path $targetDir | Out-Null
-          "CARGO_TARGET_DIR=$targetDir" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-
-      - name: Install frontend dependencies
-        run: bun install --frozen-lockfile
-
-      - name: Install ONNX Runtime (macOS Intel)
-        if: matrix.target == 'x86_64-apple-darwin'
-        shell: bash
-        run: |
-          version="1.24.2"
-          curl -L -o ort.tgz "https://blob.handy.computer/onnxruntime-osx-x86_64-${version}.tgz"
-          tar xzf ort.tgz
-          ort_dir="$PWD/onnxruntime-osx-x86_64-${version}"
-          echo "ORT_LIB_LOCATION=$ort_dir/lib" >> "$GITHUB_ENV"
-          echo "ORT_PREFER_DYNAMIC_LINK=1" >> "$GITHUB_ENV"
-          jq --arg lib "$ort_dir/lib/libonnxruntime.${version}.dylib" '.bundle.macOS.frameworks = [$lib]' src-tauri/tauri.conf.json > tauri.conf.tmp && mv tauri.conf.tmp src-tauri/tauri.conf.json
-
-      - name: Install ONNX Runtime (Linux x64)
-        if: matrix.target == 'x86_64-unknown-linux-gnu'
-        shell: bash
-        run: |
-          version="1.24.2"
-          curl -L -o ort.tgz "https://blob.handy.computer/onnxruntime-linux-x86_64-${version}.tgz"
-          tar xzf ort.tgz
-          ort_dir="$PWD/onnxruntime-linux-x86_64-${version}"
-          echo "ORT_LIB_LOCATION=$ort_dir/lib" >> "$GITHUB_ENV"
-          echo "ORT_PREFER_DYNAMIC_LINK=1" >> "$GITHUB_ENV"
-          for file in "$ort_dir"/lib/libonnxruntime.so*; do
-            if [ -L "$file" ]; then cp -L "$file" "$file.real" && mv "$file.real" "$file"; fi
-          done
-          jq --arg so "$ort_dir/lib/libonnxruntime.so" --arg so1 "$ort_dir/lib/libonnxruntime.so.1" --arg sov "$ort_dir/lib/libonnxruntime.so.1.24.2" '.bundle.linux.deb.files["/usr/lib/libonnxruntime.so"] = $so | .bundle.linux.deb.files["/usr/lib/libonnxruntime.so.1"] = $so1 | .bundle.linux.deb.files["/usr/lib/libonnxruntime.so.1.24.2"] = $sov' src-tauri/tauri.conf.json > tauri.conf.tmp && mv tauri.conf.tmp src-tauri/tauri.conf.json
-
-      - name: Set the generated release version
-        shell: bash
+      - run: bun install --frozen-lockfile
+      - uses: ./.github/actions/setup-ort-runtime
+        with:
+          target: windows-x64
+      - uses: ./.github/actions/setup-malayalam-model
+      - name: Verify the exact source with Malayalam smoke
+        run: cargo run --locked --manifest-path src-tauri/Cargo.toml --bin malayalam_smoke
+      - name: Build signed Windows updater artifacts
         env:
-          RELEASE_VERSION: ${{ needs.version.outputs.version }}
-        run: |
-          jq --arg version "$RELEASE_VERSION" '.version = $version' package.json > package.json.tmp && mv package.json.tmp package.json
-          jq --arg version "$RELEASE_VERSION" '.version = $version' src-tauri/tauri.conf.json > src-tauri/tauri.conf.json.tmp && mv src-tauri/tauri.conf.json.tmp src-tauri/tauri.conf.json
-          sed -i.bak -E "0,/^version = /s//version = \"$RELEASE_VERSION\"/" src-tauri/Cargo.toml
-          rm -f src-tauri/Cargo.toml.bak
-
-      - name: Verify updater signing key
-        env:
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-        shell: bash
-        run: test -n "$TAURI_SIGNING_PRIVATE_KEY"
-
-      # The updater signature is required. OS-level Apple notarization and
-      # Windows Authenticode signing are intentionally optional: without
-      # those services users may see platform trust prompts, but update
-      # integrity remains protected by the Tauri signature in latest.json.
-      - name: Build Tauri bundles with signed updater artifacts
-        uses: tauri-apps/tauri-action@v0
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-          GGML_NATIVE: ${{ runner.os != 'macOS' && 'OFF' || '' }}
-          GGML_AVX: ${{ runner.os != 'macOS' && 'OFF' || '' }}
-          GGML_AVX2: ${{ runner.os != 'macOS' && 'OFF' || '' }}
-          GGML_FMA: ${{ runner.os != 'macOS' && 'OFF' || '' }}
-          GGML_F16C: ${{ runner.os != 'macOS' && 'OFF' || '' }}
-        with:
-          args: ${{ matrix.args }}
-
-      - name: Stage release files (Unix)
-        if: runner.os != 'Windows'
-        shell: bash
-        run: |
-          stage="release-assets/${{ matrix.target }}"
-          mkdir -p "$stage"
-          find src-tauri/target -path '*/bundle/*' -type f \( -name '*.deb' -o -name '*.rpm' -o -name '*.AppImage' -o -name '*.dmg' -o -name '*.tar.gz' -o -name '*.sig' \) -print0 | while IFS= read -r -d '' file; do
-            cp "$file" "$stage/${{ matrix.target }}--$(basename "$file")"
-          done
-          test -n "$(find "$stage" -type f -name '*.sig' -print -quit)"
-
-      - name: Stage release files (Windows)
-        if: runner.os == 'Windows'
+          GGML_NATIVE: "OFF"
+          GGML_AVX: "OFF"
+          GGML_AVX2: "OFF"
+          GGML_FMA: "OFF"
+          GGML_F16C: "OFF"
+        run: bun run tauri build --bundles nsis
+      - name: Stage exactly one Windows updater asset
         shell: pwsh
         run: |
-          $stage = "release-assets/${{ matrix.target }}"
+          $stage = Join-Path $env:RUNNER_TEMP 'release-assets'
           New-Item -ItemType Directory -Force -Path $stage | Out-Null
-          Get-ChildItem -Path $env:CARGO_TARGET_DIR -Recurse -File | Where-Object {
-            $_.FullName -match '\\bundle\\' -and $_.Name -match '\.(exe|msi|sig)$'
-          } | ForEach-Object {
-            Copy-Item -LiteralPath $_.FullName -Destination (Join-Path $stage "${{ matrix.target }}--$($_.Name)")
-          }
-          if (-not (Get-ChildItem -Path $stage -Filter *.sig -File)) { throw "No updater signature was produced" }
-
+          $installer = Get-ChildItem -Path $env:CARGO_TARGET_DIR -Recurse -Filter '*-setup.exe' | Select-Object -First 1
+          $signature = Get-ChildItem -Path $env:CARGO_TARGET_DIR -Recurse -Filter '*-setup.exe.sig' | Select-Object -First 1
+          if (-not $installer -or -not $signature) { throw 'Signed NSIS updater artifact was not produced' }
+          Copy-Item -LiteralPath $installer.FullName -Destination $stage
+          Copy-Item -LiteralPath $signature.FullName -Destination $stage
       - uses: actions/upload-artifact@v4
         with:
-          name: release-${{ matrix.target }}
-          path: release-assets
+          name: windows-beta-${{ steps.version.outputs.value }}
+          path: ${{ runner.temp }}/release-assets
           if-no-files-found: error
           retention-days: 1
 
   publish:
-    name: Publish depot release and updater manifest
-    needs: [version, build]
+    name: Publish Windows-only updater manifest
+    needs: release-windows
+    if: needs.release-windows.result == 'success'
     runs-on: ubuntu-latest
     permissions:
       contents: read
     steps:
       - uses: actions/download-artifact@v4
         with:
-          pattern: release-*
+          name: windows-beta-${{ needs.release-windows.outputs.version }}
           path: release-assets
-          merge-multiple: true
-
-      - name: Create latest.json
+      - name: Create Windows-only latest.json
         env:
-          RELEASE_VERSION: ${{ needs.version.outputs.version }}
-        shell: bash
+          VERSION: ${{ needs.release-windows.outputs.version }}
         run: |
+          set -euo pipefail
+          installer="$(find release-assets -name '*-setup.exe' -print -quit)"
+          signature="${installer}.sig"
+          test -f "$installer" && test -f "$signature"
+          name="$(basename "$installer")"
           node <<'NODE'
-          const fs = require('fs');
-          const path = require('path');
-          const root = 'release-assets';
-          const targetPlatform = {
-            'x86_64-pc-windows-msvc': 'windows-x86_64',
-            'aarch64-apple-darwin': 'darwin-aarch64',
-            'x86_64-apple-darwin': 'darwin-x86_64',
-            'x86_64-unknown-linux-gnu': 'linux-x86_64',
-          };
-          const preferred = {
-            'x86_64-pc-windows-msvc': /-setup\.exe\.sig$/i,
-            'aarch64-apple-darwin': /\.app\.tar\.gz\.sig$/i,
-            'x86_64-apple-darwin': /\.app\.tar\.gz\.sig$/i,
-            'x86_64-unknown-linux-gnu': /\.AppImage\.sig$/i,
-          };
-          const platforms = {};
-          for (const [target, platform] of Object.entries(targetPlatform)) {
-            const directory = path.join(root, target);
-            const signatures = fs.readdirSync(directory).filter(name => preferred[target].test(name));
-            if (signatures.length !== 1) throw new Error(`Expected one updater signature for ${target}, found ${signatures.length}`);
-            const signatureFile = signatures[0];
-            const asset = signatureFile.slice(0, -4);
-            if (!fs.existsSync(path.join(directory, asset))) throw new Error(`Missing updater asset ${asset}`);
-            platforms[platform] = {
-              signature: fs.readFileSync(path.join(directory, signatureFile), 'utf8').trim(),
-              url: `https://github.com/RealNickey/runtime-depot/releases/download/v${process.env.RELEASE_VERSION}/${encodeURIComponent(asset)}`,
-            };
-          }
-          fs.writeFileSync(path.join(root, 'latest.json'), JSON.stringify({
-            version: process.env.RELEASE_VERSION,
-            notes: `Release ${process.env.RELEASE_VERSION}`,
+          const fs = require('node:fs');
+          const path = require('node:path');
+          const installer = fs.readdirSync('release-assets').find((file) => /-setup\.exe$/i.test(file));
+          const signature = fs.readFileSync(path.join('release-assets', `${installer}.sig`), 'utf8').trim();
+          fs.writeFileSync('release-assets/latest.json', JSON.stringify({
+            version: process.env.VERSION,
+            notes: `MASR Windows beta ${process.env.VERSION}`,
             pub_date: new Date().toISOString(),
-            platforms,
+            platforms: {
+              'windows-x86_64': {
+                signature,
+                url: `https://github.com/RealNickey/runtime-depot/releases/download/v${process.env.VERSION}/${encodeURIComponent(installer)}`,
+              },
+            },
           }, null, 2) + '\n');
           NODE
-
-      - name: Create or update the runtime-depot release
+      - name: Publish only to RealNickey runtime depot
         env:
+          # The repository owner must provision this token with contents-only
+          # access to RealNickey/runtime-depot; it is never exposed to CI jobs.
           GH_TOKEN: ${{ secrets.RUNTIME_DEPOT_TOKEN }}
-          RELEASE_VERSION: ${{ needs.version.outputs.version }}
-        shell: bash
+          VERSION: ${{ needs.release-windows.outputs.version }}
         run: |
+          set -euo pipefail
           test -n "$GH_TOKEN"
-          tag="v$RELEASE_VERSION"
-          if gh release view "$tag" --repo "$DEPOT_REPOSITORY" >/dev/null 2>&1; then
-            gh release upload "$tag" release-assets/*/* release-assets/latest.json --clobber --repo "$DEPOT_REPOSITORY"
+          tag="v$VERSION"
+          if gh release view "$tag" --repo RealNickey/runtime-depot >/dev/null 2>&1; then
+            gh release upload "$tag" release-assets/* --clobber --repo RealNickey/runtime-depot
           else
-            gh release create "$tag" release-assets/*/* release-assets/latest.json --title "$tag" --generate-notes --latest --repo "$DEPOT_REPOSITORY"
+            gh release create "$tag" release-assets/* --title "$tag" --generate-notes --latest --repo RealNickey/runtime-depot
           fi

@@ -83,6 +83,8 @@ url = "2.5"
 sysinfo = "0.33"
 opener = "0.7"
 transcribe-rs = { version = "0.3.8", features = ["whisper-cpp", "onnx"] }
+ort = { version = "2.0.0-rc.9", default-features = false, features = ["ndarray", "copy-dylibs", "load-dynamic"] }
+ndarray = "0.17"
 handy-keys = "0.2.4"
 ferrous-opencc = "0.2.3"
 clap = { version = "4", features = ["derive"] }
@@ -114,8 +116,6 @@ windows = { version = "0.61.3", features = [
   "Win32_UI_WindowsAndMessaging",
 ] }
 winreg = "0.55"
-ort = { version = "2.0.0-rc.9", features = ["ndarray", "copy-dylibs", "cuda"] }
-ndarray = "0.17"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 tauri-nspanel = { git = "https://github.com/ahkohd/tauri-nspanel", branch = "v2.1" }

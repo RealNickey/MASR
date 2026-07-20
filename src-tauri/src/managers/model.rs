@@ -18,6 +18,33 @@ use sysinfo::Disks;
 use tar::Archive;
 use tauri::{AppHandle, Emitter, Manager};
 
+trait ModelEventSink: Send + Sync {
+    fn emit(&self, event: &str, payload: serde_json::Value);
+}
+
+struct TauriModelEventSink {
+    app_handle: AppHandle,
+}
+
+impl ModelEventSink for TauriModelEventSink {
+    fn emit(&self, event: &str, payload: serde_json::Value) {
+        let _ = self.app_handle.emit(event, payload);
+    }
+}
+
+#[cfg(test)]
+#[derive(Default)]
+struct TestModelEventSink {
+    events: Mutex<Vec<String>>,
+}
+
+#[cfg(test)]
+impl ModelEventSink for TestModelEventSink {
+    fn emit(&self, event: &str, _payload: serde_json::Value) {
+        self.events.lock().unwrap().push(event.to_string());
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 pub enum EngineType {
     Whisper,
@@ -126,7 +153,8 @@ impl<'a> Drop for DownloadCleanup<'a> {
 }
 
 pub struct ModelManager {
-    app_handle: AppHandle,
+    app_handle: Option<AppHandle>,
+    event_sink: Arc<dyn ModelEventSink>,
     models_dir: PathBuf,
     available_models: Mutex<HashMap<String, ModelInfo>>,
     cancel_flags: Arc<Mutex<HashMap<String, Arc<AtomicBool>>>>,
@@ -688,7 +716,10 @@ impl ModelManager {
         }
 
         let manager = Self {
-            app_handle: app_handle.clone(),
+            app_handle: Some(app_handle.clone()),
+            event_sink: Arc::new(TauriModelEventSink {
+                app_handle: app_handle.clone(),
+            }),
             models_dir,
             available_models: Mutex::new(available_models),
             cancel_flags: Arc::new(Mutex::new(HashMap::new())),
@@ -726,9 +757,21 @@ impl ModelManager {
         self.initial_setup_status.lock().unwrap().clone()
     }
 
+    fn emit_event<T: Serialize>(&self, event: &str, payload: &T) {
+        if let Ok(payload) = serde_json::to_value(payload) {
+            self.event_sink.emit(event, payload);
+        }
+    }
+
+    fn app_handle(&self) -> Result<&AppHandle> {
+        self.app_handle
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("This operation requires a Tauri app handle"))
+    }
+
     fn emit_initial_setup_status(&self) {
         let status = self.get_initial_setup_status();
-        let _ = self.app_handle.emit("initial-setup-status", status);
+        self.emit_event("initial-setup-status", &status);
     }
 
     fn set_initial_setup_status(&self, status: InitialSetupStatus) {
@@ -897,7 +940,7 @@ impl ModelManager {
         let bundled_models = ["ggml-small.bin"]; // Add other bundled models here if any
 
         for filename in &bundled_models {
-            let bundled_path = self.app_handle.path().resolve(
+            let bundled_path = self.app_handle()?.path().resolve(
                 &format!("resources/models/{}", filename),
                 tauri::path::BaseDirectory::Resource,
             );
@@ -933,7 +976,7 @@ impl ModelManager {
         info!("Migrating GigaAM from single-file to directory format");
 
         let vocab_path = self
-            .app_handle
+            .app_handle()?
             .path()
             .resolve(
                 "resources/models/gigaam_vocab.txt",
@@ -1016,7 +1059,8 @@ impl ModelManager {
     }
 
     fn auto_select_model_if_needed(&self) -> Result<()> {
-        let mut settings = get_settings(&self.app_handle);
+        let app_handle = self.app_handle()?;
+        let mut settings = get_settings(app_handle);
 
         // Clear stale selection: selected model is set but doesn't exist
         // in available_models (e.g. deleted custom model file)
@@ -1031,7 +1075,7 @@ impl ModelManager {
                     settings.selected_model
                 );
                 settings.selected_model = String::new();
-                write_settings(&self.app_handle, settings.clone());
+                write_settings(app_handle, settings.clone());
             }
         }
 
@@ -1048,7 +1092,7 @@ impl ModelManager {
                 // Update settings with the selected model
                 let mut updated_settings = settings;
                 updated_settings.selected_model = available_model.id.clone();
-                write_settings(&self.app_handle, updated_settings);
+                write_settings(app_handle, updated_settings);
 
                 info!("Successfully auto-selected model: {}", available_model.id);
             }
@@ -1358,9 +1402,7 @@ impl ModelManager {
                 0.0
             },
         };
-        let _ = self
-            .app_handle
-            .emit("model-download-progress", &initial_progress);
+        self.emit_event("model-download-progress", &initial_progress);
         self.update_initial_setup_progress(model_id, downloaded, total_size);
 
         // Throttle progress events to max 10/sec (100ms intervals)
@@ -1397,7 +1439,7 @@ impl ModelManager {
                     total: total_size,
                     percentage,
                 };
-                let _ = self.app_handle.emit("model-download-progress", &progress);
+                self.emit_event("model-download-progress", &progress);
                 self.update_initial_setup_progress(model_id, downloaded, total_size);
                 last_emit = Instant::now();
             }
@@ -1414,9 +1456,7 @@ impl ModelManager {
                 100.0
             },
         };
-        let _ = self
-            .app_handle
-            .emit("model-download-progress", &final_progress);
+        self.emit_event("model-download-progress", &final_progress);
         self.update_initial_setup_progress(model_id, downloaded, total_size);
 
         file.flush()?;
@@ -1446,7 +1486,7 @@ impl ModelManager {
         // Verify SHA256 checksum. Runs in a blocking thread so the async executor is not
         // stalled while hashing large model files (up to 1.6 GB). On failure the partial
         // is deleted inside verify_sha256 so the next attempt always starts fresh.
-        let _ = self.app_handle.emit("model-verification-started", model_id);
+        self.emit_event("model-verification-started", &model_id);
         self.set_initial_setup_phase(model_id, InitialSetupPhase::Verifying);
         info!("Verifying SHA256 for model {}...", model_id);
         let verify_path = partial_path.clone();
@@ -1458,9 +1498,7 @@ impl ModelManager {
         .await
         .map_err(|e| anyhow::anyhow!("SHA256 task panicked: {}", e))?;
         verify_result?;
-        let _ = self
-            .app_handle
-            .emit("model-verification-completed", model_id);
+        self.emit_event("model-verification-completed", &model_id);
 
         // Handle directory-based models (extract tar.gz) vs file-based models
         if model_info.is_directory {
@@ -1471,7 +1509,7 @@ impl ModelManager {
             }
 
             // Emit extraction started event
-            let _ = self.app_handle.emit("model-extraction-started", model_id);
+            self.emit_event("model-extraction-started", &model_id);
             self.set_initial_setup_phase(model_id, InitialSetupPhase::Extracting);
             info!("Extracting archive for directory-based model: {}", model_id);
 
@@ -1507,7 +1545,7 @@ impl ModelManager {
                     let mut extracting = self.extracting_models.lock().unwrap();
                     extracting.remove(model_id);
                 }
-                let _ = self.app_handle.emit(
+                self.emit_event(
                     "model-extraction-failed",
                     &serde_json::json!({
                         "model_id": model_id,
@@ -1547,7 +1585,7 @@ impl ModelManager {
                 extracting.remove(model_id);
             }
             // Emit extraction completed event
-            let _ = self.app_handle.emit("model-extraction-completed", model_id);
+            self.emit_event("model-extraction-completed", &model_id);
 
             // Remove the downloaded tar.gz file
             let _ = fs::remove_file(&partial_path);
@@ -1570,7 +1608,7 @@ impl ModelManager {
         self.cancel_flags.lock().unwrap().remove(model_id);
 
         // Emit completion event
-        let _ = self.app_handle.emit("model-download-complete", model_id);
+        self.emit_event("model-download-complete", &model_id);
 
         info!(
             "Successfully downloaded model {} to {:?}",
@@ -1645,7 +1683,7 @@ impl ModelManager {
         }
 
         // Emit event to notify UI
-        let _ = self.app_handle.emit("model-deleted", model_id);
+        self.emit_event("model-deleted", &model_id);
 
         Ok(())
     }
@@ -1721,16 +1759,17 @@ impl ModelManager {
         self.update_download_status()?;
 
         // Emit cancellation event so all UI components can clear their state
-        let _ = self.app_handle.emit("model-download-cancelled", model_id);
+        self.emit_event("model-download-cancelled", &model_id);
 
         info!("Download cancellation initiated for: {}", model_id);
         Ok(())
     }
 
     #[cfg(test)]
-    pub fn new_test(app_handle: &AppHandle, models_dir: PathBuf) -> Self {
+    pub fn new_test(models_dir: PathBuf) -> Self {
         Self {
-            app_handle: app_handle.clone(),
+            app_handle: None,
+            event_sink: Arc::new(TestModelEventSink::default()),
             models_dir,
             available_models: std::sync::Mutex::new(HashMap::new()),
             cancel_flags: std::sync::Arc::new(std::sync::Mutex::new(HashMap::new())),
@@ -1979,13 +2018,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_download_model_interruption_and_resume() {
-        let app = tauri::Builder::default()
-            .build(tauri::generate_context!())
-            .unwrap();
-        let app_handle = app.handle();
         let temp_dir = TempDir::new().unwrap();
         let models_dir = temp_dir.path().to_path_buf();
-        let manager = ModelManager::new_test(app_handle, models_dir);
+        let manager = ModelManager::new_test(models_dir);
 
         let (url, req_count) = start_mock_resume_server();
 

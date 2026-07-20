@@ -49,3 +49,8 @@ thegav1/
 .env
 .agents/
 .codex
+
+# CI-only ONNX Runtime staging; the runtime library is never committed.
+/.ci/
+/src-tauri/onnxruntime.dll
+/src-tauri/resources/onnxruntime/
