@@ -5,10 +5,18 @@ name: Publish Windows beta
 on:
   pull_request:
     branches: [main]
-    types: [closed]
+    types: [opened, reopened, synchronize, closed]
+  # This builds and signs an artifact without publishing it. It is useful for
+  # recovery validation, but normal release validation happens on dev -> main.
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Git ref to sign and package without publishing
+        required: false
+        default: main
 
 concurrency:
-  group: windows-beta-release-${{ github.event.pull_request.merge_commit_sha }}
+  group: windows-beta-release-${{ github.event.pull_request.number || inputs.ref || github.ref }}
   cancel-in-progress: false
 
 permissions:
@@ -18,9 +26,10 @@ jobs:
   release-windows:
     name: Build and sign Windows x64 beta
     if: >-
-      github.event.pull_request.merged == true &&
-      github.event.pull_request.head.ref == 'dev' &&
-      github.repository == 'RealNickey/MASR'
+      github.repository == 'RealNickey/MASR' &&
+      ((github.event_name == 'pull_request' && github.event.pull_request.head.ref == 'dev' &&
+      (github.event.action != 'closed' || github.event.pull_request.merged == true)) ||
+      github.event_name == 'workflow_dispatch')
     runs-on: windows-latest
     timeout-minutes: 75
     outputs:
@@ -28,7 +37,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.pull_request.merge_commit_sha }}
+          ref: ${{ github.event.action == 'closed' && github.event.pull_request.merge_commit_sha || github.event.pull_request.head.sha || inputs.ref || github.sha }}
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.3.9
@@ -47,7 +56,7 @@ jobs:
       - name: Shorten Cargo target directory
         shell: pwsh
         run: |
-          $target = "$(Split-Path -Qualifier $env:GITHUB_WORKSPACE)\t"
+          $target = Join-Path $env:GITHUB_WORKSPACE '.ci\cargo-target'
           "CARGO_TARGET_DIR=$target" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
       - uses: humbletim/install-vulkan-sdk@v1.2
         with:
@@ -59,7 +68,11 @@ jobs:
           target: windows-x64
       - uses: ./.github/actions/setup-malayalam-model
       - name: Verify the exact source with Malayalam smoke
-        run: cargo run --locked --manifest-path src-tauri/Cargo.toml --bin malayalam_smoke
+        env:
+          ORT_DYLIB_PATH: ${{ env.MASR_ORT_LIB_DIR }}\onnxruntime.dll
+        run: |
+          $env:PATH = "$env:MASR_ORT_LIB_DIR;$env:PATH"
+          cargo run --locked --manifest-path src-tauri/Cargo.toml --bin malayalam_smoke
       - name: Build signed Windows updater artifacts
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
@@ -90,7 +103,12 @@ jobs:
   publish:
     name: Publish Windows-only updater manifest
     needs: release-windows
-    if: needs.release-windows.result == 'success'
+    if: >-
+      needs.release-windows.result == 'success' &&
+      github.event_name == 'pull_request' &&
+      github.event.action == 'closed' &&
+      github.event.pull_request.merged == true &&
+      github.event.pull_request.head.ref == 'dev'
     runs-on: ubuntu-latest
     permissions:
       contents: read

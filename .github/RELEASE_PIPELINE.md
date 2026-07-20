@@ -3,7 +3,10 @@
 Development lands through reviewed pull requests into `dev`. A reviewed
 `dev` → `main` pull request must make one matching patch-version bump in
 `package.json`, `src-tauri/Cargo.toml`, and `src-tauri/tauri.conf.json`.
-Merging that PR publishes the exact committed source version.
+Opening or updating that PR performs a signed Windows-only dry run and uploads
+the installer as a short-lived Actions artifact; it never publishes to the
+runtime depot. Merging the reviewed PR publishes the exact committed source
+version.
 
 `MASR CI` makes the Windows x64 package, Rust tests, Malayalam model smoke, and
 ONNX Runtime bundle inspection blocking checks for `dev` and for promotion.
@@ -34,3 +37,8 @@ Configure these in `RealNickey/MASR`, never in the public depot:
 
 The private key must match `plugins.updater.pubkey` in
 `src-tauri/tauri.conf.json`.
+
+Verify that `RUNTIME_DEPOT_TOKEN` is a fine-grained token (or equivalent
+machine credential) with **Contents: Read and write** access to
+`RealNickey/runtime-depot` only. The release workflow uses that token only in
+its post-merge publish job; dry runs cannot access it.

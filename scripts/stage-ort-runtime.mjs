@@ -40,7 +40,11 @@ for (const file of runtimeFiles) {
 }
 
 if (target === "windows-x64") {
+  // Windows keeps the DLL as a normal bundle resource beside the executable.
 } else if (target === "linux-x64") {
+  // The checked-in config contains the Windows resource mapping for local
+  // Windows builds. Remove it before Tauri validates Linux/macOS resources.
+  delete config.bundle.resources?.["onnxruntime.dll"];
   config.bundle.linux.deb.files ??= {};
   config.bundle.linux.appimage.files ??= {};
   for (const file of runtimeFiles) {
@@ -49,6 +53,7 @@ if (target === "windows-x64") {
     config.bundle.linux.appimage.files[`usr/lib/${file}`] = source;
   }
 } else if (target === "macos-arm64") {
+  delete config.bundle.resources?.["onnxruntime.dll"];
   const dylib =
     runtimeFiles.find((file) => /\.1\.24\.2\.dylib$/.test(file)) ??
     runtimeFiles[0];
