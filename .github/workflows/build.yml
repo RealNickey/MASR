@@ -131,7 +131,7 @@ jobs:
           mv tmp.json src-tauri/tauri.conf.json
 
       - name: Build unsigned packages
-        if: !inputs.sign-updater
+        if: inputs.sign-updater == false
         uses: tauri-apps/tauri-action@v0
         env:
           GGML_NATIVE: ${{ runner.os != 'macOS' && 'OFF' || '' }}
@@ -143,7 +143,7 @@ jobs:
           args: ${{ inputs.build-args }}
 
       - name: Build signed packages
-        if: inputs.sign-updater
+        if: inputs.sign-updater == true
         uses: tauri-apps/tauri-action@v0
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
