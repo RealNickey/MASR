@@ -63,13 +63,14 @@ jobs:
         run: |
           $env:PATH = "$env:MASR_ORT_LIB_DIR;$env:PATH"
           cargo test --locked --manifest-path src-tauri/Cargo.toml --no-run
-          # `ort/copy-dylibs` can leave a crate-selected DLL next to the test
-          # executable. Windows searches that directory before PATH, so remove
-          # it and make the test exercise the same pinned runtime contract as
-          # the smoke and packaged application.
+          # Windows loads the executable directory before System32 and PATH.
+          # Replace any crate-selected DLL beside the test with the exact
+          # staged runtime used by the package, preventing an older system DLL
+          # from winning the loader search.
           Get-ChildItem -Path "$env:CARGO_TARGET_DIR\debug" -Filter onnxruntime.dll -Recurse | Remove-Item -Force
           $test = Get-ChildItem -Path "$env:CARGO_TARGET_DIR\debug\deps" -Filter 'thegai_app_lib-*.exe' | Select-Object -First 1
           if (-not $test) { throw 'Unable to locate the compiled Rust test executable' }
+          Copy-Item -LiteralPath $env:ORT_DYLIB_PATH -Destination (Join-Path $test.DirectoryName 'onnxruntime.dll') -Force
           $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
           $dumpbinPath = if (Test-Path $vswhere) { & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -find 'VC\Tools\MSVC\**\bin\Hostx64\x64\dumpbin.exe' | Select-Object -First 1 }
           $dumpbin = if ($dumpbinPath) { Get-Item $dumpbinPath } else { Get-ChildItem -Path @($env:ProgramFiles, ${env:ProgramFiles(x86)}) -Filter dumpbin.exe -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1 }
@@ -87,6 +88,7 @@ jobs:
         run: |
           $env:PATH = "$env:MASR_ORT_LIB_DIR;$env:PATH"
           Get-ChildItem -Path "$env:CARGO_TARGET_DIR\debug" -Filter onnxruntime.dll -Recurse | Remove-Item -Force
+          Copy-Item -LiteralPath $env:ORT_DYLIB_PATH -Destination (Join-Path $env:CARGO_TARGET_DIR 'debug\onnxruntime.dll') -Force
           cargo run --locked --manifest-path src-tauri/Cargo.toml --bin malayalam_smoke
       - name: Build Windows beta package
         env:
@@ -215,7 +217,6 @@ jobs:
           deb="$(find "$CARGO_TARGET_DIR" -name '*.deb' -print -quit)"
           appimage="$(find "$CARGO_TARGET_DIR" -name '*.AppImage' -print -quit)"
           test -n "$deb" && test -n "$appimage"
-          dpkg-deb -c "$deb" | grep -q 'libonnxruntime.so'
           package_root="$RUNNER_TEMP/deb-root"
           dpkg-deb -x "$deb" "$package_root"
           runtime="$(find "$package_root" -name 'libonnxruntime.so*' -type f -print -quit)"
