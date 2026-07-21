@@ -105,15 +105,13 @@ jobs:
         with:
           target: ${{ matrix.ort }}
       - uses: ./.github/actions/setup-malayalam-model
-      - name: Require Windows signing material for promotion validation
+      - name: Require Tauri updater signing material
         if: runner.os == 'Windows'
         shell: pwsh
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: |
           if ([string]::IsNullOrWhiteSpace($env:TAURI_SIGNING_PRIVATE_KEY)) { throw 'TAURI_SIGNING_PRIVATE_KEY is required' }
-          if ([string]::IsNullOrWhiteSpace($env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD)) { throw 'TAURI_SIGNING_PRIVATE_KEY_PASSWORD is required' }
       - name: Build updater artifacts
         env:
           ORT_DYLIB_PATH: ${{ runner.os == 'Windows' && format('{0}\\{1}', env.MASR_ORT_LIB_DIR, matrix.runtime) || format('{0}/{1}', env.MASR_ORT_LIB_DIR, matrix.runtime) }}
@@ -221,10 +219,9 @@ jobs:
         env:
           RUNTIME_DEPOT_TOKEN: ${{ secrets.RUNTIME_DEPOT_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: |
           set -euo pipefail
-          for secret in RUNTIME_DEPOT_TOKEN TAURI_SIGNING_PRIVATE_KEY TAURI_SIGNING_PRIVATE_KEY_PASSWORD; do test -n "${!secret}"; done
+          for secret in RUNTIME_DEPOT_TOKEN TAURI_SIGNING_PRIVATE_KEY; do test -n "${!secret}"; done
       - name: Create platform-aware updater manifest
         env:
           VERSION: ${{ needs.metadata.outputs.version }}
