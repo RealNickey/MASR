@@ -81,15 +81,20 @@ jobs:
           Get-Item $env:ORT_DYLIB_PATH | Format-List FullName,Length,VersionInfo
           Write-Host "Resolved loader PATH: $env:PATH"
           where.exe onnxruntime.dll
-          cargo test --locked --manifest-path src-tauri/Cargo.toml
+          & $test.FullName
+          if ($LASTEXITCODE -ne 0) { throw "Rust test executable failed: $LASTEXITCODE" }
       - name: Malayalam CPU smoke test
         env:
           ORT_DYLIB_PATH: ${{ env.MASR_ORT_LIB_DIR }}\onnxruntime.dll
         run: |
           $env:PATH = "$env:MASR_ORT_LIB_DIR;$env:PATH"
           Get-ChildItem -Path "$env:CARGO_TARGET_DIR\debug" -Filter onnxruntime.dll -Recurse | Remove-Item -Force
-          Copy-Item -LiteralPath $env:ORT_DYLIB_PATH -Destination (Join-Path $env:CARGO_TARGET_DIR 'debug\onnxruntime.dll') -Force
-          cargo run --locked --manifest-path src-tauri/Cargo.toml --bin malayalam_smoke
+          cargo build --locked --manifest-path src-tauri/Cargo.toml --bin malayalam_smoke
+          $smoke = Join-Path $env:CARGO_TARGET_DIR 'debug\malayalam_smoke.exe'
+          if (-not (Test-Path $smoke)) { throw 'Malayalam smoke executable was not produced' }
+          Copy-Item -LiteralPath $env:ORT_DYLIB_PATH -Destination (Join-Path (Split-Path $smoke) 'onnxruntime.dll') -Force
+          & $smoke
+          if ($LASTEXITCODE -ne 0) { throw "Malayalam smoke executable failed: $LASTEXITCODE" }
       - name: Build Windows beta package
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
