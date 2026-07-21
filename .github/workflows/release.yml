@@ -31,7 +31,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.pull_request.merge_commit_sha || github.event.pull_request.head.sha || inputs.ref || github.sha }}
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.ref || github.sha }}
       - id: version
         run: |
           set -euo pipefail
@@ -61,7 +61,7 @@ jobs:
             bundles: nsis
             artifact: windows-x64
           - name: Linux x64
-            os: ubuntu-22.04
+            os: ubuntu-24.04
             target: x86_64-unknown-linux-gnu
             ort: linux-x64
             runtime: libonnxruntime.so
@@ -77,7 +77,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.pull_request.merge_commit_sha || github.event.pull_request.head.sha || inputs.ref || github.sha }}
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.ref || github.sha }}
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.3.9
@@ -98,7 +98,7 @@ jobs:
         run: |
           sudo add-apt-repository --yes universe
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libasound2-dev libssl-dev libopenblas-dev libx11-dev libxtst-dev libxrandr-dev libgtk-layer-shell0 libgtk-layer-shell-dev libvulkan-dev shaderc spirv-tools fuse libfuse2 xvfb
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libasound2-dev libssl-dev libopenblas-dev libx11-dev libxtst-dev libxrandr-dev libgtk-layer-shell0 libgtk-layer-shell-dev libvulkan-dev glslc spirv-tools fuse libfuse2 xvfb
           command -v glslc
       - run: bun install --frozen-lockfile
       - uses: ./.github/actions/setup-ort-runtime
@@ -139,7 +139,9 @@ jobs:
           & $installer.FullName /S "/D=$install"
           if ($LASTEXITCODE -ne 0) { throw 'NSIS install failed' }
           $app = Get-ChildItem -Path $install -Recurse -Filter thegai.exe | Select-Object -First 1
-          $dumpbin = Get-ChildItem -Path "${env:ProgramFiles(x86)}\Microsoft Visual Studio" -Filter dumpbin.exe -Recurse | Select-Object -First 1
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
+          $dumpbinPath = if (Test-Path $vswhere) { & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -find 'VC\Tools\MSVC\**\bin\Hostx64\x64\dumpbin.exe' | Select-Object -First 1 }
+          $dumpbin = if ($dumpbinPath) { Get-Item $dumpbinPath } else { Get-ChildItem -Path @($env:ProgramFiles, ${env:ProgramFiles(x86)}) -Filter dumpbin.exe -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1 }
           if (-not $app -or -not $dumpbin) { throw 'Installed executable or dumpbin is missing' }
           & $dumpbin.FullName /DEPENDENTS $app.FullName
           $env:ORT_DYLIB_PATH = $null
@@ -231,7 +233,7 @@ jobs:
           node <<'NODE'
           const fs = require('fs'), path = require('path');
           const files = fs.readdirSync('release-assets');
-          const entry = (pattern, platform) => { const asset = files.find((name) => pattern.test(name)); const sig = asset && `${asset}.sig`; if (!asset || !files.includes(sig)) throw new Error(`Missing signed ${platform} updater artifact`); return [platform, { signature: fs.readFileSync(path.join('release-assets', sig), 'utf8').trim(), url: `https://github.com/RealNickey/MASR/releases/download/v${process.env.VERSION}/${encodeURIComponent(asset)}` }]; };
+          const entry = (pattern, platform) => { const asset = files.find((name) => pattern.test(name)); const sig = asset && `${asset}.sig`; if (!asset || !files.includes(sig)) throw new Error(`Missing signed ${platform} updater artifact`); return [platform, { signature: fs.readFileSync(path.join('release-assets', sig), 'utf8').trim(), url: `https://github.com/RealNickey/runtime-depot/releases/download/v${process.env.VERSION}/${encodeURIComponent(asset)}` }]; };
           const platforms = Object.fromEntries([entry(/-setup\.exe$/i, 'windows-x86_64'), entry(/AppImage.*\.tar\.gz$/i, 'linux-x86_64'), entry(/\.app\.tar\.gz$/i, 'darwin-aarch64')]);
           fs.writeFileSync('release-assets/latest.json', JSON.stringify({ version: process.env.VERSION, notes: `MASR ${process.env.VERSION}`, pub_date: new Date().toISOString(), platforms }, null, 2) + '\n');
           NODE
