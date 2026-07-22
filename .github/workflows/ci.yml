@@ -123,8 +123,8 @@ jobs:
         run: |
           $installer = Get-ChildItem -Path $env:CARGO_TARGET_DIR -Recurse -Filter '*-setup.exe' | Select-Object -First 1
           $install = Join-Path $env:RUNNER_TEMP 'masr-installed'
-          & $installer.FullName /S "/D=$install"
-          if ($LASTEXITCODE -ne 0) { throw "NSIS install failed: $LASTEXITCODE" }
+          $installerProcess = Start-Process -FilePath $installer.FullName -ArgumentList @('/S', "/D=$install") -Wait -PassThru
+          if ($installerProcess.ExitCode -ne 0) { throw "NSIS install failed: $($installerProcess.ExitCode)" }
           $app = Get-ChildItem -Path $install -Recurse -Filter 'thegai.exe' | Select-Object -First 1
           if (-not $app) { throw 'NSIS payload does not contain thegai.exe' }
           $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'

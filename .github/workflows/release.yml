@@ -136,8 +136,8 @@ jobs:
           $signature = Get-ChildItem -Path $env:CARGO_TARGET_DIR -Recurse -Filter '*-setup.exe.sig' | Select-Object -First 1
           if (-not $installer -or -not $signature) { throw 'Signed NSIS updater artifact is missing' }
           $install = Join-Path $env:RUNNER_TEMP 'installed'
-          & $installer.FullName /S "/D=$install"
-          if ($LASTEXITCODE -ne 0) { throw 'NSIS install failed' }
+          $installerProcess = Start-Process -FilePath $installer.FullName -ArgumentList @('/S', "/D=$install") -Wait -PassThru
+          if ($installerProcess.ExitCode -ne 0) { throw "NSIS install failed: $($installerProcess.ExitCode)" }
           $app = Get-ChildItem -Path $install -Recurse -Filter thegai.exe | Select-Object -First 1
           $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
           $dumpbinPath = if (Test-Path $vswhere) { & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -find 'VC\Tools\MSVC\**\bin\Hostx64\x64\dumpbin.exe' | Select-Object -First 1 }
