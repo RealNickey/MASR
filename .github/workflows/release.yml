@@ -1,18 +1,12 @@
-name: Promote MASR release
+name: Publish MASR release from main
 
 on:
-  pull_request:
+  push:
     branches: [main]
-    types: [opened, reopened, synchronize, closed]
   workflow_dispatch:
-    inputs:
-      ref:
-        description: Reviewed SHA or ref to package (never publishes)
-        required: true
-        default: dev
 
 concurrency:
-  group: masr-promotion-${{ github.event.pull_request.number || inputs.ref || github.ref }}
+  group: masr-release-${{ github.ref }}
   cancel-in-progress: false
 
 permissions:
@@ -23,15 +17,14 @@ jobs:
     name: Validate release version
     if: >-
       github.repository == 'RealNickey/MASR' &&
-      ((github.event_name == 'pull_request' && github.event.pull_request.head.ref == 'dev') ||
-      github.event_name == 'workflow_dispatch')
+      github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.version.outputs.value }}
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.ref || github.sha }}
+          ref: ${{ github.sha }}
           persist-credentials: false
       - id: version
         run: |
@@ -45,8 +38,7 @@ jobs:
     name: ${{ matrix.name }} package and payload smoke
     if: >-
       github.repository == 'RealNickey/MASR' &&
-      ((github.event_name == 'pull_request' && github.event.pull_request.head.ref == 'dev') ||
-      github.event_name == 'workflow_dispatch')
+      github.ref == 'refs/heads/main'
     needs: metadata
     runs-on: ${{ matrix.os }}
     timeout-minutes: 90
@@ -78,7 +70,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.ref || github.sha }}
+          ref: ${{ github.sha }}
           persist-credentials: false
       - uses: oven-sh/setup-bun@v2
         with:
@@ -206,9 +198,7 @@ jobs:
     name: Publish verified three-platform release
     needs: [metadata, package]
     if: >-
-      needs.package.result == 'success' && github.event_name == 'pull_request' &&
-      github.event.action == 'closed' && github.event.pull_request.merged == true &&
-      github.event.pull_request.head.ref == 'dev'
+      needs.package.result == 'success' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -224,6 +214,16 @@ jobs:
         run: |
           set -euo pipefail
           for secret in RUNTIME_DEPOT_TOKEN TAURI_SIGNING_PRIVATE_KEY; do test -n "${!secret}"; done
+      - name: Require a new runtime-depot release version
+        env:
+          GH_TOKEN: ${{ secrets.RUNTIME_DEPOT_TOKEN }}
+          VERSION: ${{ needs.metadata.outputs.version }}
+        run: |
+          set -euo pipefail
+          if gh release view "v$VERSION" --repo RealNickey/runtime-depot >/dev/null 2>&1; then
+            echo "v$VERSION is already published; bump the patch version before releasing main again." >&2
+            exit 1
+          fi
       - name: Create platform-aware updater manifest
         env:
           VERSION: ${{ needs.metadata.outputs.version }}
