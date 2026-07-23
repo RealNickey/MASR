@@ -45,7 +45,7 @@ jobs:
       - name: Shorten Cargo target directory
         shell: pwsh
         run: |
-          $target = Join-Path $env:GITHUB_WORKSPACE '.ci\cargo-target'
+          $target = Join-Path $env:RUNNER_TEMP 't'
           "CARGO_TARGET_DIR=$target" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
       - name: Install Vulkan SDK for Whisper
         uses: humbletim/install-vulkan-sdk@v1.2
@@ -57,21 +57,46 @@ jobs:
         with:
           target: windows-x64
       - uses: ./.github/actions/setup-malayalam-model
-      - name: Rust tests
-        working-directory: src-tauri
+      - name: Compile Rust test suite and inspect loader
         env:
           ORT_DYLIB_PATH: ${{ env.MASR_ORT_LIB_DIR }}\onnxruntime.dll
         run: |
           $env:PATH = "$env:MASR_ORT_LIB_DIR;$env:PATH"
-          cargo test --locked
+          cargo test --locked --manifest-path src-tauri/Cargo.toml --no-run
+          # Windows loads the executable directory before System32 and PATH.
+          # Replace any crate-selected DLL beside the test with the exact
+          # staged runtime used by the package, preventing an older system DLL
+          # from winning the loader search.
+          Get-ChildItem -Path "$env:CARGO_TARGET_DIR\debug" -Filter onnxruntime.dll -Recurse | Remove-Item -Force
+          $test = Get-ChildItem -Path "$env:CARGO_TARGET_DIR\debug\deps" -Filter 'thegai_app_lib-*.exe' | Select-Object -First 1
+          if (-not $test) { throw 'Unable to locate the compiled Rust test executable' }
+          Copy-Item -LiteralPath $env:ORT_DYLIB_PATH -Destination (Join-Path $test.DirectoryName 'onnxruntime.dll') -Force
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
+          $dumpbinPath = if (Test-Path $vswhere) { & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -find 'VC\Tools\MSVC\**\bin\Hostx64\x64\dumpbin.exe' | Select-Object -First 1 }
+          $dumpbin = if ($dumpbinPath) { Get-Item $dumpbinPath } else { Get-ChildItem -Path @($env:ProgramFiles, ${env:ProgramFiles(x86)}) -Filter dumpbin.exe -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1 }
+          if (-not $dumpbin) { throw 'Visual Studio dumpbin.exe is unavailable on the Windows runner' }
+          Write-Host "Test binary: $($test.FullName)"
+          & $dumpbin.FullName /DEPENDENTS $test.FullName
+          Write-Host "ORT runtime: $env:ORT_DYLIB_PATH"
+          Get-Item $env:ORT_DYLIB_PATH | Format-List FullName,Length,VersionInfo
+          Write-Host "Resolved loader PATH: $env:PATH"
+          where.exe onnxruntime.dll
       - name: Malayalam CPU smoke test
         env:
           ORT_DYLIB_PATH: ${{ env.MASR_ORT_LIB_DIR }}\onnxruntime.dll
         run: |
           $env:PATH = "$env:MASR_ORT_LIB_DIR;$env:PATH"
-          cargo run --locked --manifest-path src-tauri/Cargo.toml --bin malayalam_smoke
+          Get-ChildItem -Path "$env:CARGO_TARGET_DIR\debug" -Filter onnxruntime.dll -Recurse | Remove-Item -Force
+          cargo build --locked --manifest-path src-tauri/Cargo.toml --bin malayalam_smoke
+          $smoke = Join-Path $env:CARGO_TARGET_DIR 'debug\malayalam_smoke.exe'
+          if (-not (Test-Path $smoke)) { throw 'Malayalam smoke executable was not produced' }
+          Copy-Item -LiteralPath $env:ORT_DYLIB_PATH -Destination (Join-Path (Split-Path $smoke) 'onnxruntime.dll') -Force
+          & $smoke
+          if ($LASTEXITCODE -ne 0) { throw "Malayalam smoke executable failed: $LASTEXITCODE" }
       - name: Build Windows beta package
         env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
           GGML_NATIVE: "OFF"
           GGML_AVX: "OFF"
           GGML_AVX2: "OFF"
@@ -86,11 +111,38 @@ jobs:
           if (-not (& 7z l $installer.FullName | Select-String -Quiet 'onnxruntime.dll')) { throw 'onnxruntime.dll is missing from the Windows package' }
           $app = Get-ChildItem -Path $env:CARGO_TARGET_DIR -Recurse -Filter 'thegai.exe' | Select-Object -First 1
           if (-not $app) { throw 'Packaged application executable was not produced' }
-          $dumpbin = Get-ChildItem -Path "${env:ProgramFiles(x86)}\Microsoft Visual Studio" -Filter dumpbin.exe -Recurse | Select-Object -First 1
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
+          $dumpbinPath = if (Test-Path $vswhere) { & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -find 'VC\Tools\MSVC\**\bin\Hostx64\x64\dumpbin.exe' | Select-Object -First 1 }
+          $dumpbin = if ($dumpbinPath) { Get-Item $dumpbinPath } else { Get-ChildItem -Path @($env:ProgramFiles, ${env:ProgramFiles(x86)}) -Filter dumpbin.exe -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1 }
           if (-not $dumpbin) { throw 'Visual Studio dumpbin.exe is unavailable on the Windows runner' }
           $runtime = Get-ChildItem -Path $env:CARGO_TARGET_DIR -Recurse -Filter 'onnxruntime.dll' | Select-Object -First 1
           if (-not $runtime) { throw 'Packaged ONNX Runtime DLL was not materialized' }
           if (-not (& $dumpbin.FullName /DEPENDENTS $runtime.FullName | Select-String -Quiet 'VCRUNTIME|api-ms-win|KERNEL32')) { throw 'ONNX Runtime DLL has no inspectable Windows loader dependencies' }
+      - name: Install and smoke the NSIS payload without development loader paths
+        shell: pwsh
+        run: |
+          $installer = Get-ChildItem -Path $env:CARGO_TARGET_DIR -Recurse -Filter '*-setup.exe' | Select-Object -First 1
+          $install = Join-Path $env:RUNNER_TEMP 'masr-installed'
+          $installerProcess = Start-Process -FilePath $installer.FullName -ArgumentList @('/S', "/D=$install") -Wait -PassThru
+          if ($installerProcess.ExitCode -ne 0) { throw "NSIS install failed: $($installerProcess.ExitCode)" }
+          $app = Get-ChildItem -Path $install -Recurse -Filter 'thegai.exe' | Select-Object -First 1
+          if (-not $app) { throw 'NSIS payload does not contain thegai.exe' }
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
+          $dumpbinPath = if (Test-Path $vswhere) { & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -find 'VC\Tools\MSVC\**\bin\Hostx64\x64\dumpbin.exe' | Select-Object -First 1 }
+          $dumpbin = if ($dumpbinPath) { Get-Item $dumpbinPath } else { Get-ChildItem -Path @($env:ProgramFiles, ${env:ProgramFiles(x86)}) -Filter dumpbin.exe -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1 }
+          & $dumpbin.FullName /DEPENDENTS $app.FullName
+          $savedPath, $savedOrt = $env:PATH, $env:ORT_DYLIB_PATH
+          try {
+            $env:ORT_DYLIB_PATH = $null
+            $env:PATH = (($env:PATH -split ';' | Where-Object { $_ -ne $env:MASR_ORT_LIB_DIR }) -join ';')
+            $process = Start-Process -FilePath $app.FullName -ArgumentList '--start-hidden', '--no-tray' -PassThru
+            Start-Sleep -Seconds 8
+            if ($process.HasExited) { throw "Installed app exited early: $($process.ExitCode)" }
+            Stop-Process -Id $process.Id -Force
+          } finally {
+            $env:PATH = $savedPath
+            $env:ORT_DYLIB_PATH = $savedOrt
+          }
 
   portable-malayalam-smoke:
     name: ${{ matrix.name }} (reported, not beta-blocking)
@@ -102,7 +154,7 @@ jobs:
       matrix:
         include:
           - name: Linux x64
-            os: ubuntu-22.04
+            os: ubuntu-24.04
             target: x86_64-unknown-linux-gnu
             ort: linux-x64
             ort_dylib: libonnxruntime.so
@@ -127,8 +179,11 @@ jobs:
       - name: Install Linux build dependencies
         if: runner.os == 'Linux'
         run: |
+          sudo add-apt-repository --yes universe
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libasound2-dev libssl-dev libopenblas-dev libx11-dev libxtst-dev libxrandr-dev libgtk-layer-shell0 libgtk-layer-shell-dev fuse libfuse2
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libasound2-dev libssl-dev libopenblas-dev libx11-dev libxtst-dev libxrandr-dev libgtk-layer-shell0 libgtk-layer-shell-dev libvulkan-dev glslc spirv-tools fuse libfuse2 xvfb
+          command -v glslc
+          command -v spirv-as
       - run: bun install --frozen-lockfile
       - uses: ./.github/actions/setup-ort-runtime
         with:
@@ -149,6 +204,8 @@ jobs:
         run: cargo run --locked --manifest-path src-tauri/Cargo.toml --target ${{ matrix.target }} --bin malayalam_smoke
       - name: Build package
         env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
           GGML_NATIVE: "OFF"
           GGML_AVX: "OFF"
           GGML_AVX2: "OFF"
@@ -163,12 +220,19 @@ jobs:
           deb="$(find "$CARGO_TARGET_DIR" -name '*.deb' -print -quit)"
           appimage="$(find "$CARGO_TARGET_DIR" -name '*.AppImage' -print -quit)"
           test -n "$deb" && test -n "$appimage"
-          dpkg-deb -c "$deb" | grep -q 'libonnxruntime.so'
           package_root="$RUNNER_TEMP/deb-root"
           dpkg-deb -x "$deb" "$package_root"
           runtime="$(find "$package_root" -name 'libonnxruntime.so*' -type f -print -quit)"
           test -n "$runtime"
           ldd "$runtime" | grep -q 'libc\.so'
+          app="$(find "$package_root" -type f -name thegai -perm -111 -print -quit)"
+          test -n "$app"
+          ldd "$app"
+          set +e
+          timeout 15s xvfb-run -a env -u LD_LIBRARY_PATH -u ORT_DYLIB_PATH "$app" --start-hidden --no-tray
+          status=$?
+          set -e
+          test "$status" -eq 0 -o "$status" -eq 124
           chmod +x "$appimage"
           appimage_extract="$RUNNER_TEMP/appimage-extract"
           mkdir -p "$appimage_extract"
@@ -179,6 +243,9 @@ jobs:
           appimage_runtime="$(find "$appimage_root" -name 'libonnxruntime.so*' -type f -print -quit)"
           test -n "$appimage_runtime"
           ldd "$appimage_runtime" | grep -q 'libc\.so'
+          appimage_app="$(find "$appimage_root" -type f -name thegai -perm -111 -print -quit)"
+          test -n "$appimage_app"
+          ldd "$appimage_app"
       - name: Inspect macOS framework and linkage
         if: runner.os == 'macOS'
         shell: bash
@@ -188,6 +255,26 @@ jobs:
           test -n "$app"
           test -f "$app/Contents/Frameworks/libonnxruntime.1.24.2.dylib"
           otool -L "$app/Contents/Frameworks/libonnxruntime.1.24.2.dylib" | grep -q '/usr/lib/libSystem.B.dylib'
+          executable="$app/Contents/MacOS/thegai"
+          test -x "$executable"
+          otool -L "$executable"
+          set +e
+          python3 - "$executable" <<'PY'
+          import os, subprocess, sys
+          environment = os.environ.copy()
+          environment.pop("DYLD_LIBRARY_PATH", None)
+          environment.pop("ORT_DYLIB_PATH", None)
+          process = subprocess.Popen([sys.argv[1], "--start-hidden", "--no-tray"], env=environment)
+          try:
+              sys.exit(process.wait(timeout=15))
+          except subprocess.TimeoutExpired:
+              process.terminate()
+              process.wait(timeout=5)
+              sys.exit(124)
+          PY
+          status=$?
+          set -e
+          test "$status" -eq 0 -o "$status" -eq 124
 
   promotion-policy:
     name: dev to main promotion policy

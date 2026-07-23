@@ -36,7 +36,11 @@ runs:
           mkdir -p "$(dirname "$archive")"
           curl --fail --location --retry 3 --output "$archive" 'https://github.com/RealNickey/runtime-depot/releases/download/v1.0.0/thegav1.tar.gz'
         fi
-        echo "$expected  $archive" | sha256sum --check --status
+        if command -v sha256sum >/dev/null; then
+          echo "$expected  $archive" | sha256sum --check --status
+        else
+          test "$(shasum -a 256 "$archive" | awk '{print $1}')" = "$expected"
+        fi
         tar -xzf "$archive" -C "$RUNNER_TEMP"
         model="$(find "$RUNNER_TEMP" -name model.onnx -type f -print -quit)"
         test -n "$model"

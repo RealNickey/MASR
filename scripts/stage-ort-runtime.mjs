@@ -16,6 +16,9 @@ if (!libDir || !target) {
 const configPath = "src-tauri/tauri.conf.json";
 const config = JSON.parse(await readFile(configPath, "utf8"));
 const stagedDir = join(".ci", "ort-runtime", target);
+// Tauri resolves bundle file paths relative to src-tauri/tauri.conf.json,
+// whereas this script stages CI inputs at the repository root.
+const bundleSourceDir = join("..", stagedDir).replaceAll("\\", "/");
 await mkdir(stagedDir, { recursive: true });
 const resourceDir = "src-tauri";
 await mkdir(resourceDir, { recursive: true });
@@ -48,7 +51,7 @@ if (target === "windows-x64") {
   config.bundle.linux.deb.files ??= {};
   config.bundle.linux.appimage.files ??= {};
   for (const file of runtimeFiles) {
-    const source = join(stagedDir, file).replaceAll("\\", "/");
+    const source = `${bundleSourceDir}/${file}`;
     config.bundle.linux.deb.files[`/usr/lib/${file}`] = source;
     config.bundle.linux.appimage.files[`usr/lib/${file}`] = source;
   }
@@ -57,9 +60,7 @@ if (target === "windows-x64") {
   const dylib =
     runtimeFiles.find((file) => /\.1\.24\.2\.dylib$/.test(file)) ??
     runtimeFiles[0];
-  config.bundle.macOS.frameworks = [
-    join(stagedDir, dylib).replaceAll("\\", "/"),
-  ];
+  config.bundle.macOS.frameworks = [`${bundleSourceDir}/${dylib}`];
 } else {
   throw new Error(`Unsupported MASR_ORT_TARGET: ${target}`);
 }

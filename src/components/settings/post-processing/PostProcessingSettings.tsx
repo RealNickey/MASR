@@ -50,10 +50,7 @@ const PostProcessingSettingsApiComponent: React.FC = () => {
     } catch (e: any) {
       setTestResult({
         status: "error",
-        message:
-          e?.message ||
-          String(e) ||
-          "Connection failed",
+        message: e?.message || String(e) || "Connection failed",
       });
     } finally {
       setIsTesting(false);
@@ -126,7 +123,9 @@ const PostProcessingSettingsApiComponent: React.FC = () => {
       {state.isAppleProvider ? (
         state.appleIntelligenceUnavailable ? (
           <Alert variant="error" contained>
-            {"Apple Intelligence is not available on this device. Requires an Apple Silicon Mac running macOS Tahoe (26.0) or later with Apple Intelligence enabled in System Settings."}
+            {
+              "Apple Intelligence is not available on this device. Requires an Apple Silicon Mac running macOS Tahoe (26.0) or later with Apple Intelligence enabled in System Settings."
+            }
           </Alert>
         ) : null
       ) : (
@@ -134,7 +133,9 @@ const PostProcessingSettingsApiComponent: React.FC = () => {
           {state.selectedProvider?.allow_base_url_edit && (
             <SettingContainer
               title={"Base URL"}
-              description={"API base URL for the selected provider. Only custom and Ollama providers can be edited."}
+              description={
+                "API base URL for the selected provider. Only custom and Ollama providers can be edited."
+              }
               descriptionMode="tooltip"
               layout="horizontal"
               grouped={true}
@@ -154,7 +155,9 @@ const PostProcessingSettingsApiComponent: React.FC = () => {
           {state.isOllamaProvider && (
             <SettingContainer
               title={"Ollama Status"}
-              description={"Connection status and model count for your local Ollama instance."}
+              description={
+                "Connection status and model count for your local Ollama instance."
+              }
               descriptionMode="tooltip"
               layout="horizontal"
               grouped={true}
@@ -163,8 +166,7 @@ const PostProcessingSettingsApiComponent: React.FC = () => {
                 <div className="flex items-center gap-2">
                   <div className="flex items-center gap-2 min-w-[320px]">
                     <span className="text-sm text-neutral-400">
-                      {"Connection"}
-                      :
+                      {"Connection"}:
                     </span>
                     {isCheckingOllama ? (
                       <span className="text-sm font-medium text-blue-400 animate-pulse">
@@ -197,7 +199,7 @@ const PostProcessingSettingsApiComponent: React.FC = () => {
                   <div className="mt-1">
                     {ollamaStatus.connected ? (
                       <Alert variant="success" contained>
-                        {`Successfully connected to Ollama! Found ${(ollamaStatus.modelCount)} available models.`}
+                        {`Successfully connected to Ollama! Found ${ollamaStatus.modelCount} available models.`}
                       </Alert>
                     ) : (
                       <Alert variant="error" contained>
@@ -418,9 +420,7 @@ const PostProcessingSettingsPromptsComponent: React.FC = () => {
             }))}
             onSelect={(value) => handlePromptSelect(value)}
             placeholder={
-              prompts.length === 0
-                ? "No prompts available"
-                : "Select a prompt"
+              prompts.length === 0 ? "No prompts available" : "Select a prompt"
             }
             disabled={
               isUpdating("post_process_selected_prompt_id") || isCreating
@@ -441,9 +441,7 @@ const PostProcessingSettingsPromptsComponent: React.FC = () => {
         {!isCreating && hasPrompts && selectedPrompt && (
           <div className="space-y-3">
             <div className="space-y-2 flex flex-col">
-              <label className="text-sm font-semibold">
-                {"Prompt Label"}
-              </label>
+              <label className="text-sm font-semibold">{"Prompt Label"}</label>
               <Input
                 type="text"
                 value={draftName}
@@ -463,7 +461,8 @@ const PostProcessingSettingsPromptsComponent: React.FC = () => {
                 placeholder="Write the instructions to run after transcription. Example: Improve grammar and clarity for the following text: {{transcript}}"
               />
               <p className="text-xs text-mid-gray/70">
-                Use <code>{"{{transcript}}"}</code> in your prompt to insert the transcript.
+                Use <code>{"{{transcript}}"}</code> in your prompt to insert the
+                transcript.
               </p>
             </div>
 
@@ -523,7 +522,8 @@ const PostProcessingSettingsPromptsComponent: React.FC = () => {
                 placeholder="Write the instructions to run after transcription. Example: Improve grammar and clarity for the following text: {{transcript}}"
               />
               <p className="text-xs text-mid-gray/70">
-                Use <code>{"{{transcript}}"}</code> in your prompt to insert the transcript.
+                Use <code>{"{{transcript}}"}</code> in your prompt to insert the
+                transcript.
               </p>
             </div>
 
@@ -562,7 +562,6 @@ export const PostProcessingSettingsPrompts = React.memo(
 PostProcessingSettingsPrompts.displayName = "PostProcessingSettingsPrompts";
 
 export const PostProcessingSettings: React.FC = () => {
-
   return (
     <div className="max-w-3xl w-full mx-auto space-y-6">
       <SettingsGroup title={"API (OpenAI Compatible)"}>

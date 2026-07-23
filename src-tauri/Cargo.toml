@@ -1,6 +1,6 @@
 [package]
 name = "thegai"
-version = "0.0.2"
+version = "0.0.3"
 description = "ThegAi"
 authors = ["Aswin Jimson"]
 edition = "2021"

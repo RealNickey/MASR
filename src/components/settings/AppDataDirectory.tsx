@@ -59,7 +59,7 @@ export const AppDataDirectory: React.FC<AppDataDirectoryProps> = ({
     return (
       <div className="p-4 bg-red-50 border border-red-200 rounded-lg">
         <p className="text-red-600 text-sm">
-          {`Error loading directory: ${(error)}`}
+          {`Error loading directory: ${error}`}
         </p>
       </div>
     );

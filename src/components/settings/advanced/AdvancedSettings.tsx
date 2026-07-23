@@ -33,10 +33,7 @@ export const AdvancedSettings: React.FC<AdvancedSettingsProps> = ({
 
   return (
     <div className="max-w-3xl w-full mx-auto space-y-6">
-      <SettingsGroup
-        title={"App"}
-        className="relative z-50"
-      >
+      <SettingsGroup title={"App"} className="relative z-50">
         <StartHidden descriptionMode="tooltip" grouped={true} />
         <AutostartToggle descriptionMode="tooltip" grouped={true} />
         <ShowTrayIcon descriptionMode="tooltip" grouped={true} />
@@ -49,28 +46,19 @@ export const AdvancedSettings: React.FC<AdvancedSettingsProps> = ({
         )}
       </SettingsGroup>
 
-      <SettingsGroup
-        title={"Output"}
-        className="relative z-40"
-      >
+      <SettingsGroup title={"Output"} className="relative z-40">
         <PasteMethodSetting descriptionMode="tooltip" grouped={true} />
         <TypingToolSetting descriptionMode="tooltip" grouped={true} />
         <ClipboardHandlingSetting descriptionMode="tooltip" grouped={true} />
         <AutoSubmit descriptionMode="tooltip" grouped={true} />
       </SettingsGroup>
 
-      <SettingsGroup
-        title={"Transcription"}
-        className="relative z-30"
-      >
+      <SettingsGroup title={"Transcription"} className="relative z-30">
         <CustomWords descriptionMode="tooltip" grouped />
         <AppendTrailingSpace descriptionMode="tooltip" grouped={true} />
       </SettingsGroup>
 
-      <SettingsGroup
-        title={"History"}
-        className="relative z-20"
-      >
+      <SettingsGroup title={"History"} className="relative z-20">
         <HistoryLimit descriptionMode="tooltip" grouped={true} />
         <RecordingRetentionPeriodSelector
           descriptionMode="tooltip"
@@ -79,10 +67,7 @@ export const AdvancedSettings: React.FC<AdvancedSettingsProps> = ({
       </SettingsGroup>
 
       {experimentalEnabled && !isSimulatingOrRealProd && (
-        <SettingsGroup
-          title={"Experimental"}
-          className="relative z-10"
-        >
+        <SettingsGroup title={"Experimental"} className="relative z-10">
           <KeyboardImplementationSelector
             descriptionMode="tooltip"
             grouped={true}

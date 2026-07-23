@@ -420,11 +420,7 @@ const HistoryEntryComponent: React.FC<HistoryEntryProps> = ({
             onClick={onToggleSaved}
             disabled={retrying}
             active={entry.saved}
-            title={
-              entry.saved
-                ? "Remove from saved"
-                : "Save transcription"
-            }
+            title={entry.saved ? "Remove from saved" : "Save transcription"}
           >
             <Star
               width={16}

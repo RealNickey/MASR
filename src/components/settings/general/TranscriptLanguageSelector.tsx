@@ -34,7 +34,9 @@ export const TranscriptLanguageSelector: React.FC<TranscriptLanguageSelectorProp
     return (
       <SettingContainer
         title={"Transcript Language"}
-        description={"Select the language for basic transcription. Continuous meeting transcription will always use Malayalam."}
+        description={
+          "Select the language for basic transcription. Continuous meeting transcription will always use Malayalam."
+        }
         descriptionMode={descriptionMode}
         grouped={grouped}
       >
