@@ -22,9 +22,7 @@ export const AutoSubmit: React.FC<AutoSubmitProps> = React.memo(
       "enter") as AutoSubmitKey;
     const selectedValue: AutoSubmitOptionValue = enabled ? selectedKey : "off";
     const submitWithMetaLabel =
-      osType === "macos"
-        ? "Cmd+Enter"
-        : "Super+Enter";
+      osType === "macos" ? "Cmd+Enter" : "Super+Enter";
 
     const autoSubmitOptions = [
       {
@@ -62,7 +60,9 @@ export const AutoSubmit: React.FC<AutoSubmitProps> = React.memo(
     return (
       <SettingContainer
         title={"Auto Submit"}
-        description={"Automatically send the selected key combination after text insertion. Cmd+Enter applies on macOS, while Windows/Linux use Super+Enter."}
+        description={
+          "Automatically send the selected key combination after text insertion. Cmd+Enter applies on macOS, while Windows/Linux use Super+Enter."
+        }
         descriptionMode={descriptionMode}
         grouped={grouped}
       >

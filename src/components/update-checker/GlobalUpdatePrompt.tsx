@@ -517,7 +517,9 @@ export const GlobalUpdatePrompt: React.FC = () => {
               {"Installing update..."}
             </h2>
             <p className="text-sm text-text/60">
-              {startupError ? "Install failed. Please restart the app manually." : "Loading..."}
+              {startupError
+                ? "Install failed. Please restart the app manually."
+                : "Loading..."}
             </p>
           </div>
           {!startupError && (
@@ -565,7 +567,7 @@ export const GlobalUpdatePrompt: React.FC = () => {
                 {"Update Ready"}
               </h2>
               <p className="text-sm text-text/70">
-                {`${("ThegAi")} v${(activeUpdateRef.current.version)} is ready to install. You're on v${(activeUpdateRef.current.currentVersion)}.`}
+                {`${"ThegAi"} v${activeUpdateRef.current.version} is ready to install. You're on v${activeUpdateRef.current.currentVersion}.`}
               </p>
             </div>
           </div>

@@ -885,6 +885,7 @@ mod test_bindings {
                 commands::history::regenerate_history_entry_summary,
                 commands::history::update_history_limit,
                 commands::history::update_recording_retention_period,
+                commands::history::ask_meeting_question,
                 commands::google::connect_google_features,
                 commands::google::get_google_integration_status,
                 commands::google::disconnect_google_feature,

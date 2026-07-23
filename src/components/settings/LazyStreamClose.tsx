@@ -19,7 +19,9 @@ export const LazyStreamClose: React.FC<LazyStreamCloseProps> = React.memo(
         onChange={(enabled) => updateSetting("lazy_stream_close", enabled)}
         isUpdating={isUpdating("lazy_stream_close")}
         label={"Keep Mic Open Between Transcriptions"}
-        description={"Keeps the microphone stream open for 30 seconds after recording stops, reducing latency for back-to-back transcriptions. May degrade Bluetooth audio quality while active."}
+        description={
+          "Keeps the microphone stream open for 30 seconds after recording stops, reducing latency for back-to-back transcriptions. May degrade Bluetooth audio quality while active."
+        }
         descriptionMode={descriptionMode}
         grouped={grouped}
       />

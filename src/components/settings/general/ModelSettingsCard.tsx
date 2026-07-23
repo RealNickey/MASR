@@ -21,9 +21,7 @@ export const ModelSettingsCard: React.FC = () => {
   }
 
   return (
-    <SettingsGroup
-      title={`${(currentModelInfo.name)} Settings`}
-    >
+    <SettingsGroup title={`${currentModelInfo.name} Settings`}>
       {supportsLanguageSelection && (
         <LanguageSelector
           descriptionMode="tooltip"

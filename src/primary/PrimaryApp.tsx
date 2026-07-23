@@ -37,7 +37,6 @@ function PrimaryApp() {
   const hasInitialized = useRef(false);
   useMeetingSummaryFallbackToast();
 
-
   useEffect(() => {
     const unlisten = listen("meeting-summary", () => {
       setActiveTab("meetings");
@@ -138,9 +137,7 @@ function PrimaryApp() {
   };
 
   return (
-    <div
-      className="h-screen overflow-hidden bg-warm-bone text-charcoal"
-    >
+    <div className="h-screen overflow-hidden bg-warm-bone text-charcoal">
       <Toaster
         theme="system"
         toastOptions={{

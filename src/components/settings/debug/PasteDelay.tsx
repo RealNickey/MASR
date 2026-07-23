@@ -25,7 +25,9 @@ export const PasteDelay: React.FC<PasteDelayProps> = ({
       max={200}
       step={10}
       label={"Paste Delay"}
-      description={"Delay before sending paste keystroke (in milliseconds). Increase if wrong text is being pasted."}
+      description={
+        "Delay before sending paste keystroke (in milliseconds). Increase if wrong text is being pasted."
+      }
       descriptionMode={descriptionMode}
       grouped={grouped}
       formatValue={(v) => `${v}ms`}

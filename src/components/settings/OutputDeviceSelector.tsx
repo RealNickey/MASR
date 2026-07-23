@@ -45,7 +45,9 @@ export const OutputDeviceSelector: React.FC<OutputDeviceSelectorProps> =
       return (
         <SettingContainer
           title={"Output Device"}
-          description={"Select your preferred audio output device for feedback sounds"}
+          description={
+            "Select your preferred audio output device for feedback sounds"
+          }
           descriptionMode={descriptionMode}
           grouped={grouped}
           disabled={disabled}

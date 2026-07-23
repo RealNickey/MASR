@@ -90,7 +90,6 @@ function App() {
     checkOnboardingStatus();
   }, []);
 
-
   // Initialize Enigo, shortcuts, and refresh audio devices when main app loads
   useEffect(() => {
     if (onboardingStep === "done" && !hasCompletedPostOnboardingInit.current) {
@@ -143,12 +142,11 @@ function App() {
         toast.error("Microphone Access Denied", { description });
       } else if (error_type === "no_input_device") {
         toast.error("No Microphone Found", {
-          description: "No audio input device was detected. Please connect a microphone or headset and try again.",
+          description:
+            "No audio input device was detected. Please connect a microphone or headset and try again.",
         });
       } else {
-        toast.error(
-          `Failed to start recording: ${(detail ?? "Unknown error")}`,
-        );
+        toast.error(`Failed to start recording: ${detail ?? "Unknown error"}`);
       }
     });
     return () => {

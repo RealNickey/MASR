@@ -73,9 +73,7 @@ const Onboarding: React.FC<OnboardingProps> = ({
 
   const handleDownloadModel = async (modelId: string) => {
     if (isPreview) {
-      toast.success(
-        "Preview: Model selected successfully!",
-      );
+      toast.success("Preview: Model selected successfully!");
       onModelSelected();
       return;
     }
