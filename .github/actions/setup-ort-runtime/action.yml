@@ -7,6 +7,24 @@ inputs:
 runs:
   using: composite
   steps:
+    - name: Restore verified ONNX Runtime archive (Windows)
+      if: runner.os == 'Windows'
+      uses: actions/cache@v4
+      with:
+        path: ${{ runner.temp }}/onnxruntime-win-x64-1.24.2.zip
+        key: masr-ort-windows-x64-1.24.2-8e3e9c826375352e29cb2614fe44f3d7a4b0ff7b8028ad7a456af9d949a7e8b0
+    - name: Restore verified ONNX Runtime archive (Linux)
+      if: runner.os == 'Linux'
+      uses: actions/cache@v4
+      with:
+        path: ${{ runner.temp }}/onnxruntime-linux-x64-1.24.2.tgz
+        key: masr-ort-linux-x64-1.24.2-43725474ba5663642e17684717946693850e2005efbd724ac72da278fead25e6
+    - name: Restore verified ONNX Runtime archive (macOS)
+      if: runner.os == 'macOS'
+      uses: actions/cache@v4
+      with:
+        path: ${{ runner.temp }}/onnxruntime-osx-arm64-1.24.2.tgz
+        key: masr-ort-macos-arm64-1.24.2-0af4fa503e8ea285245b47ee42d0a7461b8156a81270857da0c1d4ecf858abde
     - name: Download and stage ONNX Runtime (Windows)
       if: runner.os == 'Windows'
       shell: pwsh
@@ -18,7 +36,9 @@ runs:
         $expected = '8e3e9c826375352e29cb2614fe44f3d7a4b0ff7b8028ad7a456af9d949a7e8b0'
         $archive = Join-Path $env:RUNNER_TEMP 'onnxruntime-win-x64-1.24.2.zip'
         $extract = Join-Path $env:RUNNER_TEMP 'onnxruntime-win-x64-1.24.2'
-        Invoke-WebRequest -Uri "https://github.com/microsoft/onnxruntime/releases/download/v$version/onnxruntime-win-x64-$version.zip" -OutFile $archive
+        if (-not (Test-Path $archive)) {
+          Invoke-WebRequest -Uri "https://github.com/microsoft/onnxruntime/releases/download/v$version/onnxruntime-win-x64-$version.zip" -OutFile $archive
+        }
         if ((Get-FileHash $archive -Algorithm SHA256).Hash.ToLowerInvariant() -ne $expected) { throw 'ONNX Runtime checksum mismatch' }
         Expand-Archive -Path $archive -DestinationPath $extract -Force
         $lib = Join-Path $extract "onnxruntime-win-x64-$version\lib"
@@ -48,7 +68,9 @@ runs:
         version='1.24.2'
         archive="$RUNNER_TEMP/onnxruntime-$platform-$version.tgz"
         extract="$RUNNER_TEMP/onnxruntime-$platform-$version"
-        curl --fail --location --retry 3 --output "$archive" "https://github.com/microsoft/onnxruntime/releases/download/v$version/onnxruntime-$platform-$version.tgz"
+        if [ ! -f "$archive" ]; then
+          curl --fail --location --retry 3 --output "$archive" "https://github.com/microsoft/onnxruntime/releases/download/v$version/onnxruntime-$platform-$version.tgz"
+        fi
         if command -v sha256sum >/dev/null; then
           echo "$expected  $archive" | sha256sum --check --status
         else
