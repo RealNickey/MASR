@@ -90,9 +90,15 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
           key: cargo-${{ runner.os }}-${{ hashFiles('src-tauri/Cargo.lock') }}
-      - name: Use one runner-local Cargo target directory
-        shell: bash
-        run: echo "CARGO_TARGET_DIR=$RUNNER_TEMP/cargo-target" >> "$GITHUB_ENV"
+      - name: Use a short Windows Cargo target directory
+        shell: pwsh
+        run: |
+          # whisper.cpp's generated Vulkan build tree is deeply nested. The
+          # Windows FileTracker cannot create its logs under the longer
+          # D:\a\_temp\cargo-target path, so keep that platform's target root
+          # short while retaining the descriptive directory elsewhere.
+          $leaf = if ($env:RUNNER_OS -eq 'Windows') { 't' } else { 'cargo-target' }
+          "CARGO_TARGET_DIR=$(Join-Path $env:RUNNER_TEMP $leaf)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
       - name: Install Windows Vulkan tooling
         if: runner.os == 'Windows'
         uses: humbletim/install-vulkan-sdk@v1.2
