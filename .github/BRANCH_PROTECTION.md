@@ -3,9 +3,12 @@
 Configure these repository settings before treating the beta pipeline as a
 release control:
 
-- `main`: require pull requests, require the `dev to main promotion policy` and
-  `Windows x64 beta gate` checks, require one approving review, dismiss stale
-  approvals, and disallow direct pushes (including administrators).
+- `main`: require pull requests, require `CI/CD validation`, the
+  `dev to main promotion policy` (for application changes), and `Windows x64
+beta gate`, require one approving review, dismiss stale approvals, and
+  disallow direct pushes (including administrators). For CI/CD-only changes,
+  `CI/CD validation` and the successful lightweight replacement execution of
+  `Windows x64 beta gate` are the required checks.
 - `dev`: require pull requests and the `Windows x64 beta gate` check; allow the
   Linux/macOS smoke job to report independently while it remains
   non-blocking for the Windows beta.
