@@ -95,10 +95,15 @@ jobs:
         run: |
           # whisper.cpp's generated Vulkan build tree is deeply nested. The
           # Windows FileTracker cannot create its logs once whisper.cpp's
-          # generated Vulkan tree extends a runner-temp path. Use D:\t on the
-          # hosted Windows runner, while retaining the descriptive directory
-          # elsewhere.
-          $target = if ($env:RUNNER_OS -eq 'Windows') { 'D:\t' } else { Join-Path $env:RUNNER_TEMP 'cargo-target' }
+          # generated Vulkan tree extends a runner-temp path. Map its target
+          # through T: so the generated tree starts at T:\ on hosted runners.
+          if ($env:RUNNER_OS -eq 'Windows') {
+            New-Item -ItemType Directory -Path 'D:\t' -Force | Out-Null
+            subst T: D:\t
+            $target = 'T:\'
+          } else {
+            $target = Join-Path $env:RUNNER_TEMP 'cargo-target'
+          }
           "CARGO_TARGET_DIR=$target" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
       - name: Install Windows Vulkan tooling
         if: runner.os == 'Windows'
