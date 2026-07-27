@@ -211,7 +211,14 @@ jobs:
           mkdir -p release-assets
           find "$CARGO_TARGET_DIR" -type f \( -name '*.exe' -o -name '*.exe.sig' -o -name '*.deb' -o -name '*.deb.sig' -o -name '*.AppImage' -o -name '*.AppImage.sig' -o -name '*.dmg' -o -name '*.dmg.sig' -o -name '*.tar.gz' -o -name '*.tar.gz.sig' \) -exec cp {} release-assets/ \;
           test "$(find release-assets -type f | wc -l)" -gt 0
-          (cd release-assets && shasum -a 256 * > "SHA256SUMS-${{ matrix.artifact }}.txt")
+          (
+            cd release-assets
+            if command -v shasum >/dev/null 2>&1; then
+              shasum -a 256 * > "SHA256SUMS-${{ matrix.artifact }}.txt"
+            else
+              sha256sum * > "SHA256SUMS-${{ matrix.artifact }}.txt"
+            fi
+          )
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact }}-${{ needs.metadata.outputs.version }}
