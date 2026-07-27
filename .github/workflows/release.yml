@@ -140,6 +140,7 @@ jobs:
           GGML_AVX2: "OFF"
           GGML_FMA: "OFF"
           GGML_F16C: "OFF"
+          CMAKE_GENERATOR: Ninja
         shell: bash
         run: |
           export PATH="$MASR_ORT_LIB_DIR:$PATH"
