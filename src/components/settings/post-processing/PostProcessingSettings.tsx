@@ -105,8 +105,8 @@ const PostProcessingSettingsApiComponent: React.FC = () => {
   return (
     <>
       <SettingContainer
-        title={"Provider"}
-        description={"Select an OpenAI-compatible provider."}
+        title={"AI Provider"}
+        description={"Choose a cloud provider, a local Ollama instance, or a custom OpenAI-compatible endpoint."}
         descriptionMode="tooltip"
         layout="horizontal"
         grouped={true}
@@ -216,7 +216,7 @@ const PostProcessingSettingsApiComponent: React.FC = () => {
           {!state.isOllamaProvider && (
             <SettingContainer
               title={"API Key"}
-              description={"API key for the selected provider."}
+              description={"Leave this blank to use the app default. Keys you save are stored in your system credential vault on installed builds."}
               descriptionMode="tooltip"
               layout="horizontal"
               grouped={true}
@@ -232,7 +232,7 @@ const PostProcessingSettingsApiComponent: React.FC = () => {
                   />
                   <Button
                     onClick={handleTestApiKey}
-                    disabled={isTesting || !state.apiKey}
+                    disabled={isTesting}
                     variant="secondary"
                     size="md"
                   >
@@ -564,7 +564,7 @@ PostProcessingSettingsPrompts.displayName = "PostProcessingSettingsPrompts";
 export const PostProcessingSettings: React.FC = () => {
   return (
     <div className="max-w-3xl w-full mx-auto space-y-6">
-      <SettingsGroup title={"API (OpenAI Compatible)"}>
+      <SettingsGroup title={"AI Providers (BYOK)"}>
         <PostProcessingSettingsApi />
       </SettingsGroup>
 

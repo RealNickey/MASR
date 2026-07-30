@@ -75,11 +75,10 @@ export const SECTIONS_CONFIG = {
     isProdHidden: true,
   },
   postprocessing: {
-    label: "Post-processing",
+    label: "AI Providers",
     icon: Sparkles,
     component: PostProcessingSettings,
     enabled: () => true,
-    isProdHidden: true,
   },
   debug: {
     label: "Debug",

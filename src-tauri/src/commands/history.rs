@@ -275,11 +275,7 @@ pub async fn ask_meeting_question(
         ));
     }
 
-    let api_key = settings
-        .post_process_api_keys
-        .get(&provider.id)
-        .cloned()
-        .unwrap_or_default();
+    let api_key = crate::settings::resolved_post_process_api_key(&settings, &provider.id);
 
     let system_prompt = format!(
         "You are a helpful meeting assistant. Use the following meeting transcript as context to answer the user's question accurately. If the information is not in the transcript, say so.\n\nTRANSCRIPT:\n{}",
@@ -300,6 +296,7 @@ pub async fn ask_meeting_question(
     };
 
     match crate::llm_client::send_chat_completion_with_schema(
+        &app,
         &provider,
         api_key,
         &model,

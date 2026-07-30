@@ -844,14 +844,14 @@ pub fn change_post_process_base_url_setting(
         .post_process_provider_mut(&provider_id)
         .expect("Provider looked up above must exist");
 
-    if provider.id != "custom" {
+    if provider.id != "custom" && provider.id != "ollama" {
         return Err(format!(
             "Provider '{}' does not allow editing the base URL",
             label
         ));
     }
 
-    provider.base_url = base_url;
+    provider.base_url = settings::normalize_provider_base_url(&provider_id, &base_url)?;
     settings::write_settings(&app, settings);
     Ok(())
 }
@@ -880,7 +880,23 @@ pub fn change_post_process_api_key_setting(
 ) -> Result<(), String> {
     let mut settings = settings::get_settings(&app);
     validate_provider_exists(&settings, &provider_id)?;
-    settings.post_process_api_keys.insert(provider_id, api_key);
+    if api_key.trim().is_empty() {
+        let _ = crate::credentials::delete(&provider_id);
+        settings
+            .post_process_api_keys
+            .insert(provider_id, String::new());
+    } else if crate::portable::is_portable() {
+        settings.post_process_api_keys.insert(provider_id, api_key);
+    } else if let Err(error) = crate::credentials::set(&provider_id, &api_key) {
+        // Preserve the legacy value as a compatibility fallback if the host
+        // credential manager is unavailable.
+        log::warn!("{}; retaining the existing settings-file fallback", error);
+        settings.post_process_api_keys.insert(provider_id, api_key);
+    } else {
+        settings
+            .post_process_api_keys
+            .insert(provider_id, String::new());
+    }
     settings::write_settings(&app, settings);
     Ok(())
 }
@@ -1013,11 +1029,7 @@ pub async fn fetch_post_process_models(
     }
 
     // Get API key
-    let api_key = settings
-        .post_process_api_keys
-        .get(&provider_id)
-        .cloned()
-        .unwrap_or_default();
+    let api_key = settings::resolved_post_process_api_key(&settings, &provider_id);
 
     // Skip fetching if no API key for providers that typically need one
     if api_key.trim().is_empty() && provider.id != "custom" {

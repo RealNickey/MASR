@@ -80,6 +80,7 @@ sha2 = "0.10"
 base64 = "0.22"
 rand = "0.8"
 url = "2.5"
+keyring = { version = "4.1.5", default-features = false, features = ["v1"] }
 sysinfo = "0.33"
 opener = "0.7"
 transcribe-rs = { version = "0.3.8", features = ["whisper-cpp", "onnx"] }

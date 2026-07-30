@@ -4,6 +4,7 @@ import { relaunch } from "@tauri-apps/plugin-process";
 import { getVersion } from "@tauri-apps/api/app";
 import { emit, listen } from "@tauri-apps/api/event";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
+import { ask, message } from "@tauri-apps/plugin-dialog";
 import { commands } from "../../bindings";
 import { useSettingsStore } from "../../stores/settingsStore";
 
@@ -71,6 +72,7 @@ export const triggerManualUpdateCheck = async () => {
 let deferredInstallPromise: Promise<void> | null = null;
 let updateCheckingCycleStarted = false;
 let startupUpdateFlowPromise: Promise<void> | null = null;
+let updateChoiceDialogPromise: Promise<void> | null = null;
 
 export const GlobalUpdatePrompt: React.FC = () => {
   const [updateState, setUpdateState] =
@@ -491,7 +493,10 @@ export const GlobalUpdatePrompt: React.FC = () => {
           isChecking: false,
           error: fallbackErr?.message || String(fallbackErr),
         });
-        alert("Install failed. Please restart the app manually.");
+        await message("Install failed. Please restart the app manually.", {
+          title: "ThegAi update",
+          kind: "error",
+        });
       }
     }
   };
@@ -501,6 +506,46 @@ export const GlobalUpdatePrompt: React.FC = () => {
     localStorage.setItem("thegai_update_on_next_launch", "true");
     updateGlobalState({ showPrompt: false });
   };
+
+  // A native system dialog is modal to the invoking webview, keeping the
+  // update decision above ThegAi on Windows, macOS, and Linux. The module
+  // promise prevents duplicate dialogs when update state is broadcast.
+  useEffect(() => {
+    if (
+      !isPrimaryWindow ||
+      !updateState.showPrompt ||
+      !activeUpdateRef.current ||
+      updateChoiceDialogPromise
+    ) {
+      return;
+    }
+
+    updateChoiceDialogPromise = (async () => {
+      try {
+        await getCurrentWebviewWindow().setFocus();
+        const installNow = await ask(
+          `ThegAi v${activeUpdateRef.current?.version} is ready to install. You're on v${activeUpdateRef.current?.currentVersion}.`,
+          {
+            title: "Update ready",
+            kind: "info",
+            okLabel: "Update now",
+            cancelLabel: "Later",
+          },
+        );
+
+        if (installNow) {
+          await handleUpdateNow();
+        } else {
+          handleUpdateLater();
+        }
+      } catch (error) {
+        console.error("[Updater] Failed to show update dialog:", error);
+        updateGlobalState({ error: String(error) });
+      } finally {
+        updateChoiceDialogPromise = null;
+      }
+    })();
+  }, [isPrimaryWindow, updateState.showPrompt, updateState.updateVersion]);
 
   // 1. Startup Installation Overlay
   if (isStartupInstalling) {
@@ -527,65 +572,6 @@ export const GlobalUpdatePrompt: React.FC = () => {
               <div className="h-full bg-forest-green animate-infinite-scroll w-1/3 rounded-full animate-pulse" />
             </div>
           )}
-        </div>
-      </div>
-    );
-  }
-
-  // 2. Ready to Install Choice Modal (Only shown in 'primary' or 'main' windows)
-  const showPromptVisible =
-    isPrimaryWindow && updateState.showPrompt && activeUpdateRef.current;
-
-  console.log(
-    "[Updater] Render variables:",
-    JSON.stringify({
-      updateState,
-      hasActiveUpdate: !!activeUpdateRef.current,
-      currentLabel: currentWindowLabel,
-      showPromptVisible,
-    }),
-  );
-
-  if (!isPrimaryWindow) {
-    return null;
-  }
-
-  if (showPromptVisible && activeUpdateRef.current) {
-    return (
-      <div className="fixed inset-0 z-[999] flex items-center justify-center bg-black/50 backdrop-blur-xs p-4">
-        <div className="bg-warm-bone border border-mid-gray/20 rounded-2xl p-6 max-w-md w-full shadow-2xl space-y-6 text-charcoal">
-          <div className="flex items-start gap-4">
-            <div className="p-3 bg-forest-green/10 text-forest-green rounded-xl">
-              <img
-                src="/src/assets/logo.png"
-                alt="Logo"
-                className="h-8 w-8 object-contain"
-              />
-            </div>
-            <div className="space-y-1">
-              <h2 className="text-lg font-bold font-cooper tracking-wide text-charcoal">
-                {"Update Ready"}
-              </h2>
-              <p className="text-sm text-text/70">
-                {`${"ThegAi"} v${activeUpdateRef.current.version} is ready to install. You're on v${activeUpdateRef.current.currentVersion}.`}
-              </p>
-            </div>
-          </div>
-
-          <div className="flex gap-3 justify-end pt-2">
-            <button
-              onClick={handleUpdateLater}
-              className="px-4 py-2 text-sm font-semibold rounded-xl border border-mid-gray/30 hover:bg-mid-gray/10 transition-colors cursor-pointer text-charcoal"
-            >
-              {"Update on Next Launch"}
-            </button>
-            <button
-              onClick={handleUpdateNow}
-              className="px-4 py-2 text-sm font-semibold rounded-xl bg-forest-green text-orange-off-white hover:bg-forest-green/90 transition-colors shadow-sm cursor-pointer"
-            >
-              {"Update Now"}
-            </button>
-          </div>
         </div>
       </div>
     );
