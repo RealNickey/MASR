@@ -53,6 +53,8 @@ export interface MockState {
   downloadShouldFail: boolean;
   installShouldFail: boolean;
   relaunchCalled: boolean;
+  updateDialogResponse: boolean;
+  updateDialogAsked: boolean;
 }
 
 export async function setupMocks(
@@ -116,6 +118,8 @@ export async function setupMocks(
             downloadShouldFail: false,
             installShouldFail: false,
             relaunchCalled: false,
+            updateDialogResponse: false,
+            updateDialogAsked: false,
           };
 
       if (overrides) {
@@ -676,6 +680,14 @@ export async function setupMocks(
           }
 
           // Mock updater commands
+          if (cmd === "plugin:dialog|ask") {
+            state.updateDialogAsked = true;
+            saveState();
+            return state.updateDialogResponse;
+          }
+          if (cmd === "plugin:dialog|message") {
+            return "Ok";
+          }
           if (cmd === "plugin:updater|check") {
             if (state.updateAvailable) {
               return {

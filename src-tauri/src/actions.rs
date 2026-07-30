@@ -81,7 +81,11 @@ fn build_system_prompt(prompt_template: &str) -> String {
     prompt_template.replace("${output}", "").trim().to_string()
 }
 
-async fn post_process_transcription(settings: &AppSettings, transcription: &str) -> Option<String> {
+async fn post_process_transcription(
+    app: &AppHandle,
+    settings: &AppSettings,
+    transcription: &str,
+) -> Option<String> {
     let provider = match settings.active_post_process_provider().cloned() {
         Some(provider) => provider,
         None => {
@@ -137,11 +141,7 @@ async fn post_process_transcription(settings: &AppSettings, transcription: &str)
         provider.id, model
     );
 
-    let api_key = settings
-        .post_process_api_keys
-        .get(&provider.id)
-        .cloned()
-        .unwrap_or_default();
+    let api_key = crate::settings::resolved_post_process_api_key(settings, &provider.id);
 
     // Disable reasoning for providers where post-processing rarely benefits from it.
     // - custom: top-level reasoning_effort (works for local OpenAI-compat servers)
@@ -233,6 +233,7 @@ async fn post_process_transcription(settings: &AppSettings, transcription: &str)
         });
 
         match crate::llm_client::send_chat_completion_with_schema(
+            app,
             &provider,
             api_key.clone(),
             &model,
@@ -291,6 +292,7 @@ async fn post_process_transcription(settings: &AppSettings, transcription: &str)
     debug!("Processed prompt length: {} chars", processed_prompt.len());
 
     match crate::llm_client::send_chat_completion(
+        app,
         &provider,
         api_key,
         &model,
@@ -455,10 +457,18 @@ fn sanitize_error_msg(mut err: String, custom_keys: &[&str]) -> String {
 fn get_candidate_keys(settings: &AppSettings, provider_id: &str) -> Vec<String> {
     let mut keys = Vec::new();
 
-    if let Some(key) = settings.post_process_api_keys.get(provider_id) {
+    if let Some(key) = crate::credentials::get(provider_id) {
+        keys.push(key);
+    } else if let Some(key) = settings.post_process_api_keys.get(provider_id) {
         let key_trimmed = key.trim().to_string();
         if !key_trimmed.is_empty() {
             keys.push(key_trimmed);
+        }
+    }
+
+    if let Some(default_key) = crate::settings::default_api_key_for_provider(provider_id) {
+        if !keys.contains(&default_key) {
+            keys.push(default_key);
         }
     }
 
@@ -528,6 +538,7 @@ fn get_fallback_provider(settings: &AppSettings, provider_id: &str) -> PostProce
 }
 
 async fn attempt_chat_completion(
+    app: &AppHandle,
     provider: &PostProcessProvider,
     api_key: &str,
     model: &str,
@@ -574,6 +585,7 @@ async fn attempt_chat_completion(
         });
 
         match crate::llm_client::send_chat_completion_with_schema(
+            app,
             provider,
             api_key.to_string(),
             model,
@@ -606,6 +618,7 @@ async fn attempt_chat_completion(
 
     let processed_prompt = prompt.replace("${output}", text);
     match crate::llm_client::send_chat_completion(
+        app,
         provider,
         api_key.to_string(),
         model,
@@ -675,11 +688,8 @@ pub async fn run_specific_llm_prompt(
 
         if let Some(ref provider) = primary_provider {
             if !primary_model.trim().is_empty() {
-                let api_key = settings
-                    .post_process_api_keys
-                    .get(&provider.id)
-                    .cloned()
-                    .unwrap_or_default();
+                let api_key =
+                    crate::settings::resolved_post_process_api_key(settings, &provider.id);
 
                 // Try up to 2 times (initial + 1 retry)
                 for attempt in 1..=2 {
@@ -688,6 +698,7 @@ pub async fn run_specific_llm_prompt(
                         attempt, primary_model, provider.id
                     );
                     match attempt_chat_completion(
+                        app,
                         provider,
                         &api_key,
                         &primary_model,
@@ -755,6 +766,7 @@ pub async fn run_specific_llm_prompt(
                             key.len()
                         );
                         match attempt_chat_completion(
+                            app,
                             &provider,
                             key,
                             fallback.model_name,
@@ -832,7 +844,9 @@ pub async fn run_specific_llm_prompt(
             .cloned()
             .unwrap_or_default();
 
-        match attempt_chat_completion(&provider, &api_key, &model, prompt_id, &prompt, text).await {
+        match attempt_chat_completion(app, &provider, &api_key, &model, prompt_id, &prompt, text)
+            .await
+        {
             Ok(res) => result = Some(res),
             Err(_) => {}
         }
@@ -906,7 +920,8 @@ pub(crate) async fn process_transcription_output(
     }
 
     if post_process {
-        if let Some(processed_text) = post_process_transcription(&settings, &final_text).await {
+        if let Some(processed_text) = post_process_transcription(app, &settings, &final_text).await
+        {
             post_processed_text = Some(processed_text.clone());
             final_text = processed_text;
 
@@ -971,11 +986,7 @@ async fn run_manglish_transliteration(
     text: &str,
 ) -> Option<String> {
     let google_provider = settings.post_process_provider("google").cloned();
-    let google_key = settings
-        .post_process_api_keys
-        .get("google")
-        .cloned()
-        .unwrap_or_default();
+    let google_key = crate::settings::resolved_post_process_api_key(settings, "google");
 
     if let Some(provider) = google_provider {
         if !google_key.trim().is_empty() {
@@ -992,6 +1003,7 @@ async fn run_manglish_transliteration(
             let processed_prompt = prompt_text.replace("${output}", text);
             debug!("Running Manglish transliteration with Google/gemma-4-26b-a4b-it");
             match crate::llm_client::send_chat_completion(
+                app,
                 &provider,
                 google_key,
                 "gemma-4-26b-a4b-it",
@@ -1022,11 +1034,7 @@ async fn run_english_translation(
     text: &str,
 ) -> Option<String> {
     let google_provider = settings.post_process_provider("google").cloned();
-    let google_key = settings
-        .post_process_api_keys
-        .get("google")
-        .cloned()
-        .unwrap_or_default();
+    let google_key = crate::settings::resolved_post_process_api_key(settings, "google");
 
     if let Some(provider) = google_provider {
         if !google_key.trim().is_empty() {
@@ -1042,6 +1050,7 @@ async fn run_english_translation(
             let processed_prompt = prompt_text.replace("${output}", text);
             debug!("Running English translation with Google/gemma-4-26b-a4b-it");
             match crate::llm_client::send_chat_completion(
+                app,
                 &provider,
                 google_key,
                 "gemma-4-26b-a4b-it",
