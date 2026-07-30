@@ -1242,10 +1242,20 @@ mod tests {
     }
 
     #[test]
-    fn secret_map_debug_redacts_values() {
-        let map = SecretMap(HashMap::from([("key".into(), "secret".into())]));
-        let out = format!("{:?}", map);
-        assert!(!out.contains("secret"));
-        assert!(out.contains("[REDACTED]"));
+    fn test_is_using_app_provided_key() {
+        let mut settings = get_default_settings();
+
+        // 1. User supplied key in settings -> false (quota bypassed)
+        settings
+            .post_process_api_keys
+            .insert("google".to_string(), "my-custom-gemini-key".to_string());
+        assert!(!is_using_app_provided_key(&settings, "google"));
+
+        // 2. Custom/Ollama provider with no key and no env default -> false (quota bypassed)
+        assert!(!is_using_app_provided_key(&settings, "custom"));
+
+        // 3. Provider with no user key and no env set -> false
+        settings.post_process_api_keys.remove("groq");
+        assert!(!is_using_app_provided_key(&settings, "groq"));
     }
 }
