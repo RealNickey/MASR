@@ -6,7 +6,7 @@ use rusqlite_migration::{Migrations, M};
 use serde::{Deserialize, Serialize};
 use specta::Type;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use tauri::AppHandle;
 use tauri_specta::Event;
 
@@ -31,6 +31,7 @@ static MIGRATIONS: &[M] = &[
     M::up("ALTER TABLE transcription_history ADD COLUMN post_processed_text TEXT;"),
     M::up("ALTER TABLE transcription_history ADD COLUMN post_process_prompt TEXT;"),
     M::up("ALTER TABLE transcription_history ADD COLUMN post_process_requested BOOLEAN NOT NULL DEFAULT 0;"),
+    M::up("ALTER TABLE transcription_history ADD COLUMN audio_tracks TEXT;"),
 ];
 
 #[derive(Clone, Debug, Serialize, Deserialize, Type)]
@@ -63,6 +64,16 @@ pub struct HistoryEntry {
     pub post_processed_text: Option<String>,
     pub post_process_prompt: Option<String>,
     pub post_process_requested: bool,
+    /// Relative paths for the retained meeting sources. Normal recordings and
+    /// imported files deliberately keep this as `None` for backwards compatibility.
+    pub audio_tracks: Option<AudioTracks>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, Type, PartialEq, Eq)]
+pub struct AudioTracks {
+    pub mix: String,
+    pub microphone: String,
+    pub system: String,
 }
 
 pub struct HistoryManager {
@@ -83,6 +94,7 @@ impl HistoryManager {
             fs::create_dir_all(&recordings_dir)?;
             debug!("Created recordings directory: {:?}", recordings_dir);
         }
+        Self::cleanup_abandoned_staging_directories(&recordings_dir)?;
 
         let manager = Self {
             app_handle: app_handle.clone(),
@@ -94,6 +106,29 @@ impl HistoryManager {
         manager.init_database()?;
 
         Ok(manager)
+    }
+
+    /// A crash during capture leaves only a hidden staging directory. It was
+    /// never promoted or referenced by SQLite, so it is safe to remove at the
+    /// next startup without touching a completed meeting.
+    fn cleanup_abandoned_staging_directories(recordings_dir: &Path) -> Result<()> {
+        for entry in fs::read_dir(recordings_dir)? {
+            let entry = entry?;
+            let file_type = entry.file_type()?;
+            let name = entry.file_name();
+            if file_type.is_dir()
+                && name
+                    .to_str()
+                    .is_some_and(|name| name.starts_with(".staging-meeting-"))
+            {
+                debug!(
+                    "Removing abandoned meeting staging directory: {:?}",
+                    entry.path()
+                );
+                fs::remove_dir_all(entry.path())?;
+            }
+        }
+        Ok(())
     }
 
     fn init_database(&self) -> Result<()> {
@@ -197,6 +232,18 @@ impl HistoryManager {
     }
 
     fn map_history_entry(row: &rusqlite::Row<'_>) -> rusqlite::Result<HistoryEntry> {
+        let audio_tracks = row
+            .get::<_, Option<String>>("audio_tracks")?
+            .map(|json| {
+                serde_json::from_str(&json).map_err(|error| {
+                    rusqlite::Error::FromSqlConversionFailure(
+                        json.len(),
+                        rusqlite::types::Type::Text,
+                        Box::new(error),
+                    )
+                })
+            })
+            .transpose()?;
         Ok(HistoryEntry {
             id: row.get("id")?,
             file_name: row.get("file_name")?,
@@ -207,6 +254,7 @@ impl HistoryManager {
             post_processed_text: row.get("post_processed_text")?,
             post_process_prompt: row.get("post_process_prompt")?,
             post_process_requested: row.get("post_process_requested")?,
+            audio_tracks,
         })
     }
 
@@ -224,6 +272,28 @@ impl HistoryManager {
         post_processed_text: Option<String>,
         post_process_prompt: Option<String>,
     ) -> Result<HistoryEntry> {
+        self.save_entry_with_audio_tracks(
+            file_name,
+            transcription_text,
+            post_process_requested,
+            post_processed_text,
+            post_process_prompt,
+            None,
+        )
+    }
+
+    /// Save a history entry with optional retained source tracks. `file_name`
+    /// always points at the compatible mixdown used by existing playback and
+    /// transcription callers.
+    pub fn save_entry_with_audio_tracks(
+        &self,
+        file_name: String,
+        transcription_text: String,
+        post_process_requested: bool,
+        post_processed_text: Option<String>,
+        post_process_prompt: Option<String>,
+        audio_tracks: Option<AudioTracks>,
+    ) -> Result<HistoryEntry> {
         let timestamp = Utc::now().timestamp();
         let title = self.format_timestamp_title(timestamp);
 
@@ -237,8 +307,9 @@ impl HistoryManager {
                 transcription_text,
                 post_processed_text,
                 post_process_prompt,
-                post_process_requested
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                post_process_requested,
+                audio_tracks
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
             params![
                 &file_name,
                 timestamp,
@@ -248,6 +319,10 @@ impl HistoryManager {
                 &post_processed_text,
                 &post_process_prompt,
                 post_process_requested,
+                audio_tracks
+                    .as_ref()
+                    .map(serde_json::to_string)
+                    .transpose()?,
             ],
         )?;
 
@@ -261,6 +336,7 @@ impl HistoryManager {
             post_processed_text,
             post_process_prompt,
             post_process_requested,
+            audio_tracks,
         };
 
         debug!("Saved history entry with id {}", entry.id);
@@ -308,7 +384,7 @@ impl HistoryManager {
 
         let entry = conn
             .query_row(
-                "SELECT id, file_name, timestamp, saved, title, transcription_text, post_processed_text, post_process_prompt, post_process_requested
+                "SELECT id, file_name, timestamp, saved, title, transcription_text, post_processed_text, post_process_prompt, post_process_requested, audio_tracks
                  FROM transcription_history WHERE id = ?1",
                 params![id],
                 Self::map_history_entry,
@@ -347,7 +423,10 @@ impl HistoryManager {
         }
     }
 
-    fn delete_entries_and_files(&self, entries: &[(i64, String)]) -> Result<usize> {
+    fn delete_entries_and_files(
+        &self,
+        entries: &[(i64, String, Option<AudioTracks>)],
+    ) -> Result<usize> {
         if entries.is_empty() {
             return Ok(0);
         }
@@ -355,7 +434,7 @@ impl HistoryManager {
         let conn = self.get_connection()?;
         let mut deleted_count = 0;
 
-        for (id, file_name) in entries {
+        for (id, file_name, audio_tracks) in entries {
             // Delete database entry
             conn.execute(
                 "DELETE FROM transcription_history WHERE id = ?1",
@@ -372,6 +451,10 @@ impl HistoryManager {
                     deleted_count += 1;
                 }
             }
+
+            if let Some(audio_tracks) = audio_tracks {
+                self.delete_track_directory(audio_tracks);
+            }
         }
 
         Ok(deleted_count)
@@ -382,14 +465,27 @@ impl HistoryManager {
 
         // Get all entries that are not saved, ordered by timestamp desc
         let mut stmt = conn.prepare(
-            "SELECT id, file_name FROM transcription_history WHERE saved = 0 ORDER BY timestamp DESC"
+            "SELECT id, file_name, audio_tracks FROM transcription_history WHERE saved = 0 ORDER BY timestamp DESC"
         )?;
 
         let rows = stmt.query_map([], |row| {
-            Ok((row.get::<_, i64>("id")?, row.get::<_, String>("file_name")?))
+            Ok((
+                row.get::<_, i64>("id")?,
+                row.get::<_, String>("file_name")?,
+                row.get::<_, Option<String>>("audio_tracks")?
+                    .map(|json| serde_json::from_str(&json))
+                    .transpose()
+                    .map_err(|error| {
+                        rusqlite::Error::FromSqlConversionFailure(
+                            0,
+                            rusqlite::types::Type::Text,
+                            Box::new(error),
+                        )
+                    })?,
+            ))
         })?;
 
-        let mut entries: Vec<(i64, String)> = Vec::new();
+        let mut entries: Vec<(i64, String, Option<AudioTracks>)> = Vec::new();
         for row in rows {
             entries.push(row?);
         }
@@ -423,14 +519,27 @@ impl HistoryManager {
 
         // Get all unsaved entries older than the cutoff timestamp
         let mut stmt = conn.prepare(
-            "SELECT id, file_name FROM transcription_history WHERE saved = 0 AND timestamp < ?1",
+            "SELECT id, file_name, audio_tracks FROM transcription_history WHERE saved = 0 AND timestamp < ?1",
         )?;
 
         let rows = stmt.query_map(params![cutoff_timestamp], |row| {
-            Ok((row.get::<_, i64>("id")?, row.get::<_, String>("file_name")?))
+            Ok((
+                row.get::<_, i64>("id")?,
+                row.get::<_, String>("file_name")?,
+                row.get::<_, Option<String>>("audio_tracks")?
+                    .map(|json| serde_json::from_str(&json))
+                    .transpose()
+                    .map_err(|error| {
+                        rusqlite::Error::FromSqlConversionFailure(
+                            0,
+                            rusqlite::types::Type::Text,
+                            Box::new(error),
+                        )
+                    })?,
+            ))
         })?;
 
-        let mut entries_to_delete: Vec<(i64, String)> = Vec::new();
+        let mut entries_to_delete: Vec<(i64, String, Option<AudioTracks>)> = Vec::new();
         for row in rows {
             entries_to_delete.push(row?);
         }
@@ -459,7 +568,7 @@ impl HistoryManager {
             (Some(cursor_id), Some(lim)) => {
                 let fetch_count = (lim + 1) as i64;
                 let mut stmt = conn.prepare(
-                    "SELECT id, file_name, timestamp, saved, title, transcription_text, post_processed_text, post_process_prompt, post_process_requested
+                    "SELECT id, file_name, timestamp, saved, title, transcription_text, post_processed_text, post_process_prompt, post_process_requested, audio_tracks
                      FROM transcription_history
                      WHERE id < ?1
                      ORDER BY id DESC
@@ -473,7 +582,7 @@ impl HistoryManager {
             (None, Some(lim)) => {
                 let fetch_count = (lim + 1) as i64;
                 let mut stmt = conn.prepare(
-                    "SELECT id, file_name, timestamp, saved, title, transcription_text, post_processed_text, post_process_prompt, post_process_requested
+                    "SELECT id, file_name, timestamp, saved, title, transcription_text, post_processed_text, post_process_prompt, post_process_requested, audio_tracks
                      FROM transcription_history
                      ORDER BY id DESC
                      LIMIT ?1",
@@ -485,7 +594,7 @@ impl HistoryManager {
             }
             (_, None) => {
                 let mut stmt = conn.prepare(
-                    "SELECT id, file_name, timestamp, saved, title, transcription_text, post_processed_text, post_process_prompt, post_process_requested
+                    "SELECT id, file_name, timestamp, saved, title, transcription_text, post_processed_text, post_process_prompt, post_process_requested, audio_tracks
                      FROM transcription_history
                      ORDER BY id DESC",
                 )?;
@@ -516,7 +625,8 @@ impl HistoryManager {
                 transcription_text,
                 post_processed_text,
                 post_process_prompt,
-                post_process_requested
+                post_process_requested,
+                audio_tracks
              FROM transcription_history
              ORDER BY timestamp DESC
              LIMIT 1",
@@ -543,7 +653,8 @@ impl HistoryManager {
                 transcription_text,
                 post_processed_text,
                 post_process_prompt,
-                post_process_requested
+                post_process_requested,
+                audio_tracks
              FROM transcription_history
              WHERE transcription_text != ''
              ORDER BY timestamp DESC
@@ -597,7 +708,8 @@ impl HistoryManager {
                 transcription_text,
                 post_processed_text,
                 post_process_prompt,
-                post_process_requested
+                post_process_requested,
+                audio_tracks
              FROM transcription_history
              WHERE id = ?1",
         )?;
@@ -620,6 +732,9 @@ impl HistoryManager {
                     // Continue with database deletion even if file deletion fails
                 }
             }
+            if let Some(audio_tracks) = &entry.audio_tracks {
+                self.delete_track_directory(audio_tracks);
+            }
         }
 
         // Delete from database
@@ -636,6 +751,36 @@ impl HistoryManager {
         }
 
         Ok(())
+    }
+
+    /// Remove the directory which owns all meeting tracks. Track metadata is
+    /// relative and validated before deletion so a corrupt database cannot
+    /// escape the recordings directory.
+    fn delete_track_directory(&self, tracks: &AudioTracks) {
+        let Some(parent) = Path::new(&tracks.mix).parent() else {
+            return;
+        };
+        if parent.as_os_str().is_empty()
+            || parent.is_absolute()
+            || parent
+                .components()
+                .any(|c| matches!(c, std::path::Component::ParentDir))
+        {
+            error!(
+                "Refusing to delete unsafe meeting track directory: {:?}",
+                parent
+            );
+            return;
+        }
+        let directory = self.recordings_dir.join(parent);
+        if directory.starts_with(&self.recordings_dir) && directory.exists() {
+            if let Err(error) = fs::remove_dir_all(&directory) {
+                error!(
+                    "Failed to delete meeting track directory {:?}: {}",
+                    directory, error
+                );
+            }
+        }
     }
 
     fn format_timestamp_title(&self, timestamp: i64) -> String {
@@ -666,7 +811,8 @@ mod tests {
                 transcription_text TEXT NOT NULL,
                 post_processed_text TEXT,
                 post_process_prompt TEXT,
-                post_process_requested BOOLEAN NOT NULL DEFAULT 0
+                post_process_requested BOOLEAN NOT NULL DEFAULT 0,
+                audio_tracks TEXT
             );",
         )
         .expect("create transcription_history table");
