@@ -1079,7 +1079,7 @@ async fn run_manglish_transliteration(
         settings,
         "default_manglish_transliteration",
         text,
-        quota_consumed,
+        &mut quota_consumed,
     )
     .await
 }
@@ -1144,7 +1144,7 @@ async fn run_english_translation(
         settings,
         "default_translate_to_english",
         text,
-        quota_consumed,
+        &mut quota_consumed,
     )
     .await
 }
