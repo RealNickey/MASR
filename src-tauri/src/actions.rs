@@ -736,7 +736,7 @@ async fn run_specific_llm_prompt_with_quota(
                         prompt_id,
                         &prompt,
                         text,
-                        &mut quota_consumed,
+                        quota_consumed,
                     )
                     .await
                     {
@@ -806,7 +806,7 @@ async fn run_specific_llm_prompt_with_quota(
                             prompt_id,
                             &prompt,
                             text,
-                            &mut quota_consumed,
+                            quota_consumed,
                         )
                         .await
                         {
@@ -883,7 +883,7 @@ async fn run_specific_llm_prompt_with_quota(
             prompt_id,
             &prompt,
             text,
-            &mut quota_consumed,
+            quota_consumed,
         )
         .await
         {
@@ -1079,7 +1079,7 @@ async fn run_manglish_transliteration(
         settings,
         "default_manglish_transliteration",
         text,
-        &mut quota_consumed,
+        quota_consumed,
     )
     .await
 }
@@ -1144,7 +1144,7 @@ async fn run_english_translation(
         settings,
         "default_translate_to_english",
         text,
-        &mut quota_consumed,
+        quota_consumed,
     )
     .await
 }
