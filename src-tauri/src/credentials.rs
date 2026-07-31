@@ -25,12 +25,20 @@ pub fn get(provider_id: &str) -> Option<String> {
 }
 
 pub fn set(provider_id: &str, value: &str) -> Result<(), String> {
+    if crate::portable::is_portable() {
+        return Ok(());
+    }
+
     entry(provider_id)?
         .set_password(value)
         .map_err(|error| format!("Could not save API key in the system credential vault: {error}"))
 }
 
 pub fn delete(provider_id: &str) -> Result<(), String> {
+    if crate::portable::is_portable() {
+        return Ok(());
+    }
+
     let entry = entry(provider_id)?;
     match entry.delete_credential() {
         Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
@@ -48,7 +56,7 @@ pub fn migrate_legacy_api_keys(app: &AppHandle, settings: &mut AppSettings) {
     }
 
     let mut changed = false;
-    for (provider_id, legacy_key) in settings.post_process_api_keys.clone() {
+    for (provider_id, legacy_key) in settings.post_process_api_keys.0.clone() {
         if legacy_key.trim().is_empty() || get(&provider_id).is_some() {
             continue;
         }

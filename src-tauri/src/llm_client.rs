@@ -144,10 +144,6 @@ pub async fn send_chat_completion_with_schema(
     reasoning_effort: Option<String>,
     reasoning: Option<ReasoningConfig>,
 ) -> Result<Option<String>, String> {
-    let settings = crate::settings::get_settings(app);
-    if crate::settings::is_using_app_provided_key(&settings, &provider.id) {
-        crate::settings::consume_llm_request_quota(app)?;
-    }
     let base_url = provider.base_url.trim_end_matches('/');
     let url = format!("{}/chat/completions", base_url);
 

@@ -540,7 +540,7 @@ export const GlobalUpdatePrompt: React.FC = () => {
         }
       } catch (error) {
         console.error("[Updater] Failed to show update dialog:", error);
-        updateGlobalState({ error: String(error) });
+        updateGlobalState({ error: String(error), showPrompt: false });
       } finally {
         updateChoiceDialogPromise = null;
       }

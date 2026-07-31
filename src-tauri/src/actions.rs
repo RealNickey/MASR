@@ -142,6 +142,7 @@ async fn post_process_transcription(
     );
 
     let api_key = crate::settings::resolved_post_process_api_key(settings, &provider.id);
+    let mut quota_consumed = false;
 
     // Disable reasoning for providers where post-processing rarely benefits from it.
     // - custom: top-level reasoning_effort (works for local OpenAI-compat servers)
@@ -232,6 +233,12 @@ async fn post_process_transcription(
             "additionalProperties": false
         });
 
+        if let Err(error) =
+            consume_quota_if_needed(app, settings, &provider.id, &api_key, &mut quota_consumed)
+        {
+            error!("LLM quota check failed: {}", error);
+            return None;
+        }
         match crate::llm_client::send_chat_completion_with_schema(
             app,
             &provider,
@@ -291,6 +298,12 @@ async fn post_process_transcription(
     let processed_prompt = prompt.replace("${output}", transcription);
     debug!("Processed prompt length: {} chars", processed_prompt.len());
 
+    if let Err(error) =
+        consume_quota_if_needed(app, settings, &provider.id, &api_key, &mut quota_consumed)
+    {
+        error!("LLM quota check failed: {}", error);
+        return None;
+    }
     match crate::llm_client::send_chat_completion(
         app,
         &provider,
@@ -336,33 +349,16 @@ fn resolve_google_api_key(
     obfuscated.unwrap_or_else(|| env_google_api.or(env_google_api_key).unwrap_or_default())
 }
 
-static GOOGLE_API_KEY: Lazy<String> = Lazy::new(|| {
-    resolve_google_api_key(
-        OBFUSCATED_GOOGLE_API_KEY.clone(),
-        std::env::var("GoogleAPI").ok(),
-        std::env::var("GOOGLE_API_KEY").ok(),
-    )
-});
-static GROQ_API_KEY: Lazy<String> = Lazy::new(|| {
-    OBFUSCATED_GROQ_API_KEY
-        .clone()
-        .unwrap_or_else(|| std::env::var("GROQ_API_KEY").unwrap_or_default())
-});
-static OPENROUTER_API_KEY: Lazy<String> = Lazy::new(|| {
-    OBFUSCATED_OPENROUTER_API_KEY
-        .clone()
-        .unwrap_or_else(|| std::env::var("OPENROUTER_API_KEY").unwrap_or_default())
-});
-static GEMINI_API_KEY_1: Lazy<String> = Lazy::new(|| {
-    OBFUSCATED_GEMINI_API_KEY_1
-        .clone()
-        .unwrap_or_else(|| std::env::var("GEMINI_API_KEY_1").unwrap_or_default())
-});
-static GEMINI_API_KEY_2: Lazy<String> = Lazy::new(|| {
-    OBFUSCATED_GEMINI_API_KEY_2
-        .clone()
-        .unwrap_or_else(|| std::env::var("GEMINI_API_KEY_2").unwrap_or_default())
-});
+static GOOGLE_API_KEY: Lazy<String> =
+    Lazy::new(|| OBFUSCATED_GOOGLE_API_KEY.clone().unwrap_or_default());
+static GROQ_API_KEY: Lazy<String> =
+    Lazy::new(|| OBFUSCATED_GROQ_API_KEY.clone().unwrap_or_default());
+static OPENROUTER_API_KEY: Lazy<String> =
+    Lazy::new(|| OBFUSCATED_OPENROUTER_API_KEY.clone().unwrap_or_default());
+static GEMINI_API_KEY_1: Lazy<String> =
+    Lazy::new(|| OBFUSCATED_GEMINI_API_KEY_1.clone().unwrap_or_default());
+static GEMINI_API_KEY_2: Lazy<String> =
+    Lazy::new(|| OBFUSCATED_GEMINI_API_KEY_2.clone().unwrap_or_default());
 
 #[derive(Clone, serde::Serialize)]
 struct FallbackEventPayload {
@@ -446,6 +442,13 @@ fn sanitize_error_msg(mut err: String, custom_keys: &[&str]) -> String {
             err = err.replace(*key, "[REDACTED]");
         }
     }
+    for provider_id in ["google", "openrouter", "groq"] {
+        for key in crate::settings::default_api_keys_for_provider(provider_id) {
+            if !key.is_empty() {
+                err = err.replace(&key, "[REDACTED]");
+            }
+        }
+    }
     for key in custom_keys {
         if !key.is_empty() {
             err = err.replace(*key, "[REDACTED]");
@@ -466,41 +469,54 @@ fn get_candidate_keys(settings: &AppSettings, provider_id: &str) -> Vec<String> 
         }
     }
 
-    if let Some(default_key) = crate::settings::default_api_key_for_provider(provider_id) {
-        if !keys.contains(&default_key) {
-            keys.push(default_key);
+    for key in crate::settings::default_api_keys_for_provider(provider_id) {
+        if !keys.contains(&key) {
+            keys.push(key);
         }
     }
 
-    match provider_id {
-        "google" => {
-            for key in &[
-                GOOGLE_API_KEY.as_str(),
-                GEMINI_API_KEY_1.as_str(),
-                GEMINI_API_KEY_2.as_str(),
-            ] {
-                let key_trimmed = key.trim().to_string();
-                if !key_trimmed.is_empty() && !keys.contains(&key_trimmed) {
-                    keys.push(key_trimmed);
-                }
-            }
+    for legacy_key in legacy_app_keys_for_provider(provider_id) {
+        if !keys.contains(&legacy_key) {
+            keys.push(legacy_key);
         }
-        "openrouter" => {
-            let key_trimmed = OPENROUTER_API_KEY.trim().to_string();
-            if !key_trimmed.is_empty() && !keys.contains(&key_trimmed) {
-                keys.push(key_trimmed);
-            }
-        }
-        "groq" => {
-            let key_trimmed = GROQ_API_KEY.trim().to_string();
-            if !key_trimmed.is_empty() && !keys.contains(&key_trimmed) {
-                keys.push(key_trimmed);
-            }
-        }
-        _ => {}
     }
 
     keys
+}
+
+fn legacy_app_keys_for_provider(provider_id: &str) -> Vec<String> {
+    let keys: &[&str] = match provider_id {
+        "google" => &[
+            GOOGLE_API_KEY.as_str(),
+            GEMINI_API_KEY_1.as_str(),
+            GEMINI_API_KEY_2.as_str(),
+        ],
+        "openrouter" => &[OPENROUTER_API_KEY.as_str()],
+        "groq" => &[GROQ_API_KEY.as_str()],
+        _ => &[],
+    };
+    keys.iter()
+        .map(|key| key.trim().to_string())
+        .filter(|key| !key.is_empty())
+        .collect()
+}
+
+fn consume_quota_if_needed(
+    app: &AppHandle,
+    settings: &AppSettings,
+    provider_id: &str,
+    api_key: &str,
+    quota_consumed: &mut bool,
+) -> Result<(), String> {
+    let app_provided = crate::settings::is_app_provided_api_key(settings, provider_id, api_key)
+        || legacy_app_keys_for_provider(provider_id)
+            .iter()
+            .any(|key| key == api_key.trim());
+    if app_provided && !*quota_consumed {
+        crate::settings::consume_llm_request_quota(app)?;
+        *quota_consumed = true;
+    }
+    Ok(())
 }
 
 fn get_fallback_provider(settings: &AppSettings, provider_id: &str) -> PostProcessProvider {
@@ -539,13 +555,16 @@ fn get_fallback_provider(settings: &AppSettings, provider_id: &str) -> PostProce
 
 async fn attempt_chat_completion(
     app: &AppHandle,
+    settings: &AppSettings,
     provider: &PostProcessProvider,
     api_key: &str,
     model: &str,
     prompt_id: &str,
     prompt: &str,
     text: &str,
+    quota_consumed: &mut bool,
 ) -> Result<String, String> {
+    consume_quota_if_needed(app, settings, &provider.id, api_key, quota_consumed)?;
     let (reasoning_effort, reasoning) = match provider.id.as_str() {
         "custom" | "google" | "ollama" => (Some("none".to_string()), None),
         "openrouter" => (
@@ -640,6 +659,17 @@ pub async fn run_specific_llm_prompt(
     prompt_id: &str,
     text: &str,
 ) -> Option<String> {
+    let mut quota_consumed = false;
+    run_specific_llm_prompt_with_quota(app, settings, prompt_id, text, &mut quota_consumed).await
+}
+
+async fn run_specific_llm_prompt_with_quota(
+    app: &AppHandle,
+    settings: &AppSettings,
+    prompt_id: &str,
+    text: &str,
+    quota_consumed: &mut bool,
+) -> Option<String> {
     let is_meeting_summary =
         prompt_id == "default_meeting_summary" || prompt_id == "default_meeting_notes_with_actions";
 
@@ -699,12 +729,14 @@ pub async fn run_specific_llm_prompt(
                     );
                     match attempt_chat_completion(
                         app,
+                        settings,
                         provider,
                         &api_key,
                         &primary_model,
                         prompt_id,
                         &prompt,
                         text,
+                        &mut quota_consumed,
                     )
                     .await
                     {
@@ -767,12 +799,14 @@ pub async fn run_specific_llm_prompt(
                         );
                         match attempt_chat_completion(
                             app,
+                            settings,
                             &provider,
                             key,
                             fallback.model_name,
                             prompt_id,
                             &prompt,
                             text,
+                            &mut quota_consumed,
                         )
                         .await
                         {
@@ -838,14 +872,20 @@ pub async fn run_specific_llm_prompt(
             return None;
         }
 
-        let api_key = settings
-            .post_process_api_keys
-            .get(&provider.id)
-            .cloned()
-            .unwrap_or_default();
+        let api_key = crate::settings::resolved_post_process_api_key(settings, &provider.id);
 
-        match attempt_chat_completion(app, &provider, &api_key, &model, prompt_id, &prompt, text)
-            .await
+        match attempt_chat_completion(
+            app,
+            settings,
+            &provider,
+            &api_key,
+            &model,
+            prompt_id,
+            &prompt,
+            text,
+            &mut quota_consumed,
+        )
+        .await
         {
             Ok(res) => result = Some(res),
             Err(_) => {}
@@ -987,6 +1027,7 @@ async fn run_manglish_transliteration(
 ) -> Option<String> {
     let google_provider = settings.post_process_provider("google").cloned();
     let google_key = crate::settings::resolved_post_process_api_key(settings, "google");
+    let mut quota_consumed = false;
 
     if let Some(provider) = google_provider {
         if !google_key.trim().is_empty() {
@@ -1002,6 +1043,16 @@ async fn run_manglish_transliteration(
 
             let processed_prompt = prompt_text.replace("${output}", text);
             debug!("Running Manglish transliteration with Google/gemma-4-26b-a4b-it");
+            if let Err(error) = consume_quota_if_needed(
+                app,
+                settings,
+                &provider.id,
+                &google_key,
+                &mut quota_consumed,
+            ) {
+                debug!("Manglish quota check failed: {}", error);
+                return None;
+            }
             match crate::llm_client::send_chat_completion(
                 app,
                 &provider,
@@ -1023,7 +1074,14 @@ async fn run_manglish_transliteration(
         }
     }
     // Fallback: use active post-process provider
-    run_specific_llm_prompt(app, settings, "default_manglish_transliteration", text).await
+    run_specific_llm_prompt_with_quota(
+        app,
+        settings,
+        "default_manglish_transliteration",
+        text,
+        &mut quota_consumed,
+    )
+    .await
 }
 
 /// Run English translation using the Google/Gemini provider with gemma-4-26b-a4b-it.
@@ -1035,6 +1093,7 @@ async fn run_english_translation(
 ) -> Option<String> {
     let google_provider = settings.post_process_provider("google").cloned();
     let google_key = crate::settings::resolved_post_process_api_key(settings, "google");
+    let mut quota_consumed = false;
 
     if let Some(provider) = google_provider {
         if !google_key.trim().is_empty() {
@@ -1049,6 +1108,16 @@ async fn run_english_translation(
 
             let processed_prompt = prompt_text.replace("${output}", text);
             debug!("Running English translation with Google/gemma-4-26b-a4b-it");
+            if let Err(error) = consume_quota_if_needed(
+                app,
+                settings,
+                &provider.id,
+                &google_key,
+                &mut quota_consumed,
+            ) {
+                debug!("English translation quota check failed: {}", error);
+                return None;
+            }
             match crate::llm_client::send_chat_completion(
                 app,
                 &provider,
@@ -1070,7 +1139,14 @@ async fn run_english_translation(
         }
     }
     // Fallback: use active post-process provider
-    run_specific_llm_prompt(app, settings, "default_translate_to_english", text).await
+    run_specific_llm_prompt_with_quota(
+        app,
+        settings,
+        "default_translate_to_english",
+        text,
+        &mut quota_consumed,
+    )
+    .await
 }
 
 impl ShortcutAction for TranscribeAction {

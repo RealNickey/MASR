@@ -33,7 +33,9 @@ test.describe("Aggressive Auto-Updates", () => {
 
     await page.goto("/");
 
-    await expect.poll(async () => (await getMockState(page)).updateDialogAsked).toBe(true);
+    await expect
+      .poll(async () => (await getMockState(page)).updateDialogAsked)
+      .toBe(true);
   });
 
   test("clicking Update Now installs the update and restarts the app", async ({
@@ -48,7 +50,36 @@ test.describe("Aggressive Auto-Updates", () => {
 
     await page.goto("/");
 
-    await expect.poll(async () => (await getMockState(page)).relaunchCalled).toBe(true);
+    await expect
+      .poll(async () => (await getMockState(page)).relaunchCalled)
+      .toBe(true);
+  });
+
+  test("shows a native error when direct and fallback installation fail", async ({
+    page,
+  }) => {
+    await page.addInitScript(() => {
+      const state = (window as any).__MOCK_STATE__;
+      state.updateAvailable = true;
+      state.updateVersion = "0.9.6";
+      state.updateDialogResponse = true;
+      state.installShouldFail = true;
+      state.downloadShouldFail = false;
+    });
+
+    await page.goto("/");
+
+    await expect
+      .poll(
+        async () =>
+          await page.evaluate(
+            () => (window as any).__LAST_UPDATE_ERROR_DIALOG__ ?? "",
+          ),
+      )
+      .toBe("Install failed. Please restart the app manually.");
+    expect((await getMockState(page)).updateErrorDialogMessages).toContain(
+      "Install failed. Please restart the app manually.",
+    );
   });
 
   test("clicking Update on Next Launch sets flag in localStorage and dismisses modal", async ({
@@ -62,7 +93,9 @@ test.describe("Aggressive Auto-Updates", () => {
 
     await page.goto("/");
 
-    await expect.poll(async () => (await getMockState(page)).updateDialogAsked).toBe(true);
+    await expect
+      .poll(async () => (await getMockState(page)).updateDialogAsked)
+      .toBe(true);
 
     // Verify localStorage has key set
     const flag = await page.evaluate(() =>

@@ -635,13 +635,13 @@ pub fn run(cli_args: CliArgs) {
 
             primary_builder.build()?;
 
-            let mut settings = get_settings(&app.handle());
+            let (mut settings, settings_created) =
+                settings::get_settings_with_creation_status(&app.handle());
             credentials::migrate_legacy_api_keys(&app.handle(), &mut settings);
 
-            // Environment keys are application defaults, never persisted into
-            // user settings. A user-supplied provider key always overrides the
-            // default at request time.
-            if settings.post_process_provider_id == "openai" {
+            // Environment defaults may select the provider only during first-run
+            // settings creation. Existing settings preserve the user's choice.
+            if settings_created {
                 if let Some(default_provider) = settings::default_provider_from_environment() {
                     settings.post_process_provider_id = default_provider;
                     settings.post_process_enabled = true;

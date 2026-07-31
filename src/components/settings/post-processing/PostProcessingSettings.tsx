@@ -106,7 +106,9 @@ const PostProcessingSettingsApiComponent: React.FC = () => {
     <>
       <SettingContainer
         title={"AI Provider"}
-        description={"Choose a cloud provider, a local Ollama instance, or a custom OpenAI-compatible endpoint."}
+        description={
+          "Choose a cloud provider, a local Ollama instance, or a custom OpenAI-compatible endpoint."
+        }
         descriptionMode="tooltip"
         layout="horizontal"
         grouped={true}
@@ -216,7 +218,9 @@ const PostProcessingSettingsApiComponent: React.FC = () => {
           {!state.isOllamaProvider && (
             <SettingContainer
               title={"API Key"}
-              description={"Leave this blank to use the app default. Keys you save are stored in your system credential vault on installed builds."}
+              description={
+                "Leave this blank to use the app default. Keys you save are stored in your system credential vault on installed builds."
+              }
               descriptionMode="tooltip"
               layout="horizontal"
               grouped={true}

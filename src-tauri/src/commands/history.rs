@@ -276,6 +276,9 @@ pub async fn ask_meeting_question(
     }
 
     let api_key = crate::settings::resolved_post_process_api_key(&settings, &provider.id);
+    if crate::settings::is_app_provided_api_key(&settings, &provider.id, &api_key) {
+        crate::settings::consume_llm_request_quota(&app)?;
+    }
 
     let system_prompt = format!(
         "You are a helpful meeting assistant. Use the following meeting transcript as context to answer the user's question accurately. If the information is not in the transcript, say so.\n\nTRANSCRIPT:\n{}",

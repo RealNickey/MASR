@@ -577,7 +577,7 @@ fn default_post_process_provider_id() -> String {
 
 /// Environment keys are app-provided defaults. A non-empty user setting always
 /// takes precedence, so users can override these defaults per provider.
-pub fn default_api_key_for_provider(provider_id: &str) -> Option<String> {
+pub fn default_api_keys_for_provider(provider_id: &str) -> Vec<String> {
     let keys: &[&str] = match provider_id {
         "google" => &[
             "GOOGLE_API_KEY",
@@ -591,12 +591,20 @@ pub fn default_api_key_for_provider(provider_id: &str) -> Option<String> {
         _ => &[],
     };
 
-    keys.iter().find_map(|key| {
-        std::env::var(key)
-            .ok()
-            .map(|value| value.trim().to_string())
-            .filter(|value| !value.is_empty())
-    })
+    keys.iter()
+        .filter_map(|key| {
+            std::env::var(key)
+                .ok()
+                .map(|value| value.trim().to_string())
+                .filter(|value| !value.is_empty())
+        })
+        .collect()
+}
+
+pub fn default_api_key_for_provider(provider_id: &str) -> Option<String> {
+    default_api_keys_for_provider(provider_id)
+        .into_iter()
+        .next()
 }
 
 pub fn default_provider_from_environment() -> Option<String> {
@@ -635,6 +643,24 @@ pub fn is_using_app_provided_key(settings: &AppSettings, provider_id: &str) -> b
         return false;
     }
     default_api_key_for_provider(provider_id).is_some()
+}
+
+pub fn is_app_provided_api_key(settings: &AppSettings, provider_id: &str, api_key: &str) -> bool {
+    let api_key = api_key.trim();
+    if api_key.is_empty() || crate::credentials::get(provider_id).is_some() {
+        return false;
+    }
+    if settings
+        .post_process_api_keys
+        .get(provider_id)
+        .map(|key| key.trim() == api_key && !key.trim().is_empty())
+        .unwrap_or(false)
+    {
+        return false;
+    }
+    default_api_keys_for_provider(provider_id)
+        .iter()
+        .any(|key| key == api_key)
 }
 
 pub fn normalize_provider_base_url(provider_id: &str, base_url: &str) -> Result<String, String> {
@@ -1118,28 +1144,35 @@ pub fn load_or_create_app_settings(app: &AppHandle) -> AppSettings {
     settings
 }
 
-pub fn get_settings(app: &AppHandle) -> AppSettings {
+pub fn get_settings_with_creation_status(app: &AppHandle) -> (AppSettings, bool) {
     let store = app
         .store(crate::portable::store_path(SETTINGS_STORE_PATH))
         .expect("Failed to initialize store");
 
-    let mut settings = if let Some(settings_value) = store.get("settings") {
-        serde_json::from_value::<AppSettings>(settings_value).unwrap_or_else(|_| {
-            let default_settings = get_default_settings();
-            store.set("settings", serde_json::to_value(&default_settings).unwrap());
-            default_settings
-        })
+    let (mut settings, created) = if let Some(settings_value) = store.get("settings") {
+        match serde_json::from_value::<AppSettings>(settings_value) {
+            Ok(settings) => (settings, false),
+            Err(_) => {
+                let default_settings = get_default_settings();
+                store.set("settings", serde_json::to_value(&default_settings).unwrap());
+                (default_settings, false)
+            }
+        }
     } else {
         let default_settings = get_default_settings();
         store.set("settings", serde_json::to_value(&default_settings).unwrap());
-        default_settings
+        (default_settings, true)
     };
 
     if ensure_post_process_defaults(&mut settings) {
         store.set("settings", serde_json::to_value(&settings).unwrap());
     }
 
-    settings
+    (settings, created)
+}
+
+pub fn get_settings(app: &AppHandle) -> AppSettings {
+    get_settings_with_creation_status(app).0
 }
 
 pub fn write_settings(app: &AppHandle, settings: AppSettings) {
@@ -1151,12 +1184,13 @@ pub fn write_settings(app: &AppHandle, settings: AppSettings) {
 }
 
 /// Consume one user-wide LLM request from the daily quota. This is persisted so
-/// restarting the app cannot bypass the limit. Model discovery and connection
-/// tests do not call this function; every chat-completion request does.
+/// restarting the app cannot bypass the limit. Callers reserve quota once per
+/// logical chat action; model discovery and connection tests do not call this.
 pub fn consume_llm_request_quota(app: &AppHandle) -> Result<(), String> {
-    let _guard = LLM_QUOTA_WRITE_LOCK
-        .lock()
-        .map_err(|_| "LLM usage limiter is unavailable".to_string())?;
+    let _guard = match LLM_QUOTA_WRITE_LOCK.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
+    };
     let today = chrono::Local::now().date_naive().to_string();
     let mut settings = get_settings(app);
 
@@ -1251,11 +1285,22 @@ mod tests {
             .insert("google".to_string(), "my-custom-gemini-key".to_string());
         assert!(!is_using_app_provided_key(&settings, "google"));
 
-        // 2. Custom/Ollama provider with no key and no env default -> false (quota bypassed)
+        // 2. Custom provider with no key and no env default -> false (quota bypassed)
         assert!(!is_using_app_provided_key(&settings, "custom"));
+
+        let previous_groq_key = std::env::var("GROQ_API_KEY").ok();
+        std::env::remove_var("GROQ_API_KEY");
 
         // 3. Provider with no user key and no env set -> false
         settings.post_process_api_keys.remove("groq");
         assert!(!is_using_app_provided_key(&settings, "groq"));
+
+        std::env::set_var("GROQ_API_KEY", "app-default-key");
+        assert!(is_using_app_provided_key(&settings, "groq"));
+        if let Some(previous) = previous_groq_key {
+            std::env::set_var("GROQ_API_KEY", previous);
+        } else {
+            std::env::remove_var("GROQ_API_KEY");
+        }
     }
 }
