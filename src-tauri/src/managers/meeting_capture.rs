@@ -42,14 +42,16 @@ impl MeetingCaptureSession {
             bits_per_sample: 16,
             sample_format: hound::SampleFormat::Int,
         };
-        let create = |name| WavWriter::create(staging_dir.join(name), spec);
+        let microphone = WavWriter::create(staging_dir.join("microphone.wav"), spec)?;
+        let system = WavWriter::create(staging_dir.join("system.wav"), spec)?;
+        let mix = WavWriter::create(staging_dir.join("mix.wav"), spec)?;
         Ok(Self {
             recordings_dir: recordings_dir.to_path_buf(),
             staging_dir,
             final_dir_name,
-            microphone: Some(create("microphone.wav")?),
-            system: Some(create("system.wav")?),
-            mix: Some(create("mix.wav")?),
+            microphone: Some(microphone),
+            system: Some(system),
+            mix: Some(mix),
             sample_count: 0,
         })
     }
