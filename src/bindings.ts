@@ -1007,6 +1007,7 @@ export type AudioDevice = { index: string; name: string; is_default: boolean }
 export type AutoSubmitKey = "enter" | "ctrl_enter" | "cmd_enter"
 export type AvailableAccelerators = { whisper: string[]; ort: string[]; gpu_devices: GpuDeviceOption[] }
 export type BindingResponse = { success: boolean; binding: ShortcutBinding | null; error: string | null }
+export type AudioTracks = { mix: string; microphone: string; system: string }
 export type ClipboardHandling = "dont_modify" | "copy_to_clipboard"
 export type CustomSounds = { start: boolean; stop: boolean }
 export type EngineType = "Whisper" | "Parakeet" | "Moonshine" | "MoonshineStreaming" | "SenseVoice" | "GigaAM" | "Canary" | "Cohere" | "ThegaV1"
@@ -1014,7 +1015,7 @@ export type GoogleAuthTokens = { gmail_tasks_refresh_token?: string | null; cale
 export type GoogleFeature = "gmail_tasks" | "calendar"
 export type GoogleIntegrationStatus = { oauth_client_configured: boolean; gmail_tasks_connected: boolean; calendar_connected: boolean; gmail_tasks_available: boolean; calendar_available: boolean; meeting_calendar_prompts_enabled: boolean; meeting_detection_enabled: boolean; meeting_prompt_lead_minutes: number }
 export type GpuDeviceOption = { id: number; name: string; total_vram_mb: number }
-export type HistoryEntry = { id: number; file_name: string; timestamp: number; saved: boolean; title: string; transcription_text: string; post_processed_text: string | null; post_process_prompt: string | null; post_process_requested: boolean }
+export type HistoryEntry = { id: number; file_name: string; timestamp: number; saved: boolean; title: string; transcription_text: string; post_processed_text: string | null; post_process_prompt: string | null; post_process_requested: boolean; audio_tracks: AudioTracks | null }
 export type HistoryUpdatePayload = { action: "added"; entry: HistoryEntry } | { action: "updated"; entry: HistoryEntry } | { action: "deleted"; id: number } | { action: "toggled"; id: number }
 /**
  * Result of changing keyboard implementation
@@ -1024,6 +1025,13 @@ export type ImplementationChangeResult = { success: boolean;
  * List of binding IDs that were reset to defaults due to incompatibility
  */
 reset_bindings: string[] }
+/**
+ * User-facing state for the automatic first-run model setup. This deliberately
+ * contains no model display names: the primary window presents it as a single
+ * private-compute setup operation.
+ */
+export type InitialSetupPhase = "checking_storage" | "downloading" | "verifying" | "extracting" | "retrying" | "ready" | "insufficient_storage"
+export type InitialSetupStatus = { phase: InitialSetupPhase; downloaded: number; total: number; english_model_id: string | null; available_bytes: number | null; required_bytes: number }
 export type KeyboardImplementation = "tauri" | "handy_keys"
 export type LLMPrompt = { id: string; name: string; prompt: string }
 export type LogLevel = "trace" | "debug" | "info" | "warn" | "error"
@@ -1033,8 +1041,6 @@ export type MeetingOverlaySnapshot = { sequence: number; mode: MeetingOverlayMod
 export type MeetingPromptPayload = { provider: string; title: string; source: MeetingPromptSource; start_time: string; join_url: string | null }
 export type MeetingPromptSource = "LocalDetection" | "GoogleCalendar"
 export type ModelInfo = { id: string; name: string; description: string; filename: string; url: string | null; sha256: string | null; size_mb: number; is_downloaded: boolean; is_downloading: boolean; partial_size: number; is_directory: boolean; engine_type: EngineType; accuracy_score: number; speed_score: number; supports_translation: boolean; is_recommended: boolean; supported_languages: string[]; supports_language_selection: boolean; is_custom: boolean }
-export type InitialSetupPhase = "checking_storage" | "downloading" | "verifying" | "extracting" | "retrying" | "ready" | "insufficient_storage"
-export type InitialSetupStatus = { phase: InitialSetupPhase; downloaded: number; total: number; english_model_id: string | null; available_bytes: number | null; required_bytes: number }
 export type ModelLoadStatus = { is_loaded: boolean; current_model: string | null }
 export type ModelUnloadTimeout = "never" | "immediately" | "min_2" | "min_5" | "min_10" | "min_15" | "hour_1" | "sec_15"
 export type OllamaStatus = { connected: boolean; model_count: number; error: string | null }

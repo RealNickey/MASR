@@ -2,8 +2,6 @@ name: MASR CI
 
 on:
   workflow_dispatch:
-  push:
-    branches: [dev]
   pull_request:
     branches: [dev, main]
 
@@ -15,11 +13,80 @@ permissions:
   contents: read
 
 jobs:
-  quality:
-    name: Quality and frontend build
+  changes:
+    name: Classify change scope
+    runs-on: ubuntu-latest
+    outputs:
+      ci_only: ${{ steps.scope.outputs.ci_only }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - id: scope
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT_NAME" != 'pull_request' ]; then
+            echo 'ci_only=false' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          git diff --name-only "$BASE_SHA" "$HEAD_SHA" > changed-files.txt
+          test -s changed-files.txt
+          if grep -Ev '^(\.github/|docs/(ci-cd|github-actions)/|CI_CD\.md$)' changed-files.txt; then
+            echo 'ci_only=false' >> "$GITHUB_OUTPUT"
+          else
+            echo 'ci_only=true' >> "$GITHUB_OUTPUT"
+          fi
+
+  workflow-validation:
+    name: CI/CD validation
+    needs: changes
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.9
+      - run: bun install --frozen-lockfile
+      - name: Check workflow and action formatting
+        run: bunx --no-install prettier --check .github
+      - name: Validate workflow syntax and expressions
+        run: docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:1.7.9 -ignore 'SC.*'
+      - name: Validate referenced local actions
+        shell: bash
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const fs = require('node:fs');
+          const path = require('node:path');
+          const visit = (dir) => fs.readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+            const file = path.join(dir, entry.name);
+            return entry.isDirectory() ? visit(file) : /\.ya?ml$/i.test(file) ? [file] : [];
+          });
+          for (const file of ['.github/workflows', '.github/actions'].flatMap(visit)) {
+            for (const match of fs.readFileSync(file, 'utf8').matchAll(/^\s*uses:\s*['\"]?(\.\/\.github\/actions\/[^\s'\"]+)/gm)) {
+              const action = match[1];
+              if (!fs.existsSync(path.join(action, 'action.yml')) && !fs.existsSync(path.join(action, 'action.yaml'))) throw new Error(`${file} references missing ${action}`);
+            }
+          }
+          NODE
+
+  quality:
+    name: Quality and frontend build
+    needs: changes
+    if: needs.changes.outputs.ci_only != 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.3.9
@@ -32,32 +99,55 @@ jobs:
 
   windows-beta:
     name: Windows x64 beta gate
-    runs-on: windows-latest
+    needs: changes
+    runs-on: ${{ needs.changes.outputs.ci_only == 'true' && 'ubuntu-latest' || 'windows-latest' }}
     timeout-minutes: 75
     steps:
+      - name: CI/CD-only change acknowledged
+        if: needs.changes.outputs.ci_only == 'true'
+        run: echo 'Workflow validation replaces package verification for a CI/CD-only change.'
       - uses: actions/checkout@v4
+        if: needs.changes.outputs.ci_only != 'true'
+        with:
+          persist-credentials: false
       - uses: oven-sh/setup-bun@v2
+        if: needs.changes.outputs.ci_only != 'true'
         with:
           bun-version: 1.3.9
       - uses: dtolnay/rust-toolchain@stable
+        if: needs.changes.outputs.ci_only != 'true'
         with:
           targets: x86_64-pc-windows-msvc
+      - name: Cache Cargo registry and git dependencies
+        if: needs.changes.outputs.ci_only != 'true'
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: cargo-${{ runner.os }}-${{ hashFiles('src-tauri/Cargo.lock') }}
       - name: Shorten Cargo target directory
+        if: needs.changes.outputs.ci_only != 'true'
         shell: pwsh
         run: |
           $target = Join-Path $env:RUNNER_TEMP 't'
           "CARGO_TARGET_DIR=$target" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
       - name: Install Vulkan SDK for Whisper
+        if: needs.changes.outputs.ci_only != 'true'
         uses: humbletim/install-vulkan-sdk@v1.2
         with:
           version: 1.4.309.0
           cache: true
       - run: bun install --frozen-lockfile
+        if: needs.changes.outputs.ci_only != 'true'
       - uses: ./.github/actions/setup-ort-runtime
+        if: needs.changes.outputs.ci_only != 'true'
         with:
           target: windows-x64
       - uses: ./.github/actions/setup-malayalam-model
+        if: needs.changes.outputs.ci_only != 'true'
       - name: Compile Rust test suite and inspect loader
+        if: needs.changes.outputs.ci_only != 'true'
         env:
           ORT_DYLIB_PATH: ${{ env.MASR_ORT_LIB_DIR }}\onnxruntime.dll
         run: |
@@ -82,6 +172,7 @@ jobs:
           Write-Host "Resolved loader PATH: $env:PATH"
           where.exe onnxruntime.dll
       - name: Malayalam CPU smoke test
+        if: needs.changes.outputs.ci_only != 'true'
         env:
           ORT_DYLIB_PATH: ${{ env.MASR_ORT_LIB_DIR }}\onnxruntime.dll
         run: |
@@ -94,6 +185,7 @@ jobs:
           & $smoke
           if ($LASTEXITCODE -ne 0) { throw "Malayalam smoke executable failed: $LASTEXITCODE" }
       - name: Build Windows beta package
+        if: needs.changes.outputs.ci_only != 'true'
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
@@ -104,6 +196,7 @@ jobs:
           GGML_F16C: "OFF"
         run: bun run tauri build --bundles nsis
       - name: Inspect bundled ONNX Runtime and its loader linkage
+        if: needs.changes.outputs.ci_only != 'true'
         shell: pwsh
         run: |
           $installer = Get-ChildItem -Path $env:CARGO_TARGET_DIR -Recurse -Filter '*-setup.exe' | Select-Object -First 1
@@ -119,6 +212,7 @@ jobs:
           if (-not $runtime) { throw 'Packaged ONNX Runtime DLL was not materialized' }
           if (-not (& $dumpbin.FullName /DEPENDENTS $runtime.FullName | Select-String -Quiet 'VCRUNTIME|api-ms-win|KERNEL32')) { throw 'ONNX Runtime DLL has no inspectable Windows loader dependencies' }
       - name: Install and smoke the NSIS payload without development loader paths
+        if: needs.changes.outputs.ci_only != 'true'
         shell: pwsh
         run: |
           $installer = Get-ChildItem -Path $env:CARGO_TARGET_DIR -Recurse -Filter '*-setup.exe' | Select-Object -First 1
@@ -146,6 +240,8 @@ jobs:
 
   portable-malayalam-smoke:
     name: ${{ matrix.name }} (reported, not beta-blocking)
+    needs: changes
+    if: needs.changes.outputs.ci_only != 'true'
     runs-on: ${{ matrix.os }}
     continue-on-error: true
     timeout-minutes: 75
@@ -167,12 +263,21 @@ jobs:
             bundles: app
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.3.9
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
+      - name: Cache Cargo registry and git dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: cargo-${{ runner.os }}-${{ hashFiles('src-tauri/Cargo.lock') }}
       - name: Use a runner-local Cargo target directory
         shell: bash
         run: echo "CARGO_TARGET_DIR=$GITHUB_WORKSPACE/.ci/cargo-target" >> "$GITHUB_ENV"
@@ -278,12 +383,14 @@ jobs:
 
   promotion-policy:
     name: dev to main promotion policy
-    if: github.event_name == 'pull_request' && github.base_ref == 'main'
+    needs: changes
+    if: github.event_name == 'pull_request' && github.base_ref == 'main' && needs.changes.outputs.ci_only != 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          persist-credentials: false
       - name: Require the dev branch and one coordinated patch version
         env:
           HEAD_REF: ${{ github.head_ref }}

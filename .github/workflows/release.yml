@@ -3,6 +3,11 @@ name: Publish MASR release from main
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - ".github/**"
+      - "docs/ci-cd/**"
+      - "docs/github-actions/**"
+      - "CI_CD.md"
   workflow_dispatch:
 
 concurrency:
@@ -78,9 +83,28 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
-      - name: Use one runner-local Cargo target directory
-        shell: bash
-        run: echo "CARGO_TARGET_DIR=$RUNNER_TEMP/cargo-target" >> "$GITHUB_ENV"
+      - name: Cache Cargo registry and git dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: cargo-${{ runner.os }}-${{ hashFiles('src-tauri/Cargo.lock') }}
+      - name: Use a short Windows Cargo target directory
+        shell: pwsh
+        run: |
+          # whisper.cpp's generated Vulkan build tree is deeply nested. The
+          # Windows FileTracker cannot create its logs once whisper.cpp's
+          # generated Vulkan tree extends a runner-temp path. Map its target
+          # through T: so the generated tree starts at T:\ on hosted runners.
+          if ($env:RUNNER_OS -eq 'Windows') {
+            New-Item -ItemType Directory -Path 'D:\t' -Force | Out-Null
+            subst T: D:\t
+            $target = 'T:\'
+          } else {
+            $target = Join-Path $env:RUNNER_TEMP 'cargo-target'
+          }
+          "CARGO_TARGET_DIR=$target" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
       - name: Install Windows Vulkan tooling
         if: runner.os == 'Windows'
         uses: humbletim/install-vulkan-sdk@v1.2
@@ -116,6 +140,7 @@ jobs:
           GGML_AVX2: "OFF"
           GGML_FMA: "OFF"
           GGML_F16C: "OFF"
+          CMAKE_GENERATOR: Ninja
         shell: bash
         run: |
           export PATH="$MASR_ORT_LIB_DIR:$PATH"
@@ -186,7 +211,14 @@ jobs:
           mkdir -p release-assets
           find "$CARGO_TARGET_DIR" -type f \( -name '*.exe' -o -name '*.exe.sig' -o -name '*.deb' -o -name '*.deb.sig' -o -name '*.AppImage' -o -name '*.AppImage.sig' -o -name '*.dmg' -o -name '*.dmg.sig' -o -name '*.tar.gz' -o -name '*.tar.gz.sig' \) -exec cp {} release-assets/ \;
           test "$(find release-assets -type f | wc -l)" -gt 0
-          (cd release-assets && shasum -a 256 * > "SHA256SUMS-${{ matrix.artifact }}.txt")
+          (
+            cd release-assets
+            if command -v shasum >/dev/null 2>&1; then
+              shasum -a 256 * > "SHA256SUMS-${{ matrix.artifact }}.txt"
+            else
+              sha256sum * > "SHA256SUMS-${{ matrix.artifact }}.txt"
+            fi
+          )
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact }}-${{ needs.metadata.outputs.version }}
@@ -232,8 +264,8 @@ jobs:
           node <<'NODE'
           const fs = require('fs'), path = require('path');
           const files = fs.readdirSync('release-assets');
-          const entry = (pattern, platform) => { const asset = files.find((name) => pattern.test(name)); const sig = asset && `${asset}.sig`; if (!asset || !files.includes(sig)) throw new Error(`Missing signed ${platform} updater artifact`); return [platform, { signature: fs.readFileSync(path.join('release-assets', sig), 'utf8').trim(), url: `https://github.com/RealNickey/runtime-depot/releases/download/v${process.env.VERSION}/${encodeURIComponent(asset)}` }]; };
-          const platforms = Object.fromEntries([entry(/-setup\.exe$/i, 'windows-x86_64'), entry(/AppImage.*\.tar\.gz$/i, 'linux-x86_64'), entry(/\.app\.tar\.gz$/i, 'darwin-aarch64')]);
+          const entry = (pattern, platform) => { const asset = files.find((name) => pattern.test(name)); const sig = asset && `${asset}.sig`; if (!asset || !files.includes(sig)) throw new Error(`Missing signed ${platform} updater artifact; available: ${files.join(', ')}`); return [platform, { signature: fs.readFileSync(path.join('release-assets', sig), 'utf8').trim(), url: `https://github.com/RealNickey/runtime-depot/releases/download/v${process.env.VERSION}/${encodeURIComponent(asset)}` }]; };
+          const platforms = Object.fromEntries([entry(/-setup\.exe$/i, 'windows-x86_64'), entry(/\.AppImage$/i, 'linux-x86_64'), entry(/\.app\.tar\.gz$/i, 'darwin-aarch64')]);
           fs.writeFileSync('release-assets/latest.json', JSON.stringify({ version: process.env.VERSION, notes: `MASR ${process.env.VERSION}`, pub_date: new Date().toISOString(), platforms }, null, 2) + '\n');
           NODE
       - name: Create GitHub Release only after all payload checks
