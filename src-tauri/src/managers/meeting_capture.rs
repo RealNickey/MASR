@@ -147,9 +147,9 @@ impl MeetingCaptureSession {
     }
 
     fn cleanup_staging_directory(&mut self) {
-        self.microphone.take();
-        self.system.take();
-        self.mix.take();
+        let _ = self.microphone.take();
+        let _ = self.system.take();
+        let _ = self.mix.take();
         if !self.published {
             let _ = fs::remove_dir_all(&self.staging_dir);
         }
