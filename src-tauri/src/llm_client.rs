@@ -3,6 +3,7 @@ use log::debug;
 use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION, CONTENT_TYPE, REFERER, USER_AGENT};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use tauri::AppHandle;
 
 #[derive(Debug, Serialize)]
 struct ChatMessage {
@@ -95,6 +96,8 @@ fn create_client(provider: &PostProcessProvider, api_key: &str) -> Result<reqwes
     let headers = build_headers(provider, api_key)?;
     reqwest::Client::builder()
         .default_headers(headers)
+        .connect_timeout(std::time::Duration::from_secs(10))
+        .timeout(std::time::Duration::from_secs(30))
         .build()
         .map_err(|e| format!("Failed to build HTTP client: {}", e))
 }
@@ -103,6 +106,7 @@ fn create_client(provider: &PostProcessProvider, api_key: &str) -> Result<reqwes
 /// Returns Ok(Some(content)) on success, Ok(None) if response has no content,
 /// or Err on actual errors (HTTP, parsing, etc.)
 pub async fn send_chat_completion(
+    app: &AppHandle,
     provider: &PostProcessProvider,
     api_key: String,
     model: &str,
@@ -111,6 +115,7 @@ pub async fn send_chat_completion(
     reasoning: Option<ReasoningConfig>,
 ) -> Result<Option<String>, String> {
     send_chat_completion_with_schema(
+        app,
         provider,
         api_key,
         model,
@@ -129,6 +134,7 @@ pub async fn send_chat_completion(
 /// reasoning_effort sets the OpenAI-style top-level field (e.g., "none", "low", "medium", "high")
 /// reasoning sets the OpenRouter-style nested object (effort + exclude)
 pub async fn send_chat_completion_with_schema(
+    app: &AppHandle,
     provider: &PostProcessProvider,
     api_key: String,
     model: &str,
@@ -217,6 +223,36 @@ pub async fn fetch_models(
     provider: &PostProcessProvider,
     api_key: String,
 ) -> Result<Vec<String>, String> {
+    if provider.id == "ollama" {
+        let mut endpoint =
+            url::Url::parse(&provider.base_url).map_err(|_| "Ollama URL is invalid".to_string())?;
+        endpoint.set_path("/api/tags");
+        endpoint.set_query(None);
+        endpoint.set_fragment(None);
+
+        let response = create_client(provider, &api_key)?
+            .get(endpoint)
+            .send()
+            .await
+            .map_err(|e| format!("Could not reach Ollama: {}", e))?;
+        let status = response.status();
+        if !status.is_success() {
+            return Err(format!("Ollama returned HTTP {}", status));
+        }
+        let parsed: serde_json::Value = response
+            .json()
+            .await
+            .map_err(|e| format!("Could not read Ollama's model list: {}", e))?;
+        return Ok(parsed
+            .get("models")
+            .and_then(|models| models.as_array())
+            .into_iter()
+            .flatten()
+            .filter_map(|model| model.get("name").and_then(|name| name.as_str()))
+            .map(str::to_string)
+            .collect());
+    }
+
     let base_url = provider.base_url.trim_end_matches('/');
     let url = format!("{}/models", base_url);
 

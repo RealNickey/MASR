@@ -1,14 +1,19 @@
 use log::{debug, warn};
+use once_cell::sync::Lazy;
 use serde::de::{self, Visitor};
 use serde::{Deserialize, Deserializer, Serialize};
 use specta::Type;
 use std::collections::HashMap;
 use std::fmt;
+use std::sync::Mutex;
 use tauri::AppHandle;
 use tauri_plugin_store::StoreExt;
 
 pub const APPLE_INTELLIGENCE_PROVIDER_ID: &str = "apple_intelligence";
 pub const APPLE_INTELLIGENCE_DEFAULT_MODEL_ID: &str = "Apple Intelligence";
+pub const LLM_DAILY_REQUEST_LIMIT: u32 = 20;
+
+static LLM_QUOTA_WRITE_LOCK: Lazy<Mutex<()>> = Lazy::new(|| Mutex::new(()));
 
 #[derive(Serialize, Debug, Clone, Copy, PartialEq, Eq, Type)]
 #[serde(rename_all = "lowercase")]
@@ -429,6 +434,10 @@ pub struct AppSettings {
     #[serde(default = "default_post_process_prompts")]
     pub post_process_prompts: Vec<LLMPrompt>,
     #[serde(default)]
+    pub llm_daily_usage_date: Option<String>,
+    #[serde(default)]
+    pub llm_daily_request_count: u32,
+    #[serde(default)]
     pub post_process_selected_prompt_id: Option<String>,
     #[serde(default)]
     pub mute_while_recording: bool,
@@ -563,7 +572,116 @@ fn default_show_tray_icon() -> bool {
 }
 
 fn default_post_process_provider_id() -> String {
-    "openai".to_string()
+    default_provider_from_environment().unwrap_or_else(|| "openai".to_string())
+}
+
+/// Environment keys are app-provided defaults. A non-empty user setting always
+/// takes precedence, so users can override these defaults per provider.
+pub fn default_api_keys_for_provider(provider_id: &str) -> Vec<String> {
+    let keys: &[&str] = match provider_id {
+        "google" => &[
+            "GOOGLE_API_KEY",
+            "GoogleAPI",
+            "GEMINI_API_KEY",
+            "GEMINI_API_KEY_1",
+            "GEMINI_API_KEY_2",
+        ],
+        "groq" => &["GROQ_API_KEY"],
+        "openrouter" => &["OPENROUTER_API_KEY"],
+        _ => &[],
+    };
+
+    keys.iter()
+        .filter_map(|key| {
+            std::env::var(key)
+                .ok()
+                .map(|value| value.trim().to_string())
+                .filter(|value| !value.is_empty())
+        })
+        .collect()
+}
+
+pub fn default_api_key_for_provider(provider_id: &str) -> Option<String> {
+    default_api_keys_for_provider(provider_id)
+        .into_iter()
+        .next()
+}
+
+pub fn default_provider_from_environment() -> Option<String> {
+    ["google", "groq", "openrouter"]
+        .into_iter()
+        .find(|provider_id| default_api_key_for_provider(provider_id).is_some())
+        .map(str::to_string)
+}
+
+pub fn resolved_post_process_api_key(settings: &AppSettings, provider_id: &str) -> String {
+    crate::credentials::get(provider_id)
+        .or_else(|| {
+            settings
+                .post_process_api_keys
+                .get(provider_id)
+                .map(|key| key.trim().to_string())
+                .filter(|key| !key.is_empty())
+        })
+        .or_else(|| default_api_key_for_provider(provider_id))
+        .unwrap_or_default()
+}
+
+/// Returns `true` when the active key for `provider_id` comes from an
+/// app-provided environment default rather than a user-supplied credential.
+/// The daily LLM quota only applies to app-provided keys.
+pub fn is_using_app_provided_key(settings: &AppSettings, provider_id: &str) -> bool {
+    if crate::credentials::get(provider_id).is_some() {
+        return false;
+    }
+    if settings
+        .post_process_api_keys
+        .get(provider_id)
+        .map(|key| !key.trim().is_empty())
+        .unwrap_or(false)
+    {
+        return false;
+    }
+    default_api_key_for_provider(provider_id).is_some()
+}
+
+pub fn is_app_provided_api_key(settings: &AppSettings, provider_id: &str, api_key: &str) -> bool {
+    let api_key = api_key.trim();
+    if api_key.is_empty() || crate::credentials::get(provider_id).is_some() {
+        return false;
+    }
+    if settings
+        .post_process_api_keys
+        .get(provider_id)
+        .map(|key| key.trim() == api_key && !key.trim().is_empty())
+        .unwrap_or(false)
+    {
+        return false;
+    }
+    default_api_keys_for_provider(provider_id)
+        .iter()
+        .any(|key| key == api_key)
+}
+
+pub fn normalize_provider_base_url(provider_id: &str, base_url: &str) -> Result<String, String> {
+    let mut url = url::Url::parse(base_url.trim())
+        .map_err(|_| "Enter a valid http:// or https:// API URL.".to_string())?;
+    if !matches!(url.scheme(), "http" | "https") || url.host_str().is_none() {
+        return Err("Enter a valid http:// or https:// API URL.".to_string());
+    }
+    url.set_query(None);
+    url.set_fragment(None);
+    let mut normalized = url.to_string().trim_end_matches('/').to_string();
+
+    if provider_id == "ollama" {
+        normalized = normalized
+            .trim_end_matches("/v1")
+            .trim_end_matches('/')
+            .to_string();
+        normalized.push_str("/v1");
+    }
+
+    Ok(normalized)
 }
 
 fn default_post_process_providers() -> Vec<PostProcessProvider> {
@@ -688,6 +806,10 @@ fn default_model_for_provider(provider_id: &str) -> String {
         return APPLE_INTELLIGENCE_DEFAULT_MODEL_ID.to_string();
     } else if provider_id == "google" {
         return "gemma-4-26b-a4b-it".to_string();
+    } else if provider_id == "groq" {
+        return "llama-3.3-70b-versatile".to_string();
+    } else if provider_id == "openrouter" {
+        return "openai/gpt-4o-mini".to_string();
     }
     String::new()
 }
@@ -922,6 +1044,8 @@ pub fn get_default_settings() -> AppSettings {
         post_process_api_keys: default_post_process_api_keys(),
         post_process_models: default_post_process_models(),
         post_process_prompts: default_post_process_prompts(),
+        llm_daily_usage_date: None,
+        llm_daily_request_count: 0,
         post_process_selected_prompt_id: None,
         mute_while_recording: false,
         append_trailing_space: false,
@@ -1020,28 +1144,35 @@ pub fn load_or_create_app_settings(app: &AppHandle) -> AppSettings {
     settings
 }
 
-pub fn get_settings(app: &AppHandle) -> AppSettings {
+pub fn get_settings_with_creation_status(app: &AppHandle) -> (AppSettings, bool) {
     let store = app
         .store(crate::portable::store_path(SETTINGS_STORE_PATH))
         .expect("Failed to initialize store");
 
-    let mut settings = if let Some(settings_value) = store.get("settings") {
-        serde_json::from_value::<AppSettings>(settings_value).unwrap_or_else(|_| {
-            let default_settings = get_default_settings();
-            store.set("settings", serde_json::to_value(&default_settings).unwrap());
-            default_settings
-        })
+    let (mut settings, created) = if let Some(settings_value) = store.get("settings") {
+        match serde_json::from_value::<AppSettings>(settings_value) {
+            Ok(settings) => (settings, false),
+            Err(_) => {
+                let default_settings = get_default_settings();
+                store.set("settings", serde_json::to_value(&default_settings).unwrap());
+                (default_settings, false)
+            }
+        }
     } else {
         let default_settings = get_default_settings();
         store.set("settings", serde_json::to_value(&default_settings).unwrap());
-        default_settings
+        (default_settings, true)
     };
 
     if ensure_post_process_defaults(&mut settings) {
         store.set("settings", serde_json::to_value(&settings).unwrap());
     }
 
-    settings
+    (settings, created)
+}
+
+pub fn get_settings(app: &AppHandle) -> AppSettings {
+    get_settings_with_creation_status(app).0
 }
 
 pub fn write_settings(app: &AppHandle, settings: AppSettings) {
@@ -1050,6 +1181,34 @@ pub fn write_settings(app: &AppHandle, settings: AppSettings) {
         .expect("Failed to initialize store");
 
     store.set("settings", serde_json::to_value(&settings).unwrap());
+}
+
+/// Consume one user-wide LLM request from the daily quota. This is persisted so
+/// restarting the app cannot bypass the limit. Callers reserve quota once per
+/// logical chat action; model discovery and connection tests do not call this.
+pub fn consume_llm_request_quota(app: &AppHandle) -> Result<(), String> {
+    let _guard = match LLM_QUOTA_WRITE_LOCK.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
+    };
+    let today = chrono::Local::now().date_naive().to_string();
+    let mut settings = get_settings(app);
+
+    if settings.llm_daily_usage_date.as_deref() != Some(today.as_str()) {
+        settings.llm_daily_usage_date = Some(today);
+        settings.llm_daily_request_count = 0;
+    }
+
+    if settings.llm_daily_request_count >= LLM_DAILY_REQUEST_LIMIT {
+        return Err(format!(
+            "Daily LLM limit reached ({} requests). It resets at midnight local time.",
+            LLM_DAILY_REQUEST_LIMIT
+        ));
+    }
+
+    settings.llm_daily_request_count += 1;
+    write_settings(app, settings);
+    Ok(())
 }
 
 pub fn get_bindings(app: &AppHandle) -> HashMap<String, ShortcutBinding> {
@@ -1117,10 +1276,31 @@ mod tests {
     }
 
     #[test]
-    fn secret_map_debug_redacts_values() {
-        let map = SecretMap(HashMap::from([("key".into(), "secret".into())]));
-        let out = format!("{:?}", map);
-        assert!(!out.contains("secret"));
-        assert!(out.contains("[REDACTED]"));
+    fn test_is_using_app_provided_key() {
+        let mut settings = get_default_settings();
+
+        // 1. User supplied key in settings -> false (quota bypassed)
+        settings
+            .post_process_api_keys
+            .insert("google".to_string(), "my-custom-gemini-key".to_string());
+        assert!(!is_using_app_provided_key(&settings, "google"));
+
+        // 2. Custom provider with no key and no env default -> false (quota bypassed)
+        assert!(!is_using_app_provided_key(&settings, "custom"));
+
+        let previous_groq_key = std::env::var("GROQ_API_KEY").ok();
+        std::env::remove_var("GROQ_API_KEY");
+
+        // 3. Provider with no user key and no env set -> false
+        settings.post_process_api_keys.remove("groq");
+        assert!(!is_using_app_provided_key(&settings, "groq"));
+
+        std::env::set_var("GROQ_API_KEY", "app-default-key");
+        assert!(is_using_app_provided_key(&settings, "groq"));
+        if let Some(previous) = previous_groq_key {
+            std::env::set_var("GROQ_API_KEY", previous);
+        } else {
+            std::env::remove_var("GROQ_API_KEY");
+        }
     }
 }

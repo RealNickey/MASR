@@ -33,7 +33,13 @@ pub fn get_app_dir_path(app: AppHandle) -> Result<String, String> {
 #[tauri::command]
 #[specta::specta]
 pub fn get_app_settings(app: AppHandle) -> Result<AppSettings, String> {
-    Ok(get_settings(&app))
+    let mut settings = get_settings(&app);
+    // Keys are read by the Rust backend only. The frontend receives the map's
+    // provider shape but never a retrievable secret.
+    for key in settings.post_process_api_keys.values_mut() {
+        key.clear();
+    }
+    Ok(settings)
 }
 
 #[tauri::command]
@@ -207,7 +213,13 @@ pub async fn test_post_process_api_key(
         return Ok(true);
     }
 
-    match crate::llm_client::fetch_models(provider, api_key).await {
+    let effective_key = if api_key.trim().is_empty() {
+        crate::settings::resolved_post_process_api_key(&settings, &provider_id)
+    } else {
+        api_key
+    };
+
+    match crate::llm_client::fetch_models(provider, effective_key).await {
         Ok(_) => Ok(true),
         Err(e) => Err(e),
     }
@@ -231,7 +243,8 @@ pub async fn check_ollama_status(app: AppHandle) -> Result<OllamaStatus, String>
         .find(|p| p.id == "ollama")
         .ok_or_else(|| "Ollama provider settings not found".to_string())?;
 
-    match crate::llm_client::fetch_models(provider, String::new()).await {
+    let api_key = crate::settings::resolved_post_process_api_key(&settings, "ollama");
+    match crate::llm_client::fetch_models(provider, api_key).await {
         Ok(models) => Ok(OllamaStatus {
             connected: true,
             model_count: models.len() as u32,

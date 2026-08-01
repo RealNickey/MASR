@@ -17,9 +17,8 @@ test.describe("Aggressive Auto-Updates", () => {
 
     await page.goto("/");
 
-    // Modal should not be visible
-    const modalHeader = page.locator("text=Update Ready");
-    await expect(modalHeader).not.toBeVisible();
+    const state = await getMockState(page);
+    expect(state.updateDialogAsked).toBe(false);
   });
 
   test("automatically checks, downloads, and shows update modal when update is available", async ({
@@ -34,21 +33,9 @@ test.describe("Aggressive Auto-Updates", () => {
 
     await page.goto("/");
 
-    // Modal should appear
-    const modalHeader = page.locator("text=Update Ready");
-    await expect(modalHeader).toBeVisible();
-
-    // Check version description
-    const modalDesc = page.locator("text=ThegAi v0.9.0 is ready to install");
-    await expect(modalDesc).toBeVisible();
-
-    // Verify buttons exist
-    const updateNowBtn = page.locator("button:has-text('Update Now')");
-    const updateLaterBtn = page.locator(
-      "button:has-text('Update on Next Launch')",
-    );
-    await expect(updateNowBtn).toBeVisible();
-    await expect(updateLaterBtn).toBeVisible();
+    await expect
+      .poll(async () => (await getMockState(page)).updateDialogAsked)
+      .toBe(true);
   });
 
   test("clicking Update Now installs the update and restarts the app", async ({
@@ -58,19 +45,41 @@ test.describe("Aggressive Auto-Updates", () => {
       const state = (window as any).__MOCK_STATE__;
       state.updateAvailable = true;
       state.updateVersion = "0.9.5";
+      state.updateDialogResponse = true;
     });
 
     await page.goto("/");
 
-    const updateNowBtn = page.locator("button:has-text('Update Now')");
-    await expect(updateNowBtn).toBeVisible();
+    await expect
+      .poll(async () => (await getMockState(page)).relaunchCalled)
+      .toBe(true);
+  });
 
-    // Click Update Now
-    await updateNowBtn.click();
+  test("shows a native error when direct and fallback installation fail", async ({
+    page,
+  }) => {
+    await page.addInitScript(() => {
+      const state = (window as any).__MOCK_STATE__;
+      state.updateAvailable = true;
+      state.updateVersion = "0.9.6";
+      state.updateDialogResponse = true;
+      state.installShouldFail = true;
+      state.downloadShouldFail = false;
+    });
 
-    // Verify relaunch called by checking mock state
-    const mockState = await getMockState(page);
-    expect(mockState.relaunchCalled).toBe(true);
+    await page.goto("/");
+
+    await expect
+      .poll(
+        async () =>
+          await page.evaluate(
+            () => (window as any).__LAST_UPDATE_ERROR_DIALOG__ ?? "",
+          ),
+      )
+      .toBe("Install failed. Please restart the app manually.");
+    expect((await getMockState(page)).updateErrorDialogMessages).toContain(
+      "Install failed. Please restart the app manually.",
+    );
   });
 
   test("clicking Update on Next Launch sets flag in localStorage and dismisses modal", async ({
@@ -84,17 +93,9 @@ test.describe("Aggressive Auto-Updates", () => {
 
     await page.goto("/");
 
-    const updateLaterBtn = page.locator(
-      "button:has-text('Update on Next Launch')",
-    );
-    await expect(updateLaterBtn).toBeVisible();
-
-    // Click Update on Next Launch
-    await updateLaterBtn.click();
-
-    // Modal should disappear
-    const modalHeader = page.locator("text=Update Ready");
-    await expect(modalHeader).not.toBeVisible();
+    await expect
+      .poll(async () => (await getMockState(page)).updateDialogAsked)
+      .toBe(true);
 
     // Verify localStorage has key set
     const flag = await page.evaluate(() =>

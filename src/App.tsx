@@ -80,7 +80,7 @@ function App() {
   // Automatically redirect to general if a hidden section becomes active in prod mode
   useEffect(() => {
     const isSimulatingOrRealProd = isProductionLike();
-    const hiddenSections = ["models", "history", "meetings", "postprocessing"];
+    const hiddenSections = ["models", "history", "meetings"];
     if (isSimulatingOrRealProd && hiddenSections.includes(currentSection)) {
       setCurrentSection("general");
     }

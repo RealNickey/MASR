@@ -6,6 +6,7 @@ pub mod audio_toolkit;
 pub mod cli;
 mod clipboard;
 mod commands;
+mod credentials;
 mod helpers;
 mod input;
 pub mod llm_client;
@@ -634,28 +635,17 @@ pub fn run(cli_args: CliArgs) {
 
             primary_builder.build()?;
 
-            let mut settings = get_settings(&app.handle());
+            let (mut settings, settings_created) =
+                settings::get_settings_with_creation_status(&app.handle());
+            credentials::migrate_legacy_api_keys(&app.handle(), &mut settings);
 
-            if let Ok(google_api_key) = std::env::var("GoogleAPI") {
-                if !google_api_key.is_empty() {
-                    let mut settings_updated = false;
-                    if let Some(key) = settings.post_process_api_keys.get_mut("google") {
-                        if key.is_empty() {
-                            *key = google_api_key;
-                            settings_updated = true;
-                        }
-                    }
-                    if settings.post_process_provider_id != "google" {
-                        settings.post_process_provider_id = "google".to_string();
-                        settings_updated = true;
-                    }
-                    if !settings.post_process_enabled {
-                        settings.post_process_enabled = true;
-                        settings_updated = true;
-                    }
-                    if settings_updated {
-                        settings::write_settings(&app.handle(), settings.clone());
-                    }
+            // Environment defaults may select the provider only during first-run
+            // settings creation. Existing settings preserve the user's choice.
+            if settings_created {
+                if let Some(default_provider) = settings::default_provider_from_environment() {
+                    settings.post_process_provider_id = default_provider;
+                    settings.post_process_enabled = true;
+                    settings::write_settings(&app.handle(), settings.clone());
                 }
             }
 

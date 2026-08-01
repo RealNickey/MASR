@@ -53,6 +53,10 @@ export interface MockState {
   downloadShouldFail: boolean;
   installShouldFail: boolean;
   relaunchCalled: boolean;
+  updateDialogResponse: boolean;
+  updateDialogAsked: boolean;
+  updateErrorDialogMessages: string[];
+  updateErrorDialogShown: boolean;
 }
 
 export async function setupMocks(
@@ -116,6 +120,10 @@ export async function setupMocks(
             downloadShouldFail: false,
             installShouldFail: false,
             relaunchCalled: false,
+            updateDialogResponse: false,
+            updateDialogAsked: false,
+            updateErrorDialogMessages: [],
+            updateErrorDialogShown: false,
           };
 
       if (overrides) {
@@ -676,6 +684,32 @@ export async function setupMocks(
           }
 
           // Mock updater commands
+          if (cmd === "plugin:dialog|ask") {
+            const message = String(
+              args?.message ?? args?.options?.message ?? "",
+            );
+            const title = String(args?.options?.title ?? args?.title ?? "");
+            if (
+              !message.includes("is ready to install") &&
+              title !== "Update ready"
+            ) {
+              return false;
+            }
+            state.updateDialogAsked = true;
+            saveState();
+            return state.updateDialogResponse;
+          }
+          if (cmd === "plugin:dialog|message") {
+            const message = String(
+              args?.message ?? args?.options?.message ?? args?.[0] ?? "",
+            );
+            state.updateErrorDialogMessages ??= [];
+            state.updateErrorDialogMessages.push(message);
+            state.updateErrorDialogShown = true;
+            (window as any).__LAST_UPDATE_ERROR_DIALOG__ = message;
+            saveState();
+            return "Ok";
+          }
           if (cmd === "plugin:updater|check") {
             if (state.updateAvailable) {
               return {
