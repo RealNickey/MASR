@@ -34,11 +34,11 @@ a repository administrator from directly pushing to `main`.
 
 Configure these in `RealNickey/MASR`, never in the public depot:
 
-| Secret                               | Scope and purpose                                                                 |
-| ------------------------------------ | --------------------------------------------------------------------------------- |
-| `TAURI_SIGNING_PRIVATE_KEY`          | Private updater key, available to the trusted Windows, Linux, and macOS package jobs.           |
-| `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | Password for that key, available to the trusted Windows, Linux, and macOS package jobs.         |
-| `RUNTIME_DEPOT_TOKEN`                | Least-privilege token with Contents access limited to `RealNickey/runtime-depot`. |
+| Secret                               | Scope and purpose                                                                       |
+| ------------------------------------ | --------------------------------------------------------------------------------------- |
+| `TAURI_SIGNING_PRIVATE_KEY`          | Private updater key, available to the trusted Windows, Linux, and macOS package jobs.   |
+| `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | Password for that key, available to the trusted Windows, Linux, and macOS package jobs. |
+| `RUNTIME_DEPOT_TOKEN`                | Least-privilege token with Contents access limited to `RealNickey/runtime-depot`.       |
 
 The private key must match `plugins.updater.pubkey` in
 `src-tauri/tauri.conf.json`.
