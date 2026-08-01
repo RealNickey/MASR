@@ -94,7 +94,7 @@ impl HistoryManager {
             fs::create_dir_all(&recordings_dir)?;
             debug!("Created recordings directory: {:?}", recordings_dir);
         }
-        Self::cleanup_abandoned_staging_directories(&recordings_dir)?;
+        Self::cleanup_abandoned_staging_directories(&recordings_dir);
 
         let manager = Self {
             app_handle: app_handle.clone(),
@@ -111,10 +111,36 @@ impl HistoryManager {
     /// A crash during capture leaves only a hidden staging directory. It was
     /// never promoted or referenced by SQLite, so it is safe to remove at the
     /// next startup without touching a completed meeting.
-    fn cleanup_abandoned_staging_directories(recordings_dir: &Path) -> Result<()> {
-        for entry in fs::read_dir(recordings_dir)? {
-            let entry = entry?;
-            let file_type = entry.file_type()?;
+    fn cleanup_abandoned_staging_directories(recordings_dir: &Path) {
+        let entries = match fs::read_dir(recordings_dir) {
+            Ok(entries) => entries,
+            Err(error) => {
+                debug!(
+                    "Failed to inspect abandoned meeting staging directories in {:?}: {}",
+                    recordings_dir, error
+                );
+                return;
+            }
+        };
+        for entry in entries {
+            let entry = match entry {
+                Ok(entry) => entry,
+                Err(error) => {
+                    debug!("Failed to read meeting staging directory entry: {}", error);
+                    continue;
+                }
+            };
+            let file_type = match entry.file_type() {
+                Ok(file_type) => file_type,
+                Err(error) => {
+                    debug!(
+                        "Failed to inspect meeting staging directory entry {:?}: {}",
+                        entry.path(),
+                        error
+                    );
+                    continue;
+                }
+            };
             let name = entry.file_name();
             if file_type.is_dir()
                 && name
@@ -125,10 +151,15 @@ impl HistoryManager {
                     "Removing abandoned meeting staging directory: {:?}",
                     entry.path()
                 );
-                fs::remove_dir_all(entry.path())?;
+                if let Err(error) = fs::remove_dir_all(entry.path()) {
+                    debug!(
+                        "Failed to remove abandoned meeting staging directory {:?}: {}",
+                        entry.path(),
+                        error
+                    );
+                }
             }
         }
-        Ok(())
     }
 
     fn init_database(&self) -> Result<()> {
@@ -757,6 +788,10 @@ impl HistoryManager {
     /// relative and validated before deletion so a corrupt database cannot
     /// escape the recordings directory.
     fn delete_track_directory(&self, tracks: &AudioTracks) {
+        Self::delete_track_directory_at(&self.recordings_dir, tracks);
+    }
+
+    fn delete_track_directory_at(recordings_dir: &Path, tracks: &AudioTracks) {
         let Some(parent) = Path::new(&tracks.mix).parent() else {
             return;
         };
@@ -772,8 +807,8 @@ impl HistoryManager {
             );
             return;
         }
-        let directory = self.recordings_dir.join(parent);
-        if directory.starts_with(&self.recordings_dir) && directory.exists() {
+        let directory = recordings_dir.join(parent);
+        if directory.starts_with(recordings_dir) && directory.exists() {
             if let Err(error) = fs::remove_dir_all(&directory) {
                 error!(
                     "Failed to delete meeting track directory {:?}: {}",
@@ -798,6 +833,7 @@ impl HistoryManager {
 mod tests {
     use super::*;
     use rusqlite::{params, Connection};
+    use tempfile::tempdir;
 
     fn setup_conn() -> Connection {
         let conn = Connection::open_in_memory().expect("open in-memory db");
@@ -879,5 +915,42 @@ mod tests {
 
         assert_eq!(entry.timestamp, 100);
         assert_eq!(entry.transcription_text, "completed");
+    }
+
+    fn assert_sentinel_survives_unsafe_track_path(mix: String) {
+        let temp = tempdir().unwrap();
+        let recordings_dir = temp.path().join("recordings");
+        fs::create_dir(&recordings_dir).unwrap();
+        let sentinel = temp.path().join("sentinel.txt");
+        fs::write(&sentinel, "keep").unwrap();
+
+        HistoryManager::delete_track_directory_at(
+            &recordings_dir,
+            &AudioTracks {
+                mix,
+                microphone: "microphone.wav".to_string(),
+                system: "system.wav".to_string(),
+            },
+        );
+
+        assert!(sentinel.exists());
+    }
+
+    #[test]
+    fn delete_track_directory_rejects_absolute_path() {
+        let temp = tempdir().unwrap();
+        assert_sentinel_survives_unsafe_track_path(
+            temp.path().join("mix.wav").to_string_lossy().into_owned(),
+        );
+    }
+
+    #[test]
+    fn delete_track_directory_rejects_parent_path() {
+        assert_sentinel_survives_unsafe_track_path("../outside/mix.wav".to_string());
+    }
+
+    #[test]
+    fn delete_track_directory_rejects_empty_parent() {
+        assert_sentinel_survives_unsafe_track_path("mix.wav".to_string());
     }
 }

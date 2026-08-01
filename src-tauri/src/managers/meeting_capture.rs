@@ -17,6 +17,7 @@ pub struct MeetingCaptureSession {
     recordings_dir: PathBuf,
     staging_dir: PathBuf,
     final_dir_name: String,
+    published: bool,
     microphone: Option<WavWriter<std::io::BufWriter<File>>>,
     system: Option<WavWriter<std::io::BufWriter<File>>>,
     mix: Option<WavWriter<std::io::BufWriter<File>>>,
@@ -42,13 +43,32 @@ impl MeetingCaptureSession {
             bits_per_sample: 16,
             sample_format: hound::SampleFormat::Int,
         };
-        let microphone = WavWriter::create(staging_dir.join("microphone.wav"), spec)?;
-        let system = WavWriter::create(staging_dir.join("system.wav"), spec)?;
-        let mix = WavWriter::create(staging_dir.join("mix.wav"), spec)?;
+        let microphone = match WavWriter::create(staging_dir.join("microphone.wav"), spec) {
+            Ok(writer) => writer,
+            Err(error) => {
+                let _ = fs::remove_dir_all(&staging_dir);
+                return Err(error.into());
+            }
+        };
+        let system = match WavWriter::create(staging_dir.join("system.wav"), spec) {
+            Ok(writer) => writer,
+            Err(error) => {
+                let _ = fs::remove_dir_all(&staging_dir);
+                return Err(error.into());
+            }
+        };
+        let mix = match WavWriter::create(staging_dir.join("mix.wav"), spec) {
+            Ok(writer) => writer,
+            Err(error) => {
+                let _ = fs::remove_dir_all(&staging_dir);
+                return Err(error.into());
+            }
+        };
         Ok(Self {
             recordings_dir: recordings_dir.to_path_buf(),
             staging_dir,
             final_dir_name,
+            published: false,
             microphone: Some(microphone),
             system: Some(system),
             mix: Some(mix),
@@ -110,6 +130,7 @@ impl MeetingCaptureSession {
         }
         let final_dir = self.recordings_dir.join(&self.final_dir_name);
         fs::rename(&self.staging_dir, &final_dir)?;
+        self.published = true;
 
         Ok(AudioTracks {
             mix: format!("{}/mix.wav", self.final_dir_name),
@@ -120,6 +141,14 @@ impl MeetingCaptureSession {
 
     pub fn discard(self) {
         let _ = fs::remove_dir_all(self.staging_dir);
+    }
+}
+
+impl Drop for MeetingCaptureSession {
+    fn drop(&mut self) {
+        if !self.published {
+            let _ = fs::remove_dir_all(&self.staging_dir);
+        }
     }
 }
 
