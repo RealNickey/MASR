@@ -53,6 +53,7 @@ impl MeetingCaptureSession {
         let system = match WavWriter::create(staging_dir.join("system.wav"), spec) {
             Ok(writer) => writer,
             Err(error) => {
+                drop(microphone);
                 let _ = fs::remove_dir_all(&staging_dir);
                 return Err(error.into());
             }
@@ -60,6 +61,8 @@ impl MeetingCaptureSession {
         let mix = match WavWriter::create(staging_dir.join("mix.wav"), spec) {
             Ok(writer) => writer,
             Err(error) => {
+                drop(system);
+                drop(microphone);
                 let _ = fs::remove_dir_all(&staging_dir);
                 return Err(error.into());
             }
@@ -139,16 +142,23 @@ impl MeetingCaptureSession {
         })
     }
 
-    pub fn discard(self) {
-        let _ = fs::remove_dir_all(self.staging_dir);
+    pub fn discard(mut self) {
+        self.cleanup_staging_directory();
+    }
+
+    fn cleanup_staging_directory(&mut self) {
+        self.microphone.take();
+        self.system.take();
+        self.mix.take();
+        if !self.published {
+            let _ = fs::remove_dir_all(&self.staging_dir);
+        }
     }
 }
 
 impl Drop for MeetingCaptureSession {
     fn drop(&mut self) {
-        if !self.published {
-            let _ = fs::remove_dir_all(&self.staging_dir);
-        }
+        self.cleanup_staging_directory();
     }
 }
 
