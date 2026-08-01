@@ -1,23 +1,28 @@
-# MASR Windows-first beta release pipeline
+# MASR release pipeline
 
 Development lands through reviewed pull requests into `dev`. A reviewed
 `dev` → `main` pull request must make one matching patch-version bump in
 `package.json`, `src-tauri/Cargo.toml`, and `src-tauri/tauri.conf.json`.
-Opening or updating that PR performs a signed Windows-only dry run and uploads
-the installer as a short-lived Actions artifact; it never publishes to the
-runtime depot. Merging the reviewed PR publishes the exact committed source
-version.
+CI/CD-only pull requests are the exception: they do not change product
+versions and therefore bypass that promotion-policy job after being classified
+by the lightweight validation gate.
+Opening or updating that PR runs the normal CI gates. A merge to `main` starts
+the publishing workflow, which checks out and rebuilds the exact `main` SHA;
+it never publishes a PR head or a reused package.
 
-`MASR CI` makes the Windows x64 package, Rust tests, Malayalam model smoke, and
-ONNX Runtime bundle inspection blocking checks for `dev` and for promotion.
-Linux x64 and macOS Apple Silicon run the same Malayalam CPU/model/package
-checks as reported, non-blocking readiness jobs. They do not publish public
-assets during this beta. macOS Intel is deliberately not built or claimed.
+`MASR CI` runs frontend checks plus Windows x64 package, Rust tests, Malayalam
+model smoke, and ONNX Runtime bundle inspection for application changes.
+Linux x64 and macOS Apple Silicon report the corresponding readiness checks on
+ordinary PRs. A CI/CD-only diff runs `CI/CD validation` (Prettier, actionlint,
+and local-action-reference validation) and keeps the protected `Windows x64
+beta gate` status successful without provisioning a Windows runner.
 
-The `Publish Windows beta` workflow only runs for a merged `dev` → `main` PR in
-`RealNickey/MASR`. It is the only workflow that receives updater-signing or
-runtime-depot credentials. It publishes an updater manifest containing only the
-Windows x64 asset.
+`Publish MASR release` runs only from `main` (or a manual recovery dispatch of
+the workflow on `main`). It builds, signs, package-inspects, and smoke-tests
+Windows x64, Linux x64, and macOS Apple Silicon. It publishes only the updater
+assets uploaded by that exact run, then writes `runtime-depot`'s `latest.json`
+from the same three signed assets. macOS Intel is deliberately not built or
+claimed.
 
 ## Required repository configuration
 
@@ -29,11 +34,11 @@ a repository administrator from directly pushing to `main`.
 
 Configure these in `RealNickey/MASR`, never in the public depot:
 
-| Secret                               | Scope and purpose                                                                 |
-| ------------------------------------ | --------------------------------------------------------------------------------- |
-| `TAURI_SIGNING_PRIVATE_KEY`          | Private updater key, available only to the trusted Windows release job.           |
-| `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | Password for that key, available only to the trusted Windows release job.         |
-| `RUNTIME_DEPOT_TOKEN`                | Least-privilege token with Contents access limited to `RealNickey/runtime-depot`. |
+| Secret                               | Scope and purpose                                                                       |
+| ------------------------------------ | --------------------------------------------------------------------------------------- |
+| `TAURI_SIGNING_PRIVATE_KEY`          | Private updater key, available to the trusted Windows, Linux, and macOS package jobs.   |
+| `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | Password for that key, available to the trusted Windows, Linux, and macOS package jobs. |
+| `RUNTIME_DEPOT_TOKEN`                | Least-privilege token with Contents access limited to `RealNickey/runtime-depot`.       |
 
 The private key must match `plugins.updater.pubkey` in
 `src-tauri/tauri.conf.json`.

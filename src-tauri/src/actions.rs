@@ -1389,39 +1389,21 @@ impl ShortcutAction for MeetingAction {
 
         let rm = app.state::<Arc<AudioRecordingManager>>();
 
-        let settings = get_settings(app);
-        let is_always_on = settings.always_on_microphone;
-
         let mut recording_error: Option<String> = None;
-        if is_always_on {
-            let rm_clone = Arc::clone(&rm);
-            let app_clone = app.clone();
-            std::thread::spawn(move || {
-                play_feedback_sound_blocking(&app_clone, SoundType::Start);
-                rm_clone.apply_mute();
-            });
-
-            if let Err(e) = rm.try_start_recording("meeting") {
-                debug!("Recording failed: {}", e);
-                recording_error = Some(e);
+        // Meeting mode captures the desktop mix as well as the microphone.
+        // Feedback sounds and output muting would respectively leak into or
+        // suppress that system track, so they are intentionally disabled.
+        let recording_start_time = Instant::now();
+        match rm.try_start_recording("meeting") {
+            Ok(()) => {
+                debug!(
+                    "Meeting recording started in {:?}",
+                    recording_start_time.elapsed()
+                );
             }
-        } else {
-            let recording_start_time = Instant::now();
-            match rm.try_start_recording("meeting") {
-                Ok(()) => {
-                    debug!("Recording started in {:?}", recording_start_time.elapsed());
-                    let app_clone = app.clone();
-                    let rm_clone = Arc::clone(&rm);
-                    std::thread::spawn(move || {
-                        std::thread::sleep(std::time::Duration::from_millis(100));
-                        play_feedback_sound_blocking(&app_clone, SoundType::Start);
-                        rm_clone.apply_mute();
-                    });
-                }
-                Err(e) => {
-                    debug!("Failed to start recording: {}", e);
-                    recording_error = Some(e);
-                }
+            Err(e) => {
+                debug!("Failed to start meeting recording: {}", e);
+                recording_error = Some(e);
             }
         }
 
@@ -1485,8 +1467,8 @@ impl ShortcutAction for MeetingAction {
 
         change_tray_icon(app, TrayIconState::Transcribing);
 
-        rm.remove_mute();
-        play_feedback_sound(app, SoundType::Stop);
+        // See start(): system-audio meeting capture must not be affected by
+        // feedback playback or output mute changes.
 
         let binding_id_str = binding_id.to_string();
         tauri::async_runtime::spawn(async move {
