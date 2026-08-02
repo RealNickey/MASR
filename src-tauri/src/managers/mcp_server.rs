@@ -408,7 +408,8 @@ impl McpToolServer {
         if !model.is_downloaded {
             return Err(format!("Model '{}' is not downloaded", request.model_id));
         }
-        let source_path = validate_audio_path(&request.source_path)?;
+        let source_path =
+            validate_audio_path(&request.source_path).map_err(|error| error.to_string())?;
         let job_id = self
             .context
             .jobs

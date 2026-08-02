@@ -343,7 +343,7 @@ impl RagManager {
                    AND embedding_model = ?3 AND dimensions = ?4
                  ORDER BY chunk_index",
             )?;
-            stmt.query_map(
+            let rows = stmt.query_map(
                 params![
                     entry.id,
                     source,
@@ -351,8 +351,8 @@ impl RagManager {
                     EMBEDDING_DIMENSIONS as i64
                 ],
                 |row| row.get(0),
-            )?
-            .collect::<rusqlite::Result<Vec<String>>>()?
+            )?;
+            rows.collect::<rusqlite::Result<Vec<String>>>()?
         };
         if existing.len() == chunks.len()
             && existing
