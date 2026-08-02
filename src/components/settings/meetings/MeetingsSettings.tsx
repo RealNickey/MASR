@@ -474,10 +474,7 @@ export const MeetingEntryComponent: React.FC<MeetingEntryProps> = ({
 
     setIsAsking(true);
     try {
-      const result = await commands.askMeetingQuestion(
-        entry.transcription_text,
-        chatQuestion,
-      );
+      const result = await commands.askMeetingQuestion(entry.id, chatQuestion);
       if (result.status === "ok") {
         setChatAnswer(result.data);
       } else {

@@ -301,7 +301,32 @@
         "output": "Output",
         "transcription": "Transcription",
         "history": "History",
-        "experimental": "Experimental"
+        "experimental": "Experimental",
+        "integrations": "Integrations"
+      },
+      "vectorMemory": {
+        "label": "Vector Memory",
+        "description": "Use your Gemini BYOK key to search meeting transcripts and summaries locally.",
+        "needsKey": "Add a user Gemini API key in Post Process settings before enabling Vector Memory.",
+        "ready": "Vector memory is ready.",
+        "indexing": "Indexing meeting memory...",
+        "disabled": "Vector memory is disabled.",
+        "error": "Vector memory could not be indexed.",
+        "reindex": "Reindex",
+        "clear": "Clear index",
+        "chunks": "{{count}} indexed chunks"
+      },
+      "mcpServer": {
+        "label": "Local MCP Server",
+        "description": "Expose MASR models, transcripts, summaries, transcription jobs, and memory search to a local AI agent.",
+        "port": "MCP Port",
+        "portDescription": "Loopback-only Streamable HTTP endpoint.",
+        "showConnection": "Show connection details",
+        "rotateToken": "Rotate token",
+        "endpoint": "Endpoint",
+        "token": "Bearer token",
+        "running": "MCP server is running.",
+        "stopped": "MCP server is stopped."
       },
       "experimentalToggle": {
         "label": "Experimental Features",

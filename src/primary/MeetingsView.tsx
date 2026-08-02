@@ -961,7 +961,7 @@ export const MeetingsView: React.FC = () => {
     setIsAsking(true);
     try {
       const result = await commands.askMeetingQuestion(
-        selectedMeeting.transcription_text,
+        selectedMeeting.id,
         message,
       );
       if (result.status === "ok") {

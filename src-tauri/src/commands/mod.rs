@@ -1,12 +1,14 @@
 pub mod audio;
 pub mod google;
 pub mod history;
+pub mod mcp;
 pub mod models;
 pub mod transcription;
 
 use crate::settings::{get_settings, write_settings, AppSettings, LogLevel};
 use crate::utils::cancel_current_operation;
-use tauri::{AppHandle, Manager};
+use std::sync::Arc;
+use tauri::{AppHandle, Manager, State};
 use tauri_plugin_opener::OpenerExt;
 
 #[tauri::command]
@@ -39,6 +41,7 @@ pub fn get_app_settings(app: AppHandle) -> Result<AppSettings, String> {
     for key in settings.post_process_api_keys.values_mut() {
         key.clear();
     }
+    settings.mcp_server_token = None;
     Ok(settings)
 }
 
@@ -256,4 +259,83 @@ pub async fn check_ollama_status(app: AppHandle) -> Result<OllamaStatus, String>
             error: Some(e),
         }),
     }
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn set_rag_enabled(
+    app: AppHandle,
+    rag_manager: State<'_, Arc<crate::managers::rag::RagManager>>,
+    enabled: bool,
+) -> Result<(), String> {
+    let mut settings = get_settings(&app);
+    let previous = settings.rag_enabled;
+    settings.rag_enabled = enabled;
+    write_settings(&app, settings);
+
+    if let Err(error) = rag_manager.enable_or_validate().await {
+        let mut rollback = get_settings(&app);
+        rollback.rag_enabled = previous;
+        write_settings(&app, rollback);
+        return Err(error.to_string());
+    }
+
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn get_rag_status(
+    rag_manager: State<'_, Arc<crate::managers::rag::RagManager>>,
+) -> Result<crate::managers::rag::RagStatusSnapshot, String> {
+    Ok(rag_manager.status().await)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn reindex_rag(
+    rag_manager: State<'_, Arc<crate::managers::rag::RagManager>>,
+) -> Result<(), String> {
+    rag_manager
+        .reindex()
+        .await
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn clear_rag_index(
+    rag_manager: State<'_, Arc<crate::managers::rag::RagManager>>,
+) -> Result<(), String> {
+    rag_manager
+        .clear_index()
+        .await
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn set_mcp_server_enabled(app: AppHandle, enabled: bool) -> Result<(), String> {
+    let mut settings = get_settings(&app);
+    settings.mcp_server_enabled = enabled;
+    write_settings(&app, settings);
+    if let Some(server) = app.try_state::<Arc<crate::managers::mcp_server::McpServerManager>>() {
+        server.sync_from_settings(&app);
+    }
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn set_mcp_server_port(app: AppHandle, port: u16) -> Result<(), String> {
+    if !(1024..=65535).contains(&port) {
+        return Err("MCP server port must be between 1024 and 65535".to_string());
+    }
+    let mut settings = get_settings(&app);
+    settings.mcp_server_port = port;
+    write_settings(&app, settings);
+    if let Some(server) = app.try_state::<Arc<crate::managers::mcp_server::McpServerManager>>() {
+        server.sync_from_settings(&app);
+    }
+    Ok(())
 }

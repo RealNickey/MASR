@@ -18,6 +18,7 @@ import { useSettings } from "../../../hooks/useSettings";
 import { KeyboardImplementationSelector } from "../debug/KeyboardImplementationSelector";
 import { AccelerationSelector } from "../AccelerationSelector";
 import { LazyStreamClose } from "../LazyStreamClose";
+import { MemoryAndMcpSettings } from "./MemoryAndMcpSettings";
 interface AdvancedSettingsProps {
   simulateProd?: boolean;
 }
@@ -65,6 +66,8 @@ export const AdvancedSettings: React.FC<AdvancedSettingsProps> = ({
           grouped={true}
         />
       </SettingsGroup>
+
+      <MemoryAndMcpSettings />
 
       {experimentalEnabled && !isSimulatingOrRealProd && (
         <SettingsGroup title={"Experimental"} className="relative z-10">

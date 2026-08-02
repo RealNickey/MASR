@@ -1,0 +1,67 @@
+{
+  "name": "masr-local-mcp",
+  "transport": "streamable-http",
+  "endpoint": "http://127.0.0.1:8787/mcp",
+  "questions": [
+    {
+      "id": "models",
+      "prompt": "Which transcription models are downloaded?",
+      "tool": "masr_list_downloaded_models",
+      "expected": "A bounded list of installed models with ids, engines, and supported languages."
+    },
+    {
+      "id": "recording-page",
+      "prompt": "List the newest 10 recordings.",
+      "tool": "masr_list_recordings",
+      "expected": "A page with at most 10 records and a cursor when more records exist."
+    },
+    {
+      "id": "recording-details",
+      "prompt": "Read recording 42.",
+      "tool": "masr_get_recording",
+      "expected": "The transcript and optional saved summary for id 42, or a clear not-found error."
+    },
+    {
+      "id": "memory",
+      "prompt": "What did we decide about the launch date?",
+      "tool": "masr_search_memory",
+      "expected": "Cited meeting excerpts, or an actionable BYOK/key-disabled error."
+    },
+    {
+      "id": "start-job",
+      "prompt": "Transcribe this absolute WAV path with a downloaded model.",
+      "tool": "masr_start_transcription",
+      "expected": "A job id; the selected MASR model setting remains unchanged."
+    },
+    {
+      "id": "job-status",
+      "prompt": "Check job abc123.",
+      "tool": "masr_get_transcription_job",
+      "expected": "Queued, running, completed, or failed status with recording id/error."
+    },
+    {
+      "id": "clear-summary",
+      "prompt": "Clear only the summary for recording 42.",
+      "tool": "masr_clear_summary",
+      "expected": "Transcript/audio remain; summary and its vector source are removed."
+    },
+    {
+      "id": "delete",
+      "prompt": "Delete recording 42.",
+      "tool": "masr_delete_recording",
+      "expected": "Recording, retained audio, vectors, transcript, and summary are deleted."
+    },
+    {
+      "id": "auth",
+      "prompt": "Call the endpoint without a bearer token.",
+      "tool": "none",
+      "expected": "HTTP 401; no tool is executed."
+    },
+    {
+      "id": "origin",
+      "prompt": "Call the endpoint with a non-loopback Origin.",
+      "tool": "none",
+      "expected": "HTTP 403; no tool is executed."
+    }
+  ]
+}

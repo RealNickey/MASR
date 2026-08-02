@@ -31,8 +31,10 @@ use tauri_specta::{collect_commands, collect_events, Builder};
 use env_filter::Builder as EnvFilterBuilder;
 use managers::audio::AudioRecordingManager;
 use managers::history::HistoryManager;
+use managers::mcp_server::McpServerManager;
 use managers::meeting_assistant::MeetingAssistantManager;
 use managers::model::ModelManager;
+use managers::rag::RagManager;
 use managers::transcription::TranscriptionManager;
 #[cfg(unix)]
 use signal_hook::consts::{SIGUSR1, SIGUSR2};
@@ -186,6 +188,13 @@ fn initialize_core_logic(app_handle: &AppHandle) {
     );
     let history_manager =
         Arc::new(HistoryManager::new(app_handle).expect("Failed to initialize history manager"));
+    let rag_manager = RagManager::new(app_handle, history_manager.clone());
+    let mcp_server_manager = McpServerManager::new(
+        app_handle,
+        history_manager.clone(),
+        model_manager.clone(),
+        rag_manager.clone(),
+    );
 
     // Apply accelerator preferences before any model loads
     managers::transcription::apply_accelerator_settings(app_handle);
@@ -195,6 +204,10 @@ fn initialize_core_logic(app_handle: &AppHandle) {
     app_handle.manage(model_manager.clone());
     app_handle.manage(transcription_manager.clone());
     app_handle.manage(history_manager.clone());
+    app_handle.manage(rag_manager);
+    app_handle.manage(mcp_server_manager.clone());
+
+    mcp_server_manager.sync_from_settings(app_handle);
 
     // Prepare the first-run model pair, then download it sequentially so the
     // primary window can present one coherent setup progress indicator.
@@ -449,6 +462,12 @@ pub fn run(cli_args: CliArgs) {
             commands::cancel_operation,
             commands::test_post_process_api_key,
             commands::check_ollama_status,
+            commands::set_rag_enabled,
+            commands::get_rag_status,
+            commands::reindex_rag,
+            commands::clear_rag_index,
+            commands::set_mcp_server_enabled,
+            commands::set_mcp_server_port,
             commands::is_portable,
             commands::get_app_dir_path,
             commands::get_app_settings,
@@ -502,6 +521,10 @@ pub fn run(cli_args: CliArgs) {
             commands::history::update_history_limit,
             commands::history::update_recording_retention_period,
             commands::history::ask_meeting_question,
+            commands::history::clear_history_entry_summary,
+            commands::mcp::get_mcp_server_status,
+            commands::mcp::get_mcp_connection_info,
+            commands::mcp::rotate_mcp_token,
             show_primary_window_command,
             commands::google::connect_google_features,
             commands::google::get_google_integration_status,
@@ -823,6 +846,12 @@ mod test_bindings {
                 commands::cancel_operation,
                 commands::test_post_process_api_key,
                 commands::check_ollama_status,
+                commands::set_rag_enabled,
+                commands::get_rag_status,
+                commands::reindex_rag,
+                commands::clear_rag_index,
+                commands::set_mcp_server_enabled,
+                commands::set_mcp_server_port,
                 commands::is_portable,
                 commands::get_app_dir_path,
                 commands::get_app_settings,
@@ -876,6 +905,10 @@ mod test_bindings {
                 commands::history::update_history_limit,
                 commands::history::update_recording_retention_period,
                 commands::history::ask_meeting_question,
+                commands::history::clear_history_entry_summary,
+                commands::mcp::get_mcp_server_status,
+                commands::mcp::get_mcp_connection_info,
+                commands::mcp::rotate_mcp_token,
                 commands::google::connect_google_features,
                 commands::google::get_google_integration_status,
                 commands::google::disconnect_google_feature,

@@ -1,6 +1,7 @@
 use crate::actions::process_transcription_output;
 use crate::managers::{
     history::{HistoryManager, PaginatedHistory},
+    rag::RagManager,
     transcription::TranscriptionManager,
 };
 use std::sync::Arc;
@@ -253,9 +254,20 @@ pub async fn update_recording_retention_period(
 #[specta::specta]
 pub async fn ask_meeting_question(
     app: AppHandle,
-    transcript: String,
+    history_manager: State<'_, Arc<HistoryManager>>,
+    rag_manager: State<'_, Arc<RagManager>>,
+    entry_id: i64,
     question: String,
 ) -> Result<String, String> {
+    let entry = history_manager
+        .get_entry_by_id(entry_id)
+        .await
+        .map_err(|error| error.to_string())?
+        .ok_or_else(|| format!("History entry {} not found", entry_id))?;
+    if !HistoryManager::is_meeting_entry(&entry) {
+        return Err("Questions can only be asked about meeting recordings".to_string());
+    }
+
     let settings = crate::settings::get_settings(&app);
     let provider = match settings.active_post_process_provider().cloned() {
         Some(provider) => provider,
@@ -280,9 +292,28 @@ pub async fn ask_meeting_question(
         crate::settings::consume_llm_request_quota(&app)?;
     }
 
+    let mut context = format!("CURRENT MEETING TRANSCRIPT:\n{}", entry.transcription_text);
+    if settings.rag_enabled {
+        match rag_manager.search(&question, 5, Some(entry.id)).await {
+            Ok(hits) if !hits.is_empty() => {
+                context.push_str("\n\nRELATED MEETING MEMORY:\n");
+                for hit in hits {
+                    context.push_str(&format!(
+                        "- [{}] {} ({})\n{}\n",
+                        hit.entry_id, hit.title, hit.source, hit.excerpt
+                    ));
+                }
+            }
+            Ok(_) => {}
+            Err(error) => {
+                log::warn!("RAG unavailable for meeting question: {}", error);
+            }
+        }
+    }
+
     let system_prompt = format!(
-        "You are a helpful meeting assistant. Use the following meeting transcript as context to answer the user's question accurately. If the information is not in the transcript, say so.\n\nTRANSCRIPT:\n{}",
-        transcript
+        "You are a helpful meeting assistant. Use the meeting context below to answer the user's question accurately. If the information is not in the context, say so.\n\n{}",
+        context
     );
 
     // Reuse reasoning config logic from actions.rs
@@ -315,6 +346,25 @@ pub async fn ask_meeting_question(
         Ok(None) => Err("LLM returned an empty response".to_string()),
         Err(e) => Err(e),
     }
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn clear_history_entry_summary(
+    history_manager: State<'_, Arc<HistoryManager>>,
+    rag_manager: State<'_, Arc<RagManager>>,
+    id: i64,
+) -> Result<(), String> {
+    // Remove the vector summary chunks first so the local memory index never
+    // serves a summary that was cleared from the database.
+    rag_manager
+        .remove_source(id, "summary")
+        .await
+        .map_err(|error| error.to_string())?;
+    history_manager
+        .clear_summary(id)
+        .map(|_| ())
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]

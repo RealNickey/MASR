@@ -32,6 +32,21 @@ static MIGRATIONS: &[M] = &[
     M::up("ALTER TABLE transcription_history ADD COLUMN post_process_prompt TEXT;"),
     M::up("ALTER TABLE transcription_history ADD COLUMN post_process_requested BOOLEAN NOT NULL DEFAULT 0;"),
     M::up("ALTER TABLE transcription_history ADD COLUMN audio_tracks TEXT;"),
+    M::up(
+        "CREATE TABLE IF NOT EXISTS rag_chunks (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            entry_id INTEGER NOT NULL,
+            source TEXT NOT NULL,
+            chunk_index INTEGER NOT NULL,
+            content TEXT NOT NULL,
+            content_hash TEXT NOT NULL,
+            embedding_model TEXT NOT NULL,
+            dimensions INTEGER NOT NULL,
+            embedding BLOB NOT NULL,
+            UNIQUE(entry_id, source, chunk_index)
+        );
+        CREATE INDEX IF NOT EXISTS idx_rag_chunks_entry ON rag_chunks(entry_id);
+    "),
 ];
 
 #[derive(Clone, Debug, Serialize, Deserialize, Type)]
@@ -293,6 +308,17 @@ impl HistoryManager {
         &self.recordings_dir
     }
 
+    pub fn db_path(&self) -> &std::path::Path {
+        &self.db_path
+    }
+
+    pub fn is_meeting_entry(entry: &HistoryEntry) -> bool {
+        matches!(
+            entry.post_process_prompt.as_deref(),
+            Some("default_meeting_summary") | Some("default_meeting_notes_with_actions")
+        )
+    }
+
     /// Save a new history entry to the database.
     /// The WAV file should already have been written to the recordings directory.
     pub fn save_entry(
@@ -466,6 +492,11 @@ impl HistoryManager {
         let mut deleted_count = 0;
 
         for (id, file_name, audio_tracks) in entries {
+            // Keep the local vector index in sync with retention cleanup. Older
+            // test databases may not have the RAG table yet, so tolerate that
+            // migration gap just as delete_entry does.
+            let _ = conn.execute("DELETE FROM rag_chunks WHERE entry_id = ?1", params![id]);
+
             // Delete database entry
             conn.execute(
                 "DELETE FROM transcription_history WHERE id = ?1",
@@ -769,6 +800,9 @@ impl HistoryManager {
         }
 
         // Delete from database
+        // The table is present in the current schema; ignoring a missing table
+        // keeps the test-only legacy database setup backwards compatible.
+        let _ = conn.execute("DELETE FROM rag_chunks WHERE entry_id = ?1", params![id]);
         conn.execute(
             "DELETE FROM transcription_history WHERE id = ?1",
             params![id],
@@ -782,6 +816,34 @@ impl HistoryManager {
         }
 
         Ok(())
+    }
+
+    pub fn clear_summary(&self, id: i64) -> Result<HistoryEntry> {
+        let conn = self.get_connection()?;
+        let updated = conn.execute(
+            "UPDATE transcription_history
+             SET post_processed_text = NULL,
+                 post_process_prompt = post_process_prompt
+             WHERE id = ?1",
+            params![id],
+        )?;
+        if updated == 0 {
+            return Err(anyhow!("History entry {} not found", id));
+        }
+        let entry = conn.query_row(
+            "SELECT id, file_name, timestamp, saved, title, transcription_text, post_processed_text, post_process_prompt, post_process_requested, audio_tracks
+             FROM transcription_history WHERE id = ?1",
+            params![id],
+            Self::map_history_entry,
+        )?;
+        if let Err(error) = (HistoryUpdatePayload::Updated {
+            entry: entry.clone(),
+        })
+        .emit(&self.app_handle)
+        {
+            error!("Failed to emit history-updated event: {}", error);
+        }
+        Ok(entry)
     }
 
     /// Remove the directory which owns all meeting tracks. Track metadata is

@@ -480,6 +480,14 @@ pub struct AppSettings {
     pub meeting_calendar_prompts_enabled: bool,
     #[serde(default = "default_meeting_prompt_lead_minutes")]
     pub meeting_prompt_lead_minutes: u32,
+    #[serde(default)]
+    pub rag_enabled: bool,
+    #[serde(default)]
+    pub mcp_server_enabled: bool,
+    #[serde(default = "default_mcp_server_port")]
+    pub mcp_server_port: u16,
+    #[serde(default)]
+    pub mcp_server_token: Option<String>,
 }
 
 fn default_model() -> String {
@@ -862,6 +870,10 @@ fn default_meeting_prompt_lead_minutes() -> u32 {
     5
 }
 
+fn default_mcp_server_port() -> u16 {
+    8787
+}
+
 fn ensure_post_process_defaults(settings: &mut AppSettings) -> bool {
     let mut changed = false;
 
@@ -1068,6 +1080,10 @@ pub fn get_default_settings() -> AppSettings {
         meeting_detection_enabled: default_meeting_detection_enabled(),
         meeting_calendar_prompts_enabled: false,
         meeting_prompt_lead_minutes: default_meeting_prompt_lead_minutes(),
+        rag_enabled: false,
+        mcp_server_enabled: false,
+        mcp_server_port: default_mcp_server_port(),
+        mcp_server_token: None,
     }
 }
 
