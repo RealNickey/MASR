@@ -133,9 +133,7 @@ pub fn read_any_audio_file<P: AsRef<Path>>(file_path: P) -> Result<Vec<f32>> {
 
                 if let Some(buf) = &mut sample_buf {
                     buf.copy_interleaved_ref(decoded);
-                    if samples.len().saturating_add(buf.samples().len())
-                        > MAX_DECODED_SAMPLES
-                    {
+                    if samples.len().saturating_add(buf.samples().len()) > MAX_DECODED_SAMPLES {
                         anyhow::bail!(
                             "Audio file exceeds the {} sample limit ({} hours at 16 kHz)",
                             MAX_DECODED_SAMPLES,

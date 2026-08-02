@@ -344,7 +344,12 @@ impl RagManager {
                  ORDER BY chunk_index",
             )?;
             stmt.query_map(
-                params![entry.id, source, EMBEDDING_MODEL, EMBEDDING_DIMENSIONS as i64],
+                params![
+                    entry.id,
+                    source,
+                    EMBEDDING_MODEL,
+                    EMBEDDING_DIMENSIONS as i64
+                ],
                 |row| row.get(0),
             )?
             .collect::<rusqlite::Result<Vec<String>>>()?

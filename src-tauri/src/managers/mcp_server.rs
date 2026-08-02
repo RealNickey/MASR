@@ -789,12 +789,9 @@ async fn run_transcription_job(
             return Err(error);
         }
     };
-    if let Err(error) = history.update_transcription(
-        entry_id,
-        transcription,
-        None,
-        entry.post_process_prompt,
-    ) {
+    if let Err(error) =
+        history.update_transcription(entry_id, transcription, None, entry.post_process_prompt)
+    {
         log::warn!(
             "MCP transcription finished but saving failed for entry {}; cleaning up: {}",
             entry_id,
