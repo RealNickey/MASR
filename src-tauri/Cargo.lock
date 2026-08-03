@@ -7235,6 +7235,7 @@ dependencies = [
  "transcribe-rs",
  "url",
  "vad-rs",
+ "whisper-rs",
  "windows 0.61.3",
  "winreg 0.55.0",
 ]

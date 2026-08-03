@@ -108,9 +108,9 @@ test.describe("Language Onboarding & Transcript Language Settings", () => {
     // Onboarding should finish and we should land on main app settings layout
     await expect(page.locator("text=Shortcuts & Language")).toBeVisible();
 
-    // Verify mock state has updated the selected model to parakeet-tdt-0.6b-v3
+    // Onboarding uses the installed Whisper Turbo English model.
     const state = await getMockState(page);
-    expect(state.selectedModel).toBe("parakeet-tdt-0.6b-v3");
+    expect(state.selectedModel).toBe("turbo");
   });
 
   test("allows switching transcript language to English in General settings", async ({
@@ -136,7 +136,26 @@ test.describe("Language Onboarding & Transcript Language Settings", () => {
     await expect(option).toBeVisible();
     await option.click();
 
-    // Verify selected model has changed to parakeet-tdt-0.6b-v3
+    // English resolves to the installed Whisper Turbo model.
+    const state = await getMockState(page);
+    expect(state.selectedModel).toBe("turbo");
+  });
+
+  test("falls back to Parakeet V3 when Whisper Turbo is not installed", async ({
+    page,
+  }) => {
+    await setupMocks(page, false, {
+      hasModelsAvailable: true,
+      selectedModel: "thegav1",
+      englishModelId: "parakeet-tdt-0.6b-v3",
+    });
+
+    await page.goto("/");
+
+    const selectContainer = page.locator(".w-56");
+    await selectContainer.click();
+    await page.locator("div[id*='-option-']").locator("text=English").click();
+
     const state = await getMockState(page);
     expect(state.selectedModel).toBe("parakeet-tdt-0.6b-v3");
   });

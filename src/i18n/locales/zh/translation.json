@@ -222,24 +222,6 @@
       "pushToTalk": {
         "label": "按住说话",
         "description": "按住录制，松开停止"
-      },
-      "outputLanguage": {
-        "title": "Output Language",
-        "description": "Choose the format for transcriptions: raw Malayalam, transliterated Manglish, or translated English.",
-        "options": {
-          "malayalam": {
-            "label": "Malayalam",
-            "description": "Output raw Malayalam transcriptions"
-          },
-          "manglish": {
-            "label": "Manglish",
-            "description": "Transliterate Malayalam text into Manglish via Gemini"
-          },
-          "english": {
-            "label": "English",
-            "description": "Translate Malayalam text into English via Gemini"
-          }
-        }
       }
     },
     "sound": {
@@ -437,27 +419,6 @@
           "successMessage": "Successfully connected to Ollama! Found {{count}} available models.",
           "errorMessage": "Failed to connect to Ollama. Make sure Ollama is running locally."
         }
-      },
-      "prompts": {
-        "title": "提示词",
-        "selectedPrompt": {
-          "title": "已选提示词",
-          "description": "选择用于优化转录的模板或创建新模板。在提示词文本中使用 ${output} 来引用捕获的转录。"
-        },
-        "noPrompts": "没有可用的提示词",
-        "selectPrompt": "选择提示词",
-        "createNew": "创建新提示词",
-        "promptLabel": "提示词名称",
-        "promptLabelPlaceholder": "输入提示词名称",
-        "promptInstructions": "提示词指令",
-        "promptInstructionsPlaceholder": "编写转录后要执行的指令。示例：改进以下文本的语法和清晰度: ${output}",
-        "promptTip": "提示：使用 <code>${output}</code> 将转录文本插入到您的提示词中。",
-        "updatePrompt": "更新提示词",
-        "deletePrompt": "删除提示词",
-        "createPrompt": "创建提示词",
-        "cancel": "取消",
-        "selectToEdit": "选择上方的提示词以查看和编辑其详细信息。",
-        "createFirst": "点击上方的「创建新提示词」来创建您的第一个后处理提示词。"
       }
     },
     "history": {

@@ -200,24 +200,6 @@
       "pushToTalk": {
         "label": "اضغط للتحدث",
         "description": "استمر في الضغط للتسجيل، واترك للتوقف"
-      },
-      "outputLanguage": {
-        "title": "Output Language",
-        "description": "Choose the format for transcriptions: raw Malayalam, transliterated Manglish, or translated English.",
-        "options": {
-          "malayalam": {
-            "label": "Malayalam",
-            "description": "Output raw Malayalam transcriptions"
-          },
-          "manglish": {
-            "label": "Manglish",
-            "description": "Transliterate Malayalam text into Manglish via Gemini"
-          },
-          "english": {
-            "label": "English",
-            "description": "Translate Malayalam text into English via Gemini"
-          }
-        }
       }
     },
     "sound": {
@@ -415,27 +397,6 @@
           "successMessage": "Successfully connected to Ollama! Found {{count}} available models.",
           "errorMessage": "Failed to connect to Ollama. Make sure Ollama is running locally."
         }
-      },
-      "prompts": {
-        "title": "المطالبة",
-        "selectedPrompt": {
-          "title": "المطالبة المختارة",
-          "description": ".اختر قالباً لتحسين التفريغ الصوتي أو أنشئ قالباً جديداً. استخدم ${output} داخل نص المطالبة للإشارة إلى النص الملتقط"
-        },
-        "noPrompts": "لا توجد مطالبات متاحة",
-        "selectPrompt": "اختر مطالبة",
-        "createNew": "إنشاء مطالبة جديدة",
-        "promptLabel": "تسمية المطالبة",
-        "promptLabelPlaceholder": "أدخل اسم المطالبة",
-        "promptInstructions": "تعليمات المطالبة",
-        "promptInstructionsPlaceholder": ".اكتب التعليمات المراد تشغيلها بعد التفريغ الصوتي. مثال: قم بتحسين القواعد والوضوح للنص التالي: ${output}",
-        "promptTip": "تلميح: استخدم <code>${output}</code> لإدراج النص المفرغ في مطالبتك.",
-        "updatePrompt": "تحديث المطالبة",
-        "deletePrompt": "حذف المطالبة",
-        "createPrompt": "إنشاء مطالبة",
-        "cancel": "إلغاء",
-        "selectToEdit": ".اختر مطالبة أعلاه لعرض وتعديل تفاصيلها",
-        "createFirst": ".انقر على 'إنشاء مطالبة جديدة' أعلاه لإنشاء أول مطالبة معالجة لاحقة لك"
       }
     },
     "history": {

@@ -222,24 +222,6 @@
       "pushToTalk": {
         "label": "Bas Konuş",
         "description": "Kaydetmek için basılı tutun, durdurmak için bırakın"
-      },
-      "outputLanguage": {
-        "title": "Output Language",
-        "description": "Choose the format for transcriptions: raw Malayalam, transliterated Manglish, or translated English.",
-        "options": {
-          "malayalam": {
-            "label": "Malayalam",
-            "description": "Output raw Malayalam transcriptions"
-          },
-          "manglish": {
-            "label": "Manglish",
-            "description": "Transliterate Malayalam text into Manglish via Gemini"
-          },
-          "english": {
-            "label": "English",
-            "description": "Translate Malayalam text into English via Gemini"
-          }
-        }
       }
     },
     "sound": {
@@ -437,27 +419,6 @@
           "successMessage": "Successfully connected to Ollama! Found {{count}} available models.",
           "errorMessage": "Failed to connect to Ollama. Make sure Ollama is running locally."
         }
-      },
-      "prompts": {
-        "title": "Prompt",
-        "selectedPrompt": {
-          "title": "Seçili Prompt",
-          "description": "Transkripsiyonları iyileştirmek için bir şablon seçin veya yeni bir tane oluşturun. Yakalanan transkripte referans vermek için prompt metni içinde ${output} kullanın."
-        },
-        "noPrompts": "Kullanılabilir prompt yok",
-        "selectPrompt": "Prompt Seç",
-        "createNew": "Yeni Prompt Oluştur",
-        "promptLabel": "Prompt Etiketi",
-        "promptLabelPlaceholder": "Prompt adı girin",
-        "promptInstructions": "Prompt Talimatları",
-        "promptInstructionsPlaceholder": "Transkripsiyondan sonra çalıştırılacak talimatları yazın. Örnek: Aşağıdaki metnin dilbilgisini ve açıklığını iyileştir: ${output}",
-        "promptTip": "İpucu: Transkribe edilen metni promptunuza eklemek için <code>${output}</code> kullanın.",
-        "updatePrompt": "Promptu Güncelle",
-        "deletePrompt": "Promptu Sil",
-        "createPrompt": "Prompt Oluştur",
-        "cancel": "İptal",
-        "selectToEdit": "Ayrıntılarını görüntülemek ve düzenlemek için yukarıdan bir prompt seçin.",
-        "createFirst": "İlk son işlem prompt'unuzu oluşturmak için yukarıdaki “Yeni Prompt Oluştur” seçeneğine tıklayın."
       }
     },
     "history": {

@@ -222,24 +222,6 @@
       "pushToTalk": {
         "label": "Premi per Parlare",
         "description": "Tieni premuto per parlare, rilascia per interrompere"
-      },
-      "outputLanguage": {
-        "title": "Output Language",
-        "description": "Choose the format for transcriptions: raw Malayalam, transliterated Manglish, or translated English.",
-        "options": {
-          "malayalam": {
-            "label": "Malayalam",
-            "description": "Output raw Malayalam transcriptions"
-          },
-          "manglish": {
-            "label": "Manglish",
-            "description": "Transliterate Malayalam text into Manglish via Gemini"
-          },
-          "english": {
-            "label": "English",
-            "description": "Translate Malayalam text into English via Gemini"
-          }
-        }
       }
     },
     "sound": {
@@ -437,27 +419,6 @@
           "successMessage": "Successfully connected to Ollama! Found {{count}} available models.",
           "errorMessage": "Failed to connect to Ollama. Make sure Ollama is running locally."
         }
-      },
-      "prompts": {
-        "title": "Prompt",
-        "selectedPrompt": {
-          "title": "Prompt Selezionato",
-          "description": "Seleziona un template per migliorare le trascrizioni o creane uno nuovo. Usa ${output} nel prompt per fare riferimento alla trascrizione."
-        },
-        "noPrompts": "Nessun prompt disponibile",
-        "selectPrompt": "Scegli un prompt",
-        "createNew": "Crea un nuovo prompt",
-        "promptLabel": "Etichetta del Prompt",
-        "promptLabelPlaceholder": "Inserisci il nome del prompt",
-        "promptInstructions": "Istruzioni del Prompt",
-        "promptInstructionsPlaceholder": "Scrivi le istruzioni da eseguire dopo la trascrizione. Esempio: Migliora la grammatica e la chiarezza per il seguente testo: ${output}",
-        "promptTip": "Suggerimento: Usa <code>${output}</code> per inserire il testo trascritto nel tuo prompt.",
-        "updatePrompt": "Aggiorna Prompt",
-        "deletePrompt": "Elimina Prompt",
-        "createPrompt": "Crea Prompt",
-        "cancel": "Annulla",
-        "selectToEdit": "Scegli un prompt qui sopra per visualizzare o modificare i dettagli.",
-        "createFirst": "Clicca 'Crea un nuovo prompt' qui sopra per creare il tuo primo prompt di post-elaborazione."
       }
     },
     "history": {

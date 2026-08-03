@@ -2,6 +2,8 @@ import { Page } from "@playwright/test";
 
 export interface MockState {
   hasModelsAvailable: boolean;
+  selectedModel: string;
+  englishModelId: string;
   gmailTasksConnected: boolean;
   calendarConnected: boolean;
   oauthClientConfigured: boolean;
@@ -46,8 +48,6 @@ export interface MockState {
     summary: string;
     actionItems: string[];
   } | null;
-  outputLanguage: string;
-
   updateAvailable: boolean;
   updateVersion: string;
   downloadShouldFail: boolean;
@@ -80,6 +80,8 @@ export async function setupMocks(
         ? JSON.parse(saved)
         : {
             hasModelsAvailable: true,
+            selectedModel: "parakeet-tdt-0.6b-v3",
+            englishModelId: "turbo",
             gmailTasksConnected: connected,
             calendarConnected: false,
             oauthClientConfigured: true,
@@ -113,8 +115,6 @@ export async function setupMocks(
               },
             ],
             lastFollowUp: null,
-            outputLanguage: "malayalam",
-
             updateAvailable: false,
             updateVersion: "0.9.0",
             downloadShouldFail: false,
@@ -300,7 +300,7 @@ export async function setupMocks(
               phase: "ready",
               downloaded: 0,
               total: 0,
-              english_model_id: null,
+              english_model_id: state.englishModelId,
               available_bytes: null,
               required_bytes: 0,
             };
@@ -314,32 +314,63 @@ export async function setupMocks(
             return null;
           }
           if (cmd === "get_available_models") {
+            const englishModelId = state.englishModelId || "turbo";
+            const modelInfo = (
+              id: string,
+              name: string,
+              engine_type: string,
+              is_downloaded: boolean,
+            ) => ({
+              id,
+              name,
+              description: `${name} model`,
+              filename: `${id}.bin`,
+              url: null,
+              sha256: null,
+              size_mb: 250,
+              is_downloaded,
+              is_downloading: false,
+              partial_size: 0,
+              is_directory: false,
+              engine_type,
+              accuracy_score: 80,
+              speed_score: 90,
+              supports_translation: true,
+              is_recommended: true,
+              supported_languages: ["en", "ml"],
+              supports_language_selection: true,
+              is_custom: false,
+            });
             return [
-              {
-                id: "small",
-                name: "Small Model",
-                description: "A small model",
-                filename: "small.bin",
-                url: null,
-                sha256: null,
-                size_mb: 250,
-                is_downloaded: true,
-                is_downloading: false,
-                partial_size: 0,
-                is_directory: false,
-                engine_type: "whisper",
-                accuracy_score: 80,
-                speed_score: 90,
-                supports_translation: true,
-                is_recommended: true,
-                supported_languages: ["en", "ml"],
-                supports_language_selection: true,
-                is_custom: false,
-              },
+              modelInfo(
+                "turbo",
+                "Whisper Turbo",
+                "Whisper",
+                state.hasModelsAvailable && englishModelId === "turbo",
+              ),
+              modelInfo(
+                "whisper-turbo",
+                "Whisper Turbo",
+                "Whisper",
+                state.hasModelsAvailable && englishModelId === "whisper-turbo",
+              ),
+              modelInfo(
+                "parakeet-tdt-0.6b-v3",
+                "Parakeet V3",
+                "Parakeet",
+                state.hasModelsAvailable &&
+                  englishModelId === "parakeet-tdt-0.6b-v3",
+              ),
+              modelInfo(
+                "thegav1",
+                "ThegaV1",
+                "ThegaV1",
+                state.hasModelsAvailable,
+              ),
             ];
           }
           if (cmd === "get_current_model") {
-            return "small";
+            return state.selectedModel;
           }
           if (cmd === "get_model_info") {
             return {
@@ -437,13 +468,12 @@ export async function setupMocks(
               post_process_models: {},
               post_process_prompts: [
                 {
-                  id: "default_meeting_notes_with_actions",
-                  name: "Default Meeting Summary",
+                  id: "default_meeting_summary",
+                  name: "Meeting Summary",
                   prompt: "Generate summary and action items.",
                 },
               ],
-              post_process_selected_prompt_id:
-                "default_meeting_notes_with_actions",
+              post_process_selected_prompt_id: "default_meeting_summary",
               mute_while_recording: false,
               append_trailing_space: false,
               app_language: "en",
@@ -459,7 +489,6 @@ export async function setupMocks(
               ort_accelerator: "cpu",
               whisper_gpu_device: 0,
               extra_recording_buffer_ms: 0,
-              output_language: state.outputLanguage,
               google_oauth_token: state.gmailTasksConnected
                 ? "mock-refresh-token"
                 : null,
@@ -475,12 +504,6 @@ export async function setupMocks(
               meeting_calendar_prompts_enabled: state.calendarPromptsEnabled,
               meeting_prompt_lead_minutes: state.meetingPromptLeadMinutes,
             };
-          }
-
-          if (cmd === "change_output_language_setting") {
-            state.outputLanguage = args.language;
-            saveState();
-            return null;
           }
 
           // Mock sound themes / audio checks

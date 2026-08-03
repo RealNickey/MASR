@@ -204,24 +204,6 @@
       "pushToTalk": {
         "label": "Pressionar para Falar",
         "description": "Segure para gravar, solte para parar"
-      },
-      "outputLanguage": {
-        "title": "Output Language",
-        "description": "Choose the format for transcriptions: raw Malayalam, transliterated Manglish, or translated English.",
-        "options": {
-          "malayalam": {
-            "label": "Malayalam",
-            "description": "Output raw Malayalam transcriptions"
-          },
-          "manglish": {
-            "label": "Manglish",
-            "description": "Transliterate Malayalam text into Manglish via Gemini"
-          },
-          "english": {
-            "label": "English",
-            "description": "Translate Malayalam text into English via Gemini"
-          }
-        }
       }
     },
     "models": {
@@ -437,27 +419,6 @@
           "successMessage": "Successfully connected to Ollama! Found {{count}} available models.",
           "errorMessage": "Failed to connect to Ollama. Make sure Ollama is running locally."
         }
-      },
-      "prompts": {
-        "title": "Prompt",
-        "selectedPrompt": {
-          "title": "Prompt Selecionado",
-          "description": "Selecione um modelo para refinar transcrições ou crie um novo. Use ${output} dentro do texto do prompt para referenciar a transcrição capturada."
-        },
-        "noPrompts": "Nenhum prompt disponível",
-        "selectPrompt": "Selecionar um prompt",
-        "createNew": "Criar Novo Prompt",
-        "promptLabel": "Rótulo do Prompt",
-        "promptLabelPlaceholder": "Digite o nome do prompt",
-        "promptInstructions": "Instruções do Prompt",
-        "promptInstructionsPlaceholder": "Escreva as instruções para executar após a transcrição. Exemplo: Melhore a gramática e clareza do seguinte texto: ${output}",
-        "promptTip": "Dica: Use <code>${output}</code> para inserir o texto transcrito no seu prompt.",
-        "updatePrompt": "Atualizar Prompt",
-        "deletePrompt": "Excluir Prompt",
-        "createPrompt": "Criar Prompt",
-        "cancel": "Cancelar",
-        "selectToEdit": "Selecione um prompt acima para visualizar e editar seus detalhes.",
-        "createFirst": "Clique em 'Criar Novo Prompt' acima para criar seu primeiro prompt de pós-processamento."
       }
     },
     "history": {

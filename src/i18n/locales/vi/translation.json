@@ -222,24 +222,6 @@
       "pushToTalk": {
         "label": "Nhấn để nói",
         "description": "Giữ để ghi âm, thả để dừng"
-      },
-      "outputLanguage": {
-        "title": "Output Language",
-        "description": "Choose the format for transcriptions: raw Malayalam, transliterated Manglish, or translated English.",
-        "options": {
-          "malayalam": {
-            "label": "Malayalam",
-            "description": "Output raw Malayalam transcriptions"
-          },
-          "manglish": {
-            "label": "Manglish",
-            "description": "Transliterate Malayalam text into Manglish via Gemini"
-          },
-          "english": {
-            "label": "English",
-            "description": "Translate Malayalam text into English via Gemini"
-          }
-        }
       }
     },
     "sound": {
@@ -437,27 +419,6 @@
           "successMessage": "Successfully connected to Ollama! Found {{count}} available models.",
           "errorMessage": "Failed to connect to Ollama. Make sure Ollama is running locally."
         }
-      },
-      "prompts": {
-        "title": "Prompt",
-        "selectedPrompt": {
-          "title": "Prompt đã chọn",
-          "description": "Chọn một mẫu để tinh chỉnh bản ghi hoặc tạo mới. Sử dụng ${output} trong văn bản prompt để tham chiếu bản ghi đã chụp."
-        },
-        "noPrompts": "Không có prompt nào",
-        "selectPrompt": "Chọn một prompt",
-        "createNew": "Tạo Prompt mới",
-        "promptLabel": "Nhãn Prompt",
-        "promptLabelPlaceholder": "Nhập tên prompt",
-        "promptInstructions": "Hướng dẫn Prompt",
-        "promptInstructionsPlaceholder": "Viết hướng dẫn để chạy sau khi chuyển đổi. Ví dụ: Cải thiện ngữ pháp và độ rõ ràng cho văn bản sau: ${output}",
-        "promptTip": "Mẹo: Sử dụng <code>${output}</code> để chèn văn bản đã chuyển đổi vào prompt của bạn.",
-        "updatePrompt": "Cập nhật Prompt",
-        "deletePrompt": "Xóa Prompt",
-        "createPrompt": "Tạo Prompt",
-        "cancel": "Hủy",
-        "selectToEdit": "Chọn một prompt ở trên để xem và chỉnh sửa chi tiết.",
-        "createFirst": "Nhấn 'Tạo Prompt mới' ở trên để tạo prompt xử lý sau đầu tiên của bạn."
       }
     },
     "history": {

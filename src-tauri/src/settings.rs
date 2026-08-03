@@ -325,20 +325,6 @@ impl Default for OrtAcceleratorSetting {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Type)]
-#[serde(rename_all = "lowercase")]
-pub enum OutputLanguage {
-    Malayalam,
-    Manglish,
-    English,
-}
-
-impl Default for OutputLanguage {
-    fn default() -> Self {
-        OutputLanguage::Malayalam
-    }
-}
-
 #[derive(Clone, Serialize, Deserialize, Type)]
 #[serde(transparent)]
 pub struct SecretMap(pub HashMap<String, String>);
@@ -468,8 +454,6 @@ pub struct AppSettings {
     pub whisper_gpu_device: i32,
     #[serde(default)]
     pub extra_recording_buffer_ms: u64,
-    #[serde(default)]
-    pub output_language: OutputLanguage,
     #[serde(default)]
     pub google_oauth_token: Option<String>,
     #[serde(default)]
@@ -836,21 +820,6 @@ fn default_post_process_models() -> HashMap<String, String> {
 fn default_post_process_prompts() -> Vec<LLMPrompt> {
     vec![
         LLMPrompt {
-            id: "default_improve_transcriptions".to_string(),
-            name: "Improve Transcriptions".to_string(),
-            prompt: "Clean this transcript:\n1. Fix spelling, capitalization, and punctuation errors\n2. Convert number words to digits (twenty-five → 25, ten percent → 10%, five dollars → $5)\n3. Replace spoken punctuation with symbols (period → ., comma → ,, question mark → ?)\n4. Remove filler words (um, uh, like as filler)\n5. Keep the language in the original version (if it was french, keep it in french for example)\n\nPreserve exact meaning and word order. Do not paraphrase or reorder content.\n\nReturn only the cleaned transcript.\n\nTranscript:\n${output}".to_string(),
-        },
-        LLMPrompt {
-            id: "default_manglish_transliteration".to_string(),
-            name: "Manglish Transliteration".to_string(),
-            prompt: "Transliterate the following Malayalam text into Manglish:\n\n${output}".to_string(),
-        },
-        LLMPrompt {
-            id: "default_translate_to_english".to_string(),
-            name: "Translate to English".to_string(),
-            prompt: "Translate the following Malayalam text into English:\n\n${output}".to_string(),
-        },
-        LLMPrompt {
             id: "default_meeting_summary".to_string(),
             name: "Meeting Summary".to_string(),
             prompt: "You are a helpful assistant. Write a high-level, concise summary of the meeting transcript in English. Focus on the main topics discussed, key arguments, and decisions made. Do NOT translate the transcript sentence-by-sentence. Keep the summary under 200 words. At the end, add an \"Action Items\" section with task-list style checkboxes (- [ ]) for any tasks, decisions, or follow-ups mentioned. Use GitHub-style alerts (> [!NOTE] or > [!IMPORTANT]) for key highlights or warnings if needed.\n\nFormat:\n# [A 3-5 word title for the meeting]\nTags: [up to 3 comma-separated key topics/tags]\n\n## Summary\n[Write a concise meeting summary here]\n\n## Action Items\n- [ ] [action item 1]\n- [ ] [action item 2]\n...\n\nTranscript:\n${output}".to_string(),
@@ -964,6 +933,29 @@ fn ensure_post_process_defaults(settings: &mut AppSettings) -> bool {
         }
     }
 
+    // These presets were used by the removed transcription-mode LLM path.
+    // Remove only the old built-ins; user-created prompts remain untouched.
+    let removed_prompt_ids = [
+        "default_translate_to_english",
+        "default_manglish_transliteration",
+        "default_improve_transcriptions",
+    ];
+    let prompt_count = settings.post_process_prompts.len();
+    settings
+        .post_process_prompts
+        .retain(|prompt| !removed_prompt_ids.contains(&prompt.id.as_str()));
+    if settings.post_process_prompts.len() != prompt_count {
+        changed = true;
+    }
+    if settings
+        .post_process_selected_prompt_id
+        .as_deref()
+        .is_some_and(|id| removed_prompt_ids.contains(&id))
+    {
+        settings.post_process_selected_prompt_id = None;
+        changed = true;
+    }
+
     changed
 }
 
@@ -1074,7 +1066,6 @@ pub fn get_default_settings() -> AppSettings {
         ort_accelerator: OrtAcceleratorSetting::default(),
         whisper_gpu_device: default_whisper_gpu_device(),
         extra_recording_buffer_ms: 0,
-        output_language: OutputLanguage::default(),
         google_oauth_token: None,
         google_auth_tokens: GoogleAuthTokens::default(),
         meeting_detection_enabled: default_meeting_detection_enabled(),
@@ -1268,6 +1259,46 @@ mod tests {
         let settings = get_default_settings();
         assert!(!settings.auto_submit);
         assert_eq!(settings.auto_submit_key, AutoSubmitKey::Enter);
+    }
+
+    #[test]
+    fn default_post_process_prompts_only_keep_meeting_summary() {
+        let settings = get_default_settings();
+        let prompt_ids: Vec<_> = settings
+            .post_process_prompts
+            .iter()
+            .map(|prompt| prompt.id.as_str())
+            .collect();
+
+        assert_eq!(prompt_ids, vec!["default_meeting_summary"]);
+    }
+
+    #[test]
+    fn removed_post_process_defaults_are_pruned_without_touching_custom_prompts() {
+        let mut settings = get_default_settings();
+        settings.post_process_prompts.push(LLMPrompt {
+            id: "default_manglish_transliteration".to_string(),
+            name: "Removed preset".to_string(),
+            prompt: "Old prompt".to_string(),
+        });
+        settings.post_process_prompts.push(LLMPrompt {
+            id: "custom_prompt".to_string(),
+            name: "Custom prompt".to_string(),
+            prompt: "Keep this prompt".to_string(),
+        });
+        settings.post_process_selected_prompt_id =
+            Some("default_manglish_transliteration".to_string());
+
+        assert!(ensure_post_process_defaults(&mut settings));
+        assert!(!settings
+            .post_process_prompts
+            .iter()
+            .any(|prompt| prompt.id == "default_manglish_transliteration"));
+        assert!(settings
+            .post_process_prompts
+            .iter()
+            .any(|prompt| prompt.id == "custom_prompt"));
+        assert!(settings.post_process_selected_prompt_id.is_none());
     }
 
     #[test]

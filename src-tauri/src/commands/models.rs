@@ -85,6 +85,7 @@ pub async fn delete_model(
 pub fn switch_active_model(app: &AppHandle, model_id: &str) -> Result<(), String> {
     let model_manager = app.state::<Arc<ModelManager>>();
     let transcription_manager = app.state::<Arc<TranscriptionManager>>();
+    let model_id = model_manager.resolve_language_model_id(model_id);
 
     // Atomically claim the loading slot — prevents concurrent model loads
     // from tray double-clicks or overlapping commands. The guard resets the
@@ -95,7 +96,7 @@ pub fn switch_active_model(app: &AppHandle, model_id: &str) -> Result<(), String
 
     // Check if model exists and is available
     let model_info = model_manager
-        .get_model_info(model_id)
+        .get_model_info(&model_id)
         .ok_or_else(|| format!("Model not found: {}", model_id))?;
 
     if !model_info.is_downloaded {
@@ -109,7 +110,7 @@ pub fn switch_active_model(app: &AppHandle, model_id: &str) -> Result<(), String
     // Persist the new selection early so the frontend sees the correct model
     // when it reacts to events emitted by load_model.
     let mut settings = settings;
-    settings.selected_model = model_id.to_string();
+    settings.selected_model = model_id.clone();
 
     // Reset language to auto if the new model doesn't support the currently selected language.
     // This prevents stale language settings from causing errors (e.g. Canary receiving zh-Hans)
@@ -139,7 +140,7 @@ pub fn switch_active_model(app: &AppHandle, model_id: &str) -> Result<(), String
             "model-state-changed",
             ModelStateEvent {
                 event_type: "selection_changed".to_string(),
-                model_id: Some(model_id.to_string()),
+                model_id: Some(model_id.clone()),
                 model_name: Some(model_info.name.clone()),
                 error: None,
             },
@@ -152,7 +153,7 @@ pub fn switch_active_model(app: &AppHandle, model_id: &str) -> Result<(), String
     }
 
     // Load the model. On failure, revert the persisted selection.
-    match transcription_manager.load_model(model_id) {
+    match transcription_manager.load_model(&model_id) {
         Ok(LoadModelStatus::WaitingForDownload) => {
             log::info!(
                 "Model {} is currently downloading. Selection updated.",
@@ -175,10 +176,11 @@ pub fn switch_active_model(app: &AppHandle, model_id: &str) -> Result<(), String
 #[specta::specta]
 pub fn change_selected_model_setting(
     app_handle: AppHandle,
+    model_manager: State<'_, Arc<ModelManager>>,
     model_id: String,
 ) -> Result<(), String> {
     let mut settings = get_settings(&app_handle);
-    settings.selected_model = model_id;
+    settings.selected_model = model_manager.resolve_language_model_id(&model_id);
     write_settings(&app_handle, settings);
     Ok(())
 }

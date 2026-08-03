@@ -222,24 +222,6 @@
       "pushToTalk": {
         "label": "Нажми и говори",
         "description": "Удерживайте, чтобы записать, отпустите, чтобы остановить"
-      },
-      "outputLanguage": {
-        "title": "Output Language",
-        "description": "Choose the format for transcriptions: raw Malayalam, transliterated Manglish, or translated English.",
-        "options": {
-          "malayalam": {
-            "label": "Malayalam",
-            "description": "Output raw Malayalam transcriptions"
-          },
-          "manglish": {
-            "label": "Manglish",
-            "description": "Transliterate Malayalam text into Manglish via Gemini"
-          },
-          "english": {
-            "label": "English",
-            "description": "Translate Malayalam text into English via Gemini"
-          }
-        }
       }
     },
     "sound": {
@@ -437,27 +419,6 @@
           "successMessage": "Successfully connected to Ollama! Found {{count}} available models.",
           "errorMessage": "Failed to connect to Ollama. Make sure Ollama is running locally."
         }
-      },
-      "prompts": {
-        "title": "Запрос к модели",
-        "selectedPrompt": {
-          "title": "Выберите запрос",
-          "description": "Выберите запрос для постобработки транскрипции или создайте новый. Используйте ${output} внутри текста запроса для ссылки на записанную транскрипцию."
-        },
-        "noPrompts": "Нет доступных запросов",
-        "selectPrompt": "Выберите запрос",
-        "createNew": "Создать новый запрос",
-        "promptLabel": "Название запроса",
-        "promptLabelPlaceholder": "Введите название запроса",
-        "promptInstructions": "Инструкции",
-        "promptInstructionsPlaceholder": "Напишите инструкции для постобработки транскрипции. Например: Улучшить грамматику и ясность следующего текста: ${output}",
-        "promptTip": "Совет: используйте <code>${output}</code>, чтобы вставить транскрипцию.",
-        "updatePrompt": "Обновить запрос",
-        "deletePrompt": "Удалить запрос",
-        "createPrompt": "Создать запрос",
-        "cancel": "Отмена",
-        "selectToEdit": "Выберите запрос выше, чтобы просмотреть и изменить его сведения.",
-        "createFirst": "Нажмите «Создать новый запрос» выше, чтобы создать первый запрос для постобработки."
       }
     },
     "history": {

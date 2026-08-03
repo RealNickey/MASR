@@ -204,24 +204,6 @@
       "pushToTalk": {
         "label": "Натискане за говорене",
         "description": "Задръжте за запис, пуснете за спиране"
-      },
-      "outputLanguage": {
-        "title": "Output Language",
-        "description": "Choose the format for transcriptions: raw Malayalam, transliterated Manglish, or translated English.",
-        "options": {
-          "malayalam": {
-            "label": "Malayalam",
-            "description": "Output raw Malayalam transcriptions"
-          },
-          "manglish": {
-            "label": "Manglish",
-            "description": "Transliterate Malayalam text into Manglish via Gemini"
-          },
-          "english": {
-            "label": "English",
-            "description": "Translate Malayalam text into English via Gemini"
-          }
-        }
       }
     },
     "models": {
@@ -437,27 +419,6 @@
           "successMessage": "Successfully connected to Ollama! Found {{count}} available models.",
           "errorMessage": "Failed to connect to Ollama. Make sure Ollama is running locally."
         }
-      },
-      "prompts": {
-        "title": "Подкана",
-        "selectedPrompt": {
-          "title": "Избрана подкана",
-          "description": "Изберете шаблон за подобряване на транскрипции или създайте нов. Използвайте ${output} в текста на подканата, за да препратите към уловения транскрипт."
-        },
-        "noPrompts": "Няма налични подкани",
-        "selectPrompt": "Изберете подкана",
-        "createNew": "Нова подкана",
-        "promptLabel": "Етикет на подканата",
-        "promptLabelPlaceholder": "Въведете име на подканата",
-        "promptInstructions": "Инструкции за подканата",
-        "promptInstructionsPlaceholder": "Напишете инструкциите за изпълнение след транскрипция. Пример: Подобрете граматиката и яснотата на следния текст: ${output}",
-        "promptTip": "Съвет: Използвайте <code>${output}</code>, за да вмъкнете транскрибирания текст в подканата.",
-        "updatePrompt": "Обновяване на подканата",
-        "deletePrompt": "Изтриване на подканата",
-        "createPrompt": "Създаване на подкана",
-        "cancel": "Отказ",
-        "selectToEdit": "Изберете подкана по-горе, за да видите и редактирате подробностите ѝ.",
-        "createFirst": "Натиснете „Нова подкана“ по-горе, за да създадете първата си подкана за постобработка."
       }
     },
     "history": {

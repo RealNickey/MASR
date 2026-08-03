@@ -7,13 +7,11 @@ use crate::managers::history::HistoryManager;
 use crate::managers::model::ModelManager;
 use crate::managers::transcription::TranscriptionManager;
 use crate::settings::{
-    get_settings, AppSettings, OutputLanguage, PostProcessProvider, APPLE_INTELLIGENCE_PROVIDER_ID,
+    get_settings, AppSettings, PostProcessProvider, APPLE_INTELLIGENCE_PROVIDER_ID,
 };
 use crate::shortcut;
 use crate::tray::{change_tray_icon, TrayIconState};
-use crate::utils::{
-    self, show_processing_overlay, show_recording_overlay, show_transcribing_overlay,
-};
+use crate::utils::{self, show_recording_overlay, show_transcribing_overlay};
 use crate::TranscriptionCoordinator;
 use ferrous_opencc::{config::BuiltinConfig, OpenCC};
 use log::{debug, error, warn};
@@ -213,10 +211,6 @@ async fn post_process_transcription(
         // Define JSON schema for transcription output
         let description = if selected_prompt_id == "default_meeting_summary" {
             "The meeting summary and action items in English"
-        } else if selected_prompt_id == "default_translate_to_english" {
-            "The translated text in English"
-        } else if selected_prompt_id == "default_manglish_transliteration" {
-            "The transliterated text in Manglish"
         } else {
             "The cleaned and processed transcription text"
         };
@@ -583,10 +577,6 @@ async fn attempt_chat_completion(
 
         let description = if prompt_id == "default_meeting_summary" {
             "The meeting summary and action items in English"
-        } else if prompt_id == "default_translate_to_english" {
-            "The translated text in English"
-        } else if prompt_id == "default_manglish_transliteration" {
-            "The transliterated text in Manglish"
         } else {
             "The cleaned and processed transcription text"
         };
@@ -940,7 +930,6 @@ async fn maybe_convert_chinese_variant(
 }
 
 pub(crate) struct ProcessedTranscription {
-    pub final_text: String,
     pub post_processed_text: Option<String>,
     pub post_process_prompt: Option<String>,
 }
@@ -962,8 +951,7 @@ pub(crate) async fn process_transcription_output(
     if post_process {
         if let Some(processed_text) = post_process_transcription(app, &settings, &final_text).await
         {
-            post_processed_text = Some(processed_text.clone());
-            final_text = processed_text;
+            post_processed_text = Some(processed_text);
 
             if let Some(prompt_id) = &settings.post_process_selected_prompt_id {
                 if let Some(prompt) = settings
@@ -979,174 +967,10 @@ pub(crate) async fn process_transcription_output(
         post_processed_text = Some(final_text.clone());
     }
 
-    match settings.output_language {
-        OutputLanguage::Malayalam => {}
-        OutputLanguage::Manglish => {
-            if let Some(transliterated) =
-                run_manglish_transliteration(app, &settings, &final_text).await
-            {
-                post_processed_text = Some(transliterated.clone());
-                final_text = transliterated;
-                if post_process_prompt.is_none() {
-                    post_process_prompt = settings
-                        .post_process_prompts
-                        .iter()
-                        .find(|p| p.id == "default_manglish_transliteration")
-                        .map(|p| p.prompt.clone());
-                }
-            }
-        }
-        OutputLanguage::English => {
-            if let Some(translated) = run_english_translation(app, &settings, &final_text).await {
-                post_processed_text = Some(translated.clone());
-                final_text = translated;
-                if post_process_prompt.is_none() {
-                    post_process_prompt = settings
-                        .post_process_prompts
-                        .iter()
-                        .find(|p| p.id == "default_translate_to_english")
-                        .map(|p| p.prompt.clone());
-                }
-            }
-        }
-    }
-
     ProcessedTranscription {
-        final_text,
         post_processed_text,
         post_process_prompt,
     }
-}
-
-/// Run Manglish transliteration using the Google/Gemini provider with gemma-4-26b-a4b-it.
-/// Falls back to the active post-processing provider if Google API key is not set.
-async fn run_manglish_transliteration(
-    app: &AppHandle,
-    settings: &AppSettings,
-    text: &str,
-) -> Option<String> {
-    let google_provider = settings.post_process_provider("google").cloned();
-    let google_key = crate::settings::resolved_post_process_api_key(settings, "google");
-    let mut quota_consumed = false;
-
-    if let Some(provider) = google_provider {
-        if !google_key.trim().is_empty() {
-            let prompt_text = settings
-                .post_process_prompts
-                .iter()
-                .find(|p| p.id == "default_manglish_transliteration")
-                .map(|p| p.prompt.clone())
-                .unwrap_or_else(|| {
-                    "Transliterate the following Malayalam text into Manglish:\n\n${output}"
-                        .to_string()
-                });
-
-            let processed_prompt = prompt_text.replace("${output}", text);
-            debug!("Running Manglish transliteration with Google/gemma-4-26b-a4b-it");
-            if let Err(error) = consume_quota_if_needed(
-                app,
-                settings,
-                &provider.id,
-                &google_key,
-                &mut quota_consumed,
-            ) {
-                debug!("Manglish quota check failed: {}", error);
-                return None;
-            }
-            match crate::llm_client::send_chat_completion(
-                app,
-                &provider,
-                google_key,
-                "gemma-4-26b-a4b-it",
-                processed_prompt,
-                Some("none".to_string()),
-                None,
-            )
-            .await
-            {
-                Ok(Some(result)) => return Some(strip_invisible_chars(&result)),
-                Ok(None) => debug!("Manglish: Google returned empty response"),
-                Err(e) => debug!(
-                    "Manglish: Google failed: {}; falling back to active provider",
-                    e
-                ),
-            }
-        }
-    }
-    // Fallback: use active post-process provider
-    run_specific_llm_prompt_with_quota(
-        app,
-        settings,
-        "default_manglish_transliteration",
-        text,
-        &mut quota_consumed,
-    )
-    .await
-}
-
-/// Run English translation using the Google/Gemini provider with gemma-4-26b-a4b-it.
-/// Falls back to the active post-processing provider if Google API key is not set.
-async fn run_english_translation(
-    app: &AppHandle,
-    settings: &AppSettings,
-    text: &str,
-) -> Option<String> {
-    let google_provider = settings.post_process_provider("google").cloned();
-    let google_key = crate::settings::resolved_post_process_api_key(settings, "google");
-    let mut quota_consumed = false;
-
-    if let Some(provider) = google_provider {
-        if !google_key.trim().is_empty() {
-            let prompt_text = settings
-                .post_process_prompts
-                .iter()
-                .find(|p| p.id == "default_translate_to_english")
-                .map(|p| p.prompt.clone())
-                .unwrap_or_else(|| {
-                    "Translate the following Malayalam text into English:\n\n${output}".to_string()
-                });
-
-            let processed_prompt = prompt_text.replace("${output}", text);
-            debug!("Running English translation with Google/gemma-4-26b-a4b-it");
-            if let Err(error) = consume_quota_if_needed(
-                app,
-                settings,
-                &provider.id,
-                &google_key,
-                &mut quota_consumed,
-            ) {
-                debug!("English translation quota check failed: {}", error);
-                return None;
-            }
-            match crate::llm_client::send_chat_completion(
-                app,
-                &provider,
-                google_key,
-                "gemma-4-26b-a4b-it",
-                processed_prompt,
-                Some("none".to_string()),
-                None,
-            )
-            .await
-            {
-                Ok(Some(result)) => return Some(strip_invisible_chars(&result)),
-                Ok(None) => debug!("English: Google returned empty response"),
-                Err(e) => debug!(
-                    "English: Google failed: {}; falling back to active provider",
-                    e
-                ),
-            }
-        }
-    }
-    // Fallback: use active post-process provider
-    run_specific_llm_prompt_with_quota(
-        app,
-        settings,
-        "default_translate_to_english",
-        text,
-        &mut quota_consumed,
-    )
-    .await
 }
 
 impl ShortcutAction for TranscribeAction {
@@ -1287,12 +1111,6 @@ impl ShortcutAction for TranscribeAction {
         // Play audio feedback for recording stop
         play_feedback_sound(app, SoundType::Stop);
 
-        let settings = get_settings(app);
-        let post_process = binding_id == "transcribe_with_post_process";
-        let has_llm_post_process = post_process
-            || settings.output_language == OutputLanguage::Manglish
-            || settings.output_language == OutputLanguage::English;
-
         let binding_id = binding_id.to_string(); // Clone binding_id for the async task
         tauri::async_runtime::spawn(async move {
             let _guard = FinishGuard(ah.clone());
@@ -1366,33 +1184,26 @@ impl ShortcutAction for TranscribeAction {
                                 transcription
                             );
 
-                            if has_llm_post_process {
-                                show_processing_overlay(&ah);
-                            }
-                            let processed =
-                                process_transcription_output(&ah, &transcription, post_process)
-                                    .await;
-
                             // Save to history if WAV was saved
                             if wav_saved {
                                 if let Err(err) = hm.save_entry(
                                     file_name,
-                                    transcription,
-                                    has_llm_post_process,
-                                    processed.post_processed_text.clone(),
-                                    processed.post_process_prompt.clone(),
+                                    transcription.clone(),
+                                    false,
+                                    None,
+                                    None,
                                 ) {
                                     error!("Failed to save history entry: {}", err);
                                 }
                             }
 
-                            if processed.final_text.is_empty() {
+                            if transcription.is_empty() {
                                 utils::hide_recording_overlay(&ah);
                                 change_tray_icon(&ah, TrayIconState::Idle);
                             } else {
                                 let ah_clone = ah.clone();
                                 let paste_time = Instant::now();
-                                let final_text = processed.final_text;
+                                let final_text = transcription;
                                 ah.run_on_main_thread(move || {
                                     match utils::paste(final_text, ah_clone.clone()) {
                                         Ok(()) => debug!(
@@ -1418,13 +1229,9 @@ impl ShortcutAction for TranscribeAction {
                             debug!("Global Shortcut Transcription error: {}", err);
                             // Save entry with empty text so user can retry
                             if wav_saved {
-                                if let Err(save_err) = hm.save_entry(
-                                    file_name,
-                                    String::new(),
-                                    post_process,
-                                    None,
-                                    None,
-                                ) {
+                                if let Err(save_err) =
+                                    hm.save_entry(file_name, String::new(), false, None, None)
+                                {
                                     error!("Failed to save failed history entry: {}", save_err);
                                 }
                             }

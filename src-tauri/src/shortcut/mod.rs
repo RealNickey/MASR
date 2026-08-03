@@ -799,27 +799,6 @@ pub fn change_post_process_enabled_setting(app: AppHandle, enabled: bool) -> Res
 
 #[tauri::command]
 #[specta::specta]
-pub fn change_output_language_setting(
-    app: AppHandle,
-    language: settings::OutputLanguage,
-) -> Result<(), String> {
-    let mut settings = settings::get_settings(&app);
-    settings.output_language = language;
-    settings::write_settings(&app, settings.clone());
-
-    let _ = app.emit(
-        "settings-changed",
-        serde_json::json!({
-            "setting": "output_language",
-            "value": language
-        }),
-    );
-
-    Ok(())
-}
-
-#[tauri::command]
-#[specta::specta]
 pub fn change_experimental_enabled_setting(app: AppHandle, enabled: bool) -> Result<(), String> {
     let mut settings = settings::get_settings(&app);
     settings.experimental_enabled = enabled;

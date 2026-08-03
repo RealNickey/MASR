@@ -10,6 +10,7 @@ use log::{debug, error, info, warn};
 use serde::Serialize;
 use specta::Type;
 use std::panic::{catch_unwind, AssertUnwindSafe};
+use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, OnceLock};
 use std::thread;
@@ -25,9 +26,127 @@ use transcribe_rs::{
         sense_voice::{SenseVoiceModel, SenseVoiceParams},
         Quantization,
     },
-    whisper_cpp::{WhisperEngine, WhisperInferenceParams},
+    whisper_cpp::WhisperInferenceParams,
     SpeechModel, TranscribeOptions,
 };
+use whisper_rs::{
+    FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters, WhisperState,
+};
+
+/// Local Whisper adapter with the inference settings that the app requires.
+///
+/// `transcribe-rs` 0.3.8 currently hard-codes beam search with three decoders
+/// in its Whisper engine. That is a poor fit for short dictation, so the app
+/// keeps the crate's model/accelerator integration but owns the inference call
+/// to select greedy decoding and an explicit CPU thread count.
+pub(crate) struct WhisperEngine {
+    state: WhisperState,
+    // The state also holds the context internally, but retaining the context
+    // here makes the ownership relationship explicit for the C++ backing data.
+    _context: WhisperContext,
+}
+
+impl WhisperEngine {
+    fn load(model_path: &Path) -> Result<Self> {
+        if !model_path.exists() {
+            return Err(anyhow::anyhow!(
+                "Whisper model does not exist: {}",
+                model_path.display()
+            ));
+        }
+
+        let use_gpu = transcribe_rs::get_whisper_accelerator().use_gpu();
+        let requested_gpu_device = transcribe_rs::get_whisper_gpu_device();
+        let gpu_device = if !use_gpu {
+            0
+        } else if requested_gpu_device == transcribe_rs::GPU_DEVICE_AUTO {
+            transcribe_rs::whisper_cpp::gpu::auto_select_gpu_device()
+        } else {
+            info!(
+                "Using user-selected Whisper GPU device {}",
+                requested_gpu_device
+            );
+            requested_gpu_device
+        };
+
+        let mut context_params = WhisperContextParameters::default();
+        context_params.use_gpu = use_gpu;
+        context_params.flash_attn = true;
+        context_params.gpu_device = gpu_device;
+        let context = WhisperContext::new_with_params(model_path, context_params)
+            .map_err(|e| anyhow::anyhow!("Whisper context initialization failed: {}", e))?;
+        let state = context
+            .create_state()
+            .map_err(|e| anyhow::anyhow!("Whisper state initialization failed: {}", e))?;
+
+        info!(
+            "Loaded Whisper with greedy decoding, {} threads, GPU enabled: {}, device: {}",
+            whisper_thread_count(),
+            use_gpu,
+            gpu_device
+        );
+
+        Ok(Self {
+            state,
+            _context: context,
+        })
+    }
+
+    fn transcribe_with(
+        &mut self,
+        samples: &[f32],
+        params: &WhisperInferenceParams,
+    ) -> Result<transcribe_rs::TranscriptionResult> {
+        let mut full_params = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
+        full_params.set_language(params.language.as_deref());
+        full_params.set_translate(params.translate);
+        full_params.set_print_special(params.print_special);
+        full_params.set_print_progress(params.print_progress);
+        full_params.set_print_realtime(params.print_realtime);
+        full_params.set_print_timestamps(params.print_timestamps);
+        full_params.set_suppress_blank(params.suppress_blank);
+        full_params.set_suppress_nst(params.suppress_non_speech_tokens);
+        full_params.set_no_speech_thold(params.no_speech_thold);
+        full_params.set_n_threads(params.n_threads.max(1));
+        if let Some(prompt) = &params.initial_prompt {
+            full_params.set_initial_prompt(prompt);
+        }
+
+        self.state
+            .full(full_params, samples)
+            .map_err(|e| anyhow::anyhow!("Whisper inference failed: {}", e))?;
+
+        let mut segments = Vec::new();
+        let mut full_text = String::new();
+        for index in 0..self.state.full_n_segments() {
+            let segment = self
+                .state
+                .get_segment(index)
+                .ok_or_else(|| anyhow::anyhow!("Whisper segment {} is out of bounds", index))?;
+            let text = segment
+                .to_str()
+                .map_err(|e| anyhow::anyhow!("Whisper segment decoding failed: {}", e))?;
+            segments.push(transcribe_rs::TranscriptionSegment {
+                start: segment.start_timestamp() as f32 / 100.0,
+                end: segment.end_timestamp() as f32 / 100.0,
+                text: text.to_string(),
+            });
+            full_text.push_str(text);
+        }
+
+        Ok(transcribe_rs::TranscriptionResult {
+            text: full_text.trim().to_string(),
+            segments: Some(segments),
+        })
+    }
+}
+
+fn whisper_thread_count() -> i32 {
+    thread::available_parallelism()
+        .map(|parallelism| parallelism.get().min(i32::MAX as usize) as i32)
+        .unwrap_or(1)
+        .max(1)
+}
 
 #[derive(Clone, Debug, Serialize)]
 pub struct ModelStateEvent {
@@ -259,6 +378,7 @@ impl TranscriptionManager {
     }
 
     pub fn load_model(&self, model_id: &str) -> Result<LoadModelStatus> {
+        let model_id = self.model_manager.resolve_language_model_id(model_id);
         let load_start = std::time::Instant::now();
         debug!("Starting to load model: {}", model_id);
 
@@ -275,7 +395,7 @@ impl TranscriptionManager {
 
         let model_info = self
             .model_manager
-            .get_model_info(model_id)
+            .get_model_info(&model_id)
             .ok_or_else(|| anyhow::anyhow!("Model not found: {}", model_id))?;
 
         if !model_info.is_downloaded {
@@ -302,7 +422,7 @@ impl TranscriptionManager {
             }
         }
 
-        let model_path = self.model_manager.get_model_path(model_id)?;
+        let model_path = self.model_manager.get_model_path(&model_id)?;
 
         // Create appropriate engine based on model type
         let emit_loading_failed = |error_msg: &str| {
@@ -687,12 +807,19 @@ impl TranscriptionManager {
                             let params = WhisperInferenceParams {
                                 language: whisper_language,
                                 translate: settings.translate_to_english,
+                                print_special: false,
+                                print_progress: false,
+                                print_realtime: false,
+                                print_timestamps: false,
+                                suppress_blank: true,
+                                suppress_non_speech_tokens: true,
+                                no_speech_thold: 0.2,
+                                n_threads: whisper_thread_count(),
                                 initial_prompt: if settings.custom_words.is_empty() {
                                     None
                                 } else {
                                     Some(settings.custom_words.join(", "))
                                 },
-                                ..Default::default()
                             };
 
                             whisper_engine
@@ -1053,12 +1180,19 @@ fn transcribe_with_engine(
                     &WhisperInferenceParams {
                         language,
                         translate: settings.translate_to_english,
+                        print_special: false,
+                        print_progress: false,
+                        print_realtime: false,
+                        print_timestamps: false,
+                        suppress_blank: true,
+                        suppress_non_speech_tokens: true,
+                        no_speech_thold: 0.2,
+                        n_threads: whisper_thread_count(),
                         initial_prompt: if settings.custom_words.is_empty() {
                             None
                         } else {
                             Some(settings.custom_words.join(", "))
                         },
-                        ..Default::default()
                     },
                 )
                 .map_err(|e| anyhow::anyhow!("Whisper transcription failed: {}", e))

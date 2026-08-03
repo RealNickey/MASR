@@ -6,7 +6,6 @@ import { ShortcutInput } from "../ShortcutInput";
 import { SettingsGroup } from "../../ui/SettingsGroup";
 import { OutputDeviceSelector } from "../OutputDeviceSelector";
 import { PushToTalk } from "../PushToTalk";
-import { OutputLanguageSelector } from "../OutputLanguageSelector";
 import { AudioFeedback } from "../AudioFeedback";
 import { useSettings } from "../../../hooks/useSettings";
 import { VolumeSlider } from "../VolumeSlider";
@@ -62,7 +61,6 @@ export const GeneralSettings: React.FC<{ simulateProd?: boolean }> = ({
               descriptionMode="tooltip"
               grouped={true}
             />
-            <OutputLanguageSelector descriptionMode="tooltip" grouped={true} />
             <ShortcutInput shortcutId="meeting" grouped={true} />
             {/* Cancel shortcut is hidden with push-to-talk (release key cancels) and on Linux (dynamic shortcut instability) */}
             {!isLinux && !pushToTalk && (

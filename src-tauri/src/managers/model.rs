@@ -58,6 +58,10 @@ pub enum EngineType {
     ThegaV1,
 }
 
+pub const MALAYALAM_MODEL_ID: &str = "thegav1";
+pub const PARAKEET_V3_MODEL_ID: &str = "parakeet-tdt-0.6b-v3";
+pub const WHISPER_TURBO_MODEL_IDS: &[&str] = &["turbo", "whisper-turbo"];
+
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 pub struct ModelInfo {
     pub id: String,
@@ -751,6 +755,51 @@ impl ModelManager {
     pub fn get_model_info(&self, model_id: &str) -> Option<ModelInfo> {
         let models = self.available_models.lock().unwrap();
         models.get(model_id).cloned()
+    }
+
+    /// Resolve the language selector's logical choices to an installed model.
+    ///
+    /// English prefers Whisper Turbo (including the legacy `whisper-turbo`
+    /// identifier) and falls back to Parakeet V3. Malayalam always resolves to
+    /// the Thega V1 model. Unknown model IDs remain untouched for the advanced
+    /// model-management surface.
+    pub fn resolve_language_model_id(&self, requested_id: &str) -> String {
+        let models = self.available_models.lock().unwrap();
+        let is_downloaded = |id: &str| models.get(id).is_some_and(|model| model.is_downloaded);
+        let is_whisper = |id: &str| {
+            models
+                .get(id)
+                .is_some_and(|model| matches!(&model.engine_type, EngineType::Whisper))
+        };
+
+        if requested_id == "malayalam" {
+            return MALAYALAM_MODEL_ID.to_string();
+        }
+
+        if requested_id == "english" {
+            if let Some(model_id) = WHISPER_TURBO_MODEL_IDS
+                .iter()
+                .find(|id| is_downloaded(id) && is_whisper(id))
+            {
+                return (*model_id).to_string();
+            }
+            if is_downloaded(PARAKEET_V3_MODEL_ID) {
+                return PARAKEET_V3_MODEL_ID.to_string();
+            }
+            return PARAKEET_V3_MODEL_ID.to_string();
+        }
+
+        if WHISPER_TURBO_MODEL_IDS.contains(&requested_id) {
+            if requested_id == "whisper-turbo" && is_downloaded("turbo") && is_whisper("turbo") {
+                return "turbo".to_string();
+            }
+            if is_downloaded(requested_id) && is_whisper(requested_id) {
+                return requested_id.to_string();
+            }
+            return PARAKEET_V3_MODEL_ID.to_string();
+        }
+
+        requested_id.to_string()
     }
 
     pub fn get_initial_setup_status(&self) -> InitialSetupStatus {
@@ -1788,6 +1837,61 @@ mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
     use tempfile::TempDir;
+
+    fn test_model(id: &str, engine_type: EngineType, is_downloaded: bool) -> ModelInfo {
+        ModelInfo {
+            id: id.to_string(),
+            name: id.to_string(),
+            description: String::new(),
+            filename: format!("{}.bin", id),
+            url: None,
+            sha256: None,
+            size_mb: 1,
+            is_downloaded,
+            is_downloading: false,
+            partial_size: 0,
+            is_directory: false,
+            engine_type,
+            accuracy_score: 1.0,
+            speed_score: 1.0,
+            supports_translation: true,
+            is_recommended: true,
+            supported_languages: vec!["en".to_string()],
+            supports_language_selection: true,
+            is_custom: false,
+        }
+    }
+
+    #[test]
+    fn resolve_language_model_prefers_installed_whisper_then_parakeet() {
+        let manager = ModelManager::new_test(TempDir::new().unwrap().path().to_path_buf());
+        {
+            let mut models = manager.available_models.lock().unwrap();
+            models.insert(
+                PARAKEET_V3_MODEL_ID.to_string(),
+                test_model(PARAKEET_V3_MODEL_ID, EngineType::Parakeet, true),
+            );
+            models.insert(
+                MALAYALAM_MODEL_ID.to_string(),
+                test_model(MALAYALAM_MODEL_ID, EngineType::ThegaV1, false),
+            );
+        }
+
+        assert_eq!(
+            manager.resolve_language_model_id("english"),
+            PARAKEET_V3_MODEL_ID
+        );
+        assert_eq!(
+            manager.resolve_language_model_id("malayalam"),
+            MALAYALAM_MODEL_ID
+        );
+
+        manager.available_models.lock().unwrap().insert(
+            "turbo".to_string(),
+            test_model("turbo", EngineType::Whisper, true),
+        );
+        assert_eq!(manager.resolve_language_model_id("english"), "turbo");
+    }
 
     #[test]
     fn test_discover_custom_whisper_models() {
