@@ -281,6 +281,33 @@ impl RagManager {
         Ok(())
     }
 
+    pub(crate) async fn remove_source_and_clear_summary(
+        &self,
+        history_manager: &HistoryManager,
+        entry_id: i64,
+    ) -> Result<()> {
+        let _guard = self.index_lock.lock().await;
+        let entry = {
+            let mut conn = Connection::open(history_manager.db_path())?;
+            let tx = conn.transaction()?;
+
+            // Remove vectors before clearing the summary so a cleared summary
+            // cannot remain searchable during the transaction.
+            tx.execute(
+                "DELETE FROM rag_chunks WHERE entry_id = ?1 AND source = ?2",
+                params![entry_id, "summary"],
+            )?;
+            let entry = history_manager.clear_summary_with_connection(&tx, entry_id)?;
+            tx.commit()?;
+            entry
+        };
+
+        self.index_revision.fetch_add(1, Ordering::AcqRel);
+        self.refresh_count(RagStatus::Ready, None).await;
+        history_manager.emit_summary_updated(entry);
+        Ok(())
+    }
+
     async fn ensure_indexed(&self) -> Result<()> {
         let _guard = self.index_lock.lock().await;
         let settings = get_settings(&self.app_handle);

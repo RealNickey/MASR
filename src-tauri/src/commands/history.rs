@@ -12,15 +12,9 @@ pub async fn clear_summary_and_vectors(
     rag_manager: &RagManager,
     id: i64,
 ) -> Result<(), String> {
-    // Remove the vector summary chunks first so the local memory index never
-    // serves a summary that was cleared from the database.
     rag_manager
-        .remove_source(id, "summary")
+        .remove_source_and_clear_summary(history_manager, id)
         .await
-        .map_err(|error| error.to_string())?;
-    history_manager
-        .clear_summary(id)
-        .map(|_| ())
         .map_err(|error| error.to_string())
 }
 

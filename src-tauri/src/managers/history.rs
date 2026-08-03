@@ -829,7 +829,19 @@ impl HistoryManager {
     }
 
     pub fn clear_summary(&self, id: i64) -> Result<HistoryEntry> {
-        let conn = self.get_connection()?;
+        let mut conn = self.get_connection()?;
+        let tx = conn.transaction()?;
+        let entry = self.clear_summary_with_connection(&tx, id)?;
+        tx.commit()?;
+        self.emit_summary_updated(entry.clone());
+        Ok(entry)
+    }
+
+    pub(crate) fn clear_summary_with_connection(
+        &self,
+        conn: &Connection,
+        id: i64,
+    ) -> Result<HistoryEntry> {
         let updated = conn.execute(
             "UPDATE transcription_history
              SET post_processed_text = NULL
@@ -845,14 +857,13 @@ impl HistoryManager {
             params![id],
             Self::map_history_entry,
         )?;
-        if let Err(error) = (HistoryUpdatePayload::Updated {
-            entry: entry.clone(),
-        })
-        .emit(&self.app_handle)
-        {
+        Ok(entry)
+    }
+
+    pub(crate) fn emit_summary_updated(&self, entry: HistoryEntry) {
+        if let Err(error) = (HistoryUpdatePayload::Updated { entry }).emit(&self.app_handle) {
             error!("Failed to emit history-updated event: {}", error);
         }
-        Ok(entry)
     }
 
     /// Remove the directory which owns all meeting tracks. Track metadata is

@@ -392,7 +392,11 @@ impl McpToolServer {
         let results = self
             .context
             .rag
-            .search(&request.query, request.limit.unwrap_or(5), None)
+            .search(
+                &request.query,
+                request.limit.unwrap_or(5).clamp(1, MAX_LIST_LIMIT),
+                None,
+            )
             .await
             .map_err(|error| error.to_string())?;
         Ok(Json(SearchMemoryOutput { results }))
@@ -1016,5 +1020,34 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn auth_middleware_accepts_correct_token_with_local_origin() {
+        let response = auth_app()
+            .oneshot(
+                Request::get("/")
+                    .header(header::AUTHORIZATION, "Bearer expected-token")
+                    .header(header::ORIGIN, "http://127.0.0.1:8787")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn auth_middleware_rejects_token_without_bearer_prefix() {
+        let response = auth_app()
+            .oneshot(
+                Request::get("/")
+                    .header(header::AUTHORIZATION, "expected-token")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
     }
 }
