@@ -19,5 +19,5 @@ pub fn get_mcp_connection_info(server: State<'_, Arc<McpServerManager>>) -> McpC
 #[tauri::command]
 #[specta::specta]
 pub fn rotate_mcp_token(server: State<'_, Arc<McpServerManager>>) -> McpConnectionInfo {
-    server.rotate_token()
+    server.inner().rotate_token()
 }

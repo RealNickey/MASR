@@ -962,6 +962,12 @@ fn validate_language(settings: &AppSettings, model_info: &ModelInfo) -> String {
     {
         settings.selected_language.clone()
     } else {
+        log::warn!(
+            "Configured transcription language '{}' is not supported by model '{}' ({}); falling back to auto-detect",
+            settings.selected_language,
+            model_info.id,
+            model_info.name
+        );
         "auto".to_string()
     }
 }

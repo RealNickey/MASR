@@ -22,17 +22,26 @@ use std::{
     collections::HashMap,
     path::{Path, PathBuf},
     sync::{
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
         Arc, Mutex,
     },
     time::Duration,
 };
+use subtle::ConstantTimeEq;
 use tauri::{AppHandle, Manager};
 use tokio_util::sync::CancellationToken;
 
 const DEFAULT_PORT: u16 = 8787;
 const MAX_LIST_LIMIT: usize = 50;
 const MAX_AUDIO_BYTES: u64 = 2 * 1024 * 1024 * 1024;
+
+struct ActiveJobGuard(Arc<AtomicBool>);
+
+impl Drop for ActiveJobGuard {
+    fn drop(&mut self) {
+        self.0.store(false, Ordering::Release);
+    }
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct ListModelsRequest {}
@@ -195,6 +204,7 @@ impl JobManager {
         if self.active.swap(true, Ordering::AcqRel) {
             return Err(anyhow!("Another MCP transcription job is already running"));
         }
+        let active_guard = ActiveJobGuard(self.active.clone());
         let job_id = random_id();
         let now = std::time::Instant::now();
         self.set(
@@ -209,6 +219,7 @@ impl JobManager {
         let jobs = self.clone();
         let job_id_for_task = job_id.clone();
         tauri::async_runtime::spawn(async move {
+            let _active_guard = active_guard;
             jobs.set(
                 &job_id_for_task,
                 JobState {
@@ -247,7 +258,6 @@ impl JobManager {
                     },
                 ),
             }
-            jobs.active.store(false, Ordering::Release);
         });
         Ok(job_id)
     }
@@ -448,17 +458,12 @@ impl McpToolServer {
         &self,
         Parameters(request): Parameters<RecordingIdRequest>,
     ) -> Result<Json<ActionOutput>, String> {
-        // Remove the vector chunks first so a RAG failure cannot leave the DB
-        // summary cleared while stale summary chunks remain searchable.
-        self.context
-            .rag
-            .remove_source(request.recording_id, "summary")
-            .await
-            .map_err(|error| error.to_string())?;
-        self.context
-            .history
-            .clear_summary(request.recording_id)
-            .map_err(|error| error.to_string())?;
+        crate::commands::history::clear_summary_and_vectors(
+            &self.context.history,
+            &self.context.rag,
+            request.recording_id,
+        )
+        .await?;
         Ok(Json(ActionOutput { success: true }))
     }
 
@@ -513,7 +518,7 @@ async fn auth_middleware(
         .get(header::AUTHORIZATION)
         .and_then(|value| value.to_str().ok())
         .and_then(|value| value.strip_prefix("Bearer "))
-        .is_some_and(|value| value == state.token);
+        .is_some_and(|value| bool::from(value.as_bytes().ct_eq(state.token.as_bytes())));
     if !valid_origin {
         return (StatusCode::FORBIDDEN, "Origin is not allowed").into_response();
     }
@@ -524,6 +529,7 @@ async fn auth_middleware(
 }
 
 struct ServerRuntime {
+    id: u64,
     port: u16,
     cancellation: CancellationToken,
 }
@@ -549,6 +555,8 @@ pub struct McpServerManager {
     token: Mutex<String>,
     runtime: Mutex<Option<ServerRuntime>>,
     last_error: Mutex<Option<String>>,
+    sync_lock: Mutex<()>,
+    next_runtime_id: AtomicU64,
 }
 
 impl McpServerManager {
@@ -571,10 +579,16 @@ impl McpServerManager {
             token: Mutex::new(token),
             runtime: Mutex::new(None),
             last_error: Mutex::new(None),
+            sync_lock: Mutex::new(()),
+            next_runtime_id: AtomicU64::new(0),
         })
     }
 
-    pub fn sync_from_settings(&self, app: &AppHandle) {
+    pub fn sync_from_settings(self: &Arc<Self>, app: &AppHandle) {
+        let Ok(_sync_guard) = self.sync_lock.lock() else {
+            self.set_error("MCP server synchronization is unavailable".to_string());
+            return;
+        };
         let settings = crate::settings::get_settings(app);
         self.clear_error();
         self.stop();
@@ -583,7 +597,7 @@ impl McpServerManager {
         }
     }
 
-    fn start(&self, port: u16) {
+    fn start(self: &Arc<Self>, port: u16) {
         let token = self
             .token
             .lock()
@@ -597,51 +611,57 @@ impl McpServerManager {
         let runtime_token = cancellation.clone();
         let context = self.context.clone();
         let endpoint = format!("http://127.0.0.1:{}/mcp", port);
+        let runtime_id = self.next_runtime_id.fetch_add(1, Ordering::Relaxed);
+        if let Ok(mut runtime) = self.runtime.lock() {
+            *runtime = Some(ServerRuntime {
+                id: runtime_id,
+                port,
+                cancellation: cancellation.clone(),
+            });
+        }
+        let manager = Arc::clone(self);
         // A previous runtime may still be releasing its socket after a stop()
         // during token rotation or port changes; retry briefly instead of
         // leaving the server down with an AddrInUse error.
-        let mut bind_error: Option<std::io::Error> = None;
-        let mut std_listener = None;
-        for attempt in 0..10 {
-            match std::net::TcpListener::bind(("127.0.0.1", port)) {
-                Ok(listener) => {
-                    std_listener = Some(listener);
-                    break;
-                }
-                Err(error) if attempt < 9 => {
-                    std::thread::sleep(Duration::from_millis(100));
-                    bind_error = Some(error);
-                }
-                Err(error) => bind_error = Some(error),
-            }
-        }
-        let std_listener = match std_listener {
-            Some(listener) => listener,
-            None => {
-                self.set_error(format!(
-                    "Failed to bind MCP server at {}: {}",
-                    endpoint,
-                    bind_error
-                        .as_ref()
-                        .map(|error| error.to_string())
-                        .unwrap_or_else(|| "unknown error".to_string())
-                ));
-                return;
-            }
-        };
-        if let Err(error) = std_listener.set_nonblocking(true) {
-            self.set_error(format!("Failed to configure MCP listener: {}", error));
-            return;
-        }
-        let listener = match tokio::net::TcpListener::from_std(std_listener) {
-            Ok(listener) => listener,
-            Err(error) => {
-                self.set_error(format!("Failed to initialize MCP listener: {}", error));
-                return;
-            }
-        };
-        self.clear_error();
         tauri::async_runtime::spawn(async move {
+            let mut bind_error: Option<std::io::Error> = None;
+            let mut listener = None;
+            for attempt in 0..10 {
+                if runtime_token.is_cancelled() {
+                    manager.clear_runtime(runtime_id);
+                    return;
+                }
+                match tokio::net::TcpListener::bind(("127.0.0.1", port)).await {
+                    Ok(value) => {
+                        listener = Some(value);
+                        break;
+                    }
+                    Err(error) if attempt < 9 => {
+                        bind_error = Some(error);
+                        tokio::time::sleep(Duration::from_millis(100)).await;
+                    }
+                    Err(error) => bind_error = Some(error),
+                }
+            }
+            let Some(listener) = listener else {
+                if !runtime_token.is_cancelled() {
+                    manager.set_error(format!(
+                        "Failed to bind MCP server at {}: {}",
+                        endpoint,
+                        bind_error
+                            .as_ref()
+                            .map(|error| error.to_string())
+                            .unwrap_or_else(|| "unknown error".to_string())
+                    ));
+                }
+                manager.clear_runtime(runtime_id);
+                return;
+            };
+            if runtime_token.is_cancelled() {
+                manager.clear_runtime(runtime_id);
+                return;
+            }
+            manager.clear_error();
             let service = rmcp::transport::streamable_http_server::StreamableHttpService::new(
                 move || Ok(McpToolServer::new(context.clone())),
                 Arc::new(
@@ -670,9 +690,18 @@ impl McpServerManager {
             let _ = axum::serve(listener, app)
                 .with_graceful_shutdown(runtime_token.cancelled_owned())
                 .await;
+            manager.clear_runtime(runtime_id);
         });
+    }
+
+    fn clear_runtime(&self, runtime_id: u64) {
         if let Ok(mut runtime) = self.runtime.lock() {
-            *runtime = Some(ServerRuntime { port, cancellation });
+            if runtime
+                .as_ref()
+                .is_some_and(|runtime| runtime.id == runtime_id)
+            {
+                runtime.take();
+            }
         }
     }
 
@@ -724,7 +753,7 @@ impl McpServerManager {
         }
     }
 
-    pub fn rotate_token(&self) -> McpConnectionInfo {
+    pub fn rotate_token(self: &Arc<Self>) -> McpConnectionInfo {
         let token = generate_token();
         persist_token(&self.app, &token);
         if let Ok(mut current) = self.token.lock() {
@@ -903,7 +932,27 @@ pub fn default_port() -> u16 {
 
 #[cfg(test)]
 mod tests {
-    use super::{generate_token, validate_audio_path};
+    use super::{auth_middleware, generate_token, validate_audio_path, AuthState};
+    use axum::{
+        body::Body,
+        http::{header, Request, StatusCode},
+        middleware,
+        routing::get,
+        Router,
+    };
+    use tower::ServiceExt;
+
+    fn auth_app() -> Router {
+        Router::new()
+            .route("/", get(|| async { StatusCode::OK }))
+            .layer(middleware::from_fn_with_state(
+                AuthState {
+                    token: "expected-token".to_string(),
+                    port: 8787,
+                },
+                auth_middleware,
+            ))
+    }
 
     #[test]
     fn generated_tokens_are_long_and_nonempty() {
@@ -918,5 +967,54 @@ mod tests {
     fn audio_paths_must_be_absolute() {
         let error = validate_audio_path("relative.wav").expect_err("relative path should fail");
         assert!(error.to_string().contains("absolute"));
+    }
+
+    #[tokio::test]
+    async fn auth_middleware_rejects_missing_and_incorrect_tokens() {
+        let missing = auth_app()
+            .oneshot(Request::get("/").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(missing.status(), StatusCode::UNAUTHORIZED);
+
+        let incorrect = auth_app()
+            .oneshot(
+                Request::get("/")
+                    .header(header::AUTHORIZATION, "Bearer wrong-token")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(incorrect.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn auth_middleware_rejects_mismatched_origin() {
+        let response = auth_app()
+            .oneshot(
+                Request::get("/")
+                    .header(header::AUTHORIZATION, "Bearer expected-token")
+                    .header(header::ORIGIN, "http://localhost:9999")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    }
+
+    #[tokio::test]
+    async fn auth_middleware_accepts_correct_token_without_origin() {
+        let response = auth_app()
+            .oneshot(
+                Request::get("/")
+                    .header(header::AUTHORIZATION, "Bearer expected-token")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
     }
 }

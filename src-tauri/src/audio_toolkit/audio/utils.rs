@@ -49,9 +49,9 @@ pub fn save_wav_file<P: AsRef<Path>>(file_path: P, samples: &[f32]) -> Result<()
     Ok(())
 }
 
-/// Maximum number of decoded samples accepted from a single audio file.
-/// Bounds memory and disk usage for local file transcription (16 kHz mono f32
-/// samples, ~3 hours ≈ 690 MB) so a malicious or mislabeled file cannot OOM.
+/// Maximum number of decoded, interleaved source samples accepted from a
+/// single audio file. Bounds the pre-mixdown f32 buffer to about 687 MiB so a
+/// malicious or mislabeled file cannot exhaust memory.
 const MAX_DECODED_SAMPLES: usize = 180_000_000;
 
 /// Read any audio file and return normalised f32 samples resampled to 16kHz mono.
@@ -135,9 +135,11 @@ pub fn read_any_audio_file<P: AsRef<Path>>(file_path: P) -> Result<Vec<f32>> {
                     buf.copy_interleaved_ref(decoded);
                     if samples.len().saturating_add(buf.samples().len()) > MAX_DECODED_SAMPLES {
                         anyhow::bail!(
-                            "Audio file exceeds the {} sample limit ({} hours at 16 kHz)",
+                            "Audio file exceeds the {} pre-mixdown interleaved sample limit (about {} MiB of f32 data)",
                             MAX_DECODED_SAMPLES,
-                            MAX_DECODED_SAMPLES / 16_000 / 3600
+                            (MAX_DECODED_SAMPLES * std::mem::size_of::<f32>()
+                                + (1024 * 1024 - 1))
+                                / (1024 * 1024)
                         );
                     }
                     samples.extend_from_slice(buf.samples());

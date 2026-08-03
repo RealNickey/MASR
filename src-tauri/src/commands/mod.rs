@@ -320,7 +320,7 @@ pub fn set_mcp_server_enabled(app: AppHandle, enabled: bool) -> Result<(), Strin
     settings.mcp_server_enabled = enabled;
     write_settings(&app, settings);
     if let Some(server) = app.try_state::<Arc<crate::managers::mcp_server::McpServerManager>>() {
-        server.sync_from_settings(&app);
+        server.inner().sync_from_settings(&app);
     }
     Ok(())
 }
@@ -335,7 +335,7 @@ pub fn set_mcp_server_port(app: AppHandle, port: u16) -> Result<(), String> {
     settings.mcp_server_port = port;
     write_settings(&app, settings);
     if let Some(server) = app.try_state::<Arc<crate::managers::mcp_server::McpServerManager>>() {
-        server.sync_from_settings(&app);
+        server.inner().sync_from_settings(&app);
     }
     Ok(())
 }

@@ -7,6 +7,23 @@ use crate::managers::{
 use std::sync::Arc;
 use tauri::{AppHandle, State};
 
+pub async fn clear_summary_and_vectors(
+    history_manager: &HistoryManager,
+    rag_manager: &RagManager,
+    id: i64,
+) -> Result<(), String> {
+    // Remove the vector summary chunks first so the local memory index never
+    // serves a summary that was cleared from the database.
+    rag_manager
+        .remove_source(id, "summary")
+        .await
+        .map_err(|error| error.to_string())?;
+    history_manager
+        .clear_summary(id)
+        .map(|_| ())
+        .map_err(|error| error.to_string())
+}
+
 #[tauri::command]
 #[specta::specta]
 pub async fn process_local_file(
@@ -355,16 +372,7 @@ pub async fn clear_history_entry_summary(
     rag_manager: State<'_, Arc<RagManager>>,
     id: i64,
 ) -> Result<(), String> {
-    // Remove the vector summary chunks first so the local memory index never
-    // serves a summary that was cleared from the database.
-    rag_manager
-        .remove_source(id, "summary")
-        .await
-        .map_err(|error| error.to_string())?;
-    history_manager
-        .clear_summary(id)
-        .map(|_| ())
-        .map_err(|error| error.to_string())
+    clear_summary_and_vectors(&**history_manager, &**rag_manager, id).await
 }
 
 #[tauri::command]

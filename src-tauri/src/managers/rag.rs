@@ -8,7 +8,11 @@ use rusqlite::{params, Connection};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::sync::Arc;
+use std::sync::{
+    atomic::{AtomicU64, Ordering},
+    Arc, OnceLock,
+};
+use tauri::Listener;
 use tokio::sync::{Mutex, RwLock};
 
 const EMBEDDING_MODEL: &str = "gemini-embedding-2";
@@ -52,6 +56,8 @@ pub struct RagManager {
     history_manager: Arc<HistoryManager>,
     index_lock: Arc<Mutex<()>>,
     status: Arc<RwLock<RagStatusSnapshot>>,
+    index_revision: Arc<AtomicU64>,
+    indexed_revision: Arc<AtomicU64>,
 }
 
 #[derive(Debug, Serialize)]
@@ -68,6 +74,13 @@ struct EmbedPart<'a> {
 struct EmbedRequest<'a> {
     model: &'static str,
     content: EmbedContent<'a>,
+    #[serde(rename = "embedContentConfig")]
+    config: EmbedContentConfig,
+}
+
+#[derive(Debug, Serialize)]
+struct EmbedContentConfig {
+    #[serde(rename = "outputDimensionality")]
     output_dimensionality: usize,
 }
 
@@ -90,6 +103,12 @@ struct ChunkInput {
 
 impl RagManager {
     pub fn new(app_handle: &tauri::AppHandle, history_manager: Arc<HistoryManager>) -> Arc<Self> {
+        let index_revision = Arc::new(AtomicU64::new(1));
+        let indexed_revision = Arc::new(AtomicU64::new(0));
+        let dirty_revision = index_revision.clone();
+        let _ = app_handle.listen("history-update-payload", move |_| {
+            dirty_revision.fetch_add(1, Ordering::AcqRel);
+        });
         Arc::new(Self {
             app_handle: app_handle.clone(),
             history_manager,
@@ -99,6 +118,8 @@ impl RagManager {
                 indexed_chunks: 0,
                 error: None,
             })),
+            index_revision,
+            indexed_revision,
         })
     }
 
@@ -156,7 +177,9 @@ impl RagManager {
         if !get_settings(&self.app_handle).rag_enabled {
             return Err(anyhow!("Vector Memory is disabled"));
         }
-        self.ensure_indexed().await?;
+        if !self.is_index_current() {
+            self.ensure_indexed().await?;
+        }
 
         let settings = get_settings(&self.app_handle);
         let key = user_google_api_key(&settings)
@@ -189,7 +212,9 @@ impl RagManager {
             if exclude_entry_id == Some(entry_id) {
                 continue;
             }
-            let embedding = decode_embedding(&bytes)?;
+            let Ok(embedding) = decode_embedding(&bytes) else {
+                continue;
+            };
             if embedding.len() != query_embedding.len() {
                 continue;
             }
@@ -214,9 +239,13 @@ impl RagManager {
         }
         let _guard = self.index_lock.lock().await;
         self.set_status(RagStatus::Indexing, None).await;
+        let target_revision = self.index_revision.load(Ordering::Acquire);
         let result = self.reindex_locked().await;
         match &result {
-            Ok(()) => self.refresh_count(RagStatus::Ready, None).await,
+            Ok(()) => {
+                self.mark_indexed(target_revision);
+                self.refresh_count(RagStatus::Ready, None).await;
+            }
             Err(error) => {
                 self.set_status(RagStatus::Error, Some(error.to_string()))
                     .await
@@ -226,8 +255,10 @@ impl RagManager {
     }
 
     pub async fn clear_index(&self) -> Result<()> {
+        let _guard = self.index_lock.lock().await;
         let conn = Connection::open(self.history_manager.db_path())?;
         conn.execute("DELETE FROM rag_chunks", [])?;
+        self.index_revision.fetch_add(1, Ordering::AcqRel);
         let settings = get_settings(&self.app_handle);
         let status = if settings.rag_enabled && user_google_api_key(&settings).is_some() {
             RagStatus::Ready
@@ -239,11 +270,13 @@ impl RagManager {
     }
 
     pub async fn remove_source(&self, entry_id: i64, source: &str) -> Result<()> {
+        let _guard = self.index_lock.lock().await;
         let conn = Connection::open(self.history_manager.db_path())?;
         conn.execute(
             "DELETE FROM rag_chunks WHERE entry_id = ?1 AND source = ?2",
             params![entry_id, source],
         )?;
+        self.index_revision.fetch_add(1, Ordering::AcqRel);
         self.refresh_count(RagStatus::Ready, None).await;
         Ok(())
     }
@@ -254,10 +287,17 @@ impl RagManager {
         if !settings.rag_enabled {
             return Ok(());
         }
+        if self.is_index_current() {
+            return Ok(());
+        }
         self.set_status(RagStatus::Indexing, None).await;
+        let target_revision = self.index_revision.load(Ordering::Acquire);
         let result = self.ensure_indexed_locked(&settings).await;
         match &result {
-            Ok(()) => self.refresh_count(RagStatus::Ready, None).await,
+            Ok(()) => {
+                self.mark_indexed(target_revision);
+                self.refresh_count(RagStatus::Ready, None).await;
+            }
             Err(error) => {
                 self.set_status(RagStatus::Error, Some(error.to_string()))
                     .await
@@ -316,6 +356,14 @@ impl RagManager {
         for (entry_id, error) in &failures {
             log::warn!("Failed to index entry {}: {}", entry_id, error);
         }
+        if let Some((entry_id, error)) = failures.first() {
+            return Err(anyhow!(
+                "Failed to index {} source(s); first failure for entry {}: {}",
+                failures.len(),
+                entry_id,
+                error
+            ));
+        }
         Ok(())
     }
 
@@ -327,7 +375,7 @@ impl RagManager {
         api_key: &str,
     ) -> Result<()> {
         let chunks = split_chunks(content);
-        let conn = Connection::open(self.history_manager.db_path())?;
+        let mut conn = Connection::open(self.history_manager.db_path())?;
         if chunks.is_empty() {
             conn.execute(
                 "DELETE FROM rag_chunks WHERE entry_id = ?1 AND source = ?2",
@@ -368,7 +416,6 @@ impl RagManager {
             embeddings.push(normalize(embed_text(api_key, &chunk.content).await?)?);
         }
 
-        let mut conn = Connection::open(self.history_manager.db_path())?;
         let tx = conn.transaction()?;
         tx.execute(
             "DELETE FROM rag_chunks WHERE entry_id = ?1 AND source = ?2",
@@ -413,20 +460,18 @@ impl RagManager {
     }
 
     async fn set_status(&self, status: RagStatus, error: Option<String>) {
-        let count = Connection::open(self.history_manager.db_path())
-            .and_then(|conn| {
-                conn.query_row("SELECT COUNT(*) FROM rag_chunks", [], |row| {
-                    row.get::<_, i64>(0)
-                })
-            })
-            .unwrap_or(0)
-            .max(0) as usize;
-        let mut snapshot = self.status.write().await;
-        *snapshot = RagStatusSnapshot {
-            status,
-            indexed_chunks: count,
-            error,
-        };
+        self.refresh_count(status, error).await;
+    }
+
+    fn is_index_current(&self) -> bool {
+        self.index_revision.load(Ordering::Acquire) == self.indexed_revision.load(Ordering::Acquire)
+    }
+
+    fn mark_indexed(&self, target_revision: u64) {
+        if self.index_revision.load(Ordering::Acquire) == target_revision {
+            self.indexed_revision
+                .store(target_revision, Ordering::Release);
+        }
     }
 }
 
@@ -440,15 +485,24 @@ fn user_google_api_key(settings: &AppSettings) -> Option<String> {
     })
 }
 
+static EMBEDDING_CLIENT: OnceLock<Result<reqwest::Client, String>> = OnceLock::new();
+
 async fn embed_text(api_key: &str, text: &str) -> Result<Vec<f32>> {
     let url = format!(
         "https://generativelanguage.googleapis.com/v1beta/models/{}:embedContent",
         EMBEDDING_MODEL
     );
-    let client = reqwest::Client::builder()
-        .connect_timeout(std::time::Duration::from_secs(10))
-        .timeout(std::time::Duration::from_secs(45))
-        .build()?;
+    let client = EMBEDDING_CLIENT
+        .get_or_init(|| {
+            reqwest::Client::builder()
+                .connect_timeout(std::time::Duration::from_secs(10))
+                .timeout(std::time::Duration::from_secs(45))
+                .build()
+                .map_err(|error| error.to_string())
+        })
+        .as_ref()
+        .map_err(|error| anyhow!("Failed to initialize Gemini embedding client: {}", error))?
+        .clone();
     let response = client
         .post(url)
         .header("x-goog-api-key", HeaderValue::from_str(api_key)?)
@@ -458,7 +512,9 @@ async fn embed_text(api_key: &str, text: &str) -> Result<Vec<f32>> {
             content: EmbedContent {
                 parts: vec![EmbedPart { text }],
             },
-            output_dimensionality: EMBEDDING_DIMENSIONS,
+            config: EmbedContentConfig {
+                output_dimensionality: EMBEDDING_DIMENSIONS,
+            },
         })
         .send()
         .await?;

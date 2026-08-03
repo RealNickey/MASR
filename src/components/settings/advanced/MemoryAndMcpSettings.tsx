@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useState } from "react";
+import { toast } from "sonner";
 import {
   commands,
   type McpConnectionInfo,
@@ -57,21 +58,39 @@ export const MemoryAndMcpSettings: React.FC = () => {
   }, [refreshRagStatus, ragEnabled]);
 
   const reindex = async () => {
-    const result = await commands.reindexRag();
-    if (result.status === "ok") await refreshRagStatus();
+    try {
+      const result = await commands.reindexRag();
+      if (result.status === "ok") await refreshRagStatus();
+      else toast.error(String(result.error));
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : String(error));
+    }
   };
 
   const clearIndex = async () => {
-    const result = await commands.clearRagIndex();
-    if (result.status === "ok") await refreshRagStatus();
+    try {
+      const result = await commands.clearRagIndex();
+      if (result.status === "ok") await refreshRagStatus();
+      else toast.error(String(result.error));
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : String(error));
+    }
   };
 
   const showConnection = async () => {
-    setConnection(await commands.getMcpConnectionInfo());
+    try {
+      setConnection(await commands.getMcpConnectionInfo());
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : String(error));
+    }
   };
 
   const rotateToken = async () => {
-    setConnection(await commands.rotateMcpToken());
+    try {
+      setConnection(await commands.rotateMcpToken());
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : String(error));
+    }
   };
 
   const statusLabel = ragStatus?.status ?? "disabled";

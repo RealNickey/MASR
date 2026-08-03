@@ -495,7 +495,13 @@ impl HistoryManager {
             // Keep the local vector index in sync with retention cleanup. Older
             // test databases may not have the RAG table yet, so tolerate that
             // migration gap just as delete_entry does.
-            let _ = conn.execute("DELETE FROM rag_chunks WHERE entry_id = ?1", params![id]);
+            if let Err(error) =
+                conn.execute("DELETE FROM rag_chunks WHERE entry_id = ?1", params![id])
+            {
+                if !is_missing_rag_chunks_table(&error) {
+                    error!("Failed to delete RAG chunks for entry {}: {}", id, error);
+                }
+            }
 
             // Delete database entry
             conn.execute(
@@ -799,10 +805,14 @@ impl HistoryManager {
             }
         }
 
-        // Delete from database
-        // The table is present in the current schema; ignoring a missing table
-        // keeps the test-only legacy database setup backwards compatible.
-        let _ = conn.execute("DELETE FROM rag_chunks WHERE entry_id = ?1", params![id]);
+        // Delete from database. Older test databases may not have the RAG table
+        // yet, but unrelated database errors must remain visible.
+        if let Err(error) = conn.execute("DELETE FROM rag_chunks WHERE entry_id = ?1", params![id])
+        {
+            if !is_missing_rag_chunks_table(&error) {
+                error!("Failed to delete RAG chunks for entry {}: {}", id, error);
+            }
+        }
         conn.execute(
             "DELETE FROM transcription_history WHERE id = ?1",
             params![id],
@@ -822,8 +832,7 @@ impl HistoryManager {
         let conn = self.get_connection()?;
         let updated = conn.execute(
             "UPDATE transcription_history
-             SET post_processed_text = NULL,
-                 post_process_prompt = post_process_prompt
+             SET post_processed_text = NULL
              WHERE id = ?1",
             params![id],
         )?;
@@ -889,6 +898,14 @@ impl HistoryManager {
             format!("Recording {}", timestamp)
         }
     }
+}
+
+fn is_missing_rag_chunks_table(error: &rusqlite::Error) -> bool {
+    matches!(
+        error,
+        rusqlite::Error::SqliteFailure(_, Some(message))
+            if message.contains("no such table: rag_chunks")
+    )
 }
 
 #[cfg(test)]
