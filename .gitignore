@@ -47,8 +47,12 @@ result
 thegav1.tar.gz
 thegav1/
 .env
-.agents/
-.codex
+/.agents/
+/.gemini/
+/.codex/
+
+# Generated benchmark reports
+/benchmark/results_*.md
 
 # CI-only ONNX Runtime staging; the runtime library is never committed.
 /.ci/
