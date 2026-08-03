@@ -1,9 +1,9 @@
 use crate::audio_toolkit::{apply_custom_words, filter_transcription_output};
 use crate::malayalam_asr::MalayalamAsr;
 use crate::managers::audio::AudioRecordingManager;
-use crate::managers::model::{EngineType, ModelManager};
+use crate::managers::model::{EngineType, ModelInfo, ModelManager};
 use crate::settings::{
-    get_settings, ModelUnloadTimeout, OrtAcceleratorSetting, WhisperAcceleratorSetting,
+    get_settings, AppSettings, ModelUnloadTimeout, OrtAcceleratorSetting, WhisperAcceleratorSetting,
 };
 use anyhow::Result;
 use log::{debug, error, info, warn};
@@ -43,7 +43,7 @@ pub enum LoadModelStatus {
     WaitingForDownload,
 }
 
-enum LoadedEngine {
+pub(crate) enum LoadedEngine {
     Whisper(WhisperEngine),
     Parakeet(ParakeetModel),
     Moonshine(MoonshineModel),
@@ -889,6 +889,251 @@ impl TranscriptionManager {
 
 fn should_reload_for_selected_model(current_model_id: Option<&str>, selected_model: &str) -> bool {
     !selected_model.is_empty() && current_model_id != Some(selected_model)
+}
+
+/// Load and run a downloaded model without touching the shared GUI engine or
+/// the persisted selected-model setting. MCP transcription jobs use this path
+/// so an agent can choose any installed model safely.
+pub(crate) fn transcribe_isolated(
+    app_handle: &tauri::AppHandle,
+    model_manager: &ModelManager,
+    model_id: &str,
+    audio: Vec<f32>,
+) -> Result<transcribe_rs::TranscriptionResult> {
+    let model_info = model_manager
+        .get_model_info(model_id)
+        .ok_or_else(|| anyhow::anyhow!("Model not found: {}", model_id))?;
+    if !model_info.is_downloaded {
+        return Err(anyhow::anyhow!("Model is not downloaded: {}", model_id));
+    }
+    if audio.is_empty() {
+        return Ok(transcribe_rs::TranscriptionResult {
+            text: String::new(),
+            segments: Some(Vec::new()),
+        });
+    }
+
+    let model_path = model_manager.get_model_path(model_id)?;
+    let mut engine = load_isolated_engine(&model_info, model_id, &model_path)?;
+    let settings = get_settings(app_handle);
+    let validated_language = validate_language(&settings, &model_info);
+
+    let result = catch_unwind(AssertUnwindSafe(|| {
+        transcribe_with_engine(&mut engine, &audio, &settings, &validated_language)
+    }))
+    .map_err(|payload| {
+        let message = if let Some(value) = payload.downcast_ref::<&str>() {
+            (*value).to_string()
+        } else if let Some(value) = payload.downcast_ref::<String>() {
+            value.clone()
+        } else {
+            "unknown panic".to_string()
+        };
+        anyhow::anyhow!("Isolated transcription engine panicked: {}", message)
+    })??;
+
+    let is_whisper = matches!(&model_info.engine_type, EngineType::Whisper);
+    let corrected = if !settings.custom_words.is_empty() && !is_whisper {
+        crate::audio_toolkit::apply_custom_words(
+            &result.text,
+            &settings.custom_words,
+            settings.word_correction_threshold,
+        )
+    } else {
+        result.text.clone()
+    };
+    let filtered = crate::audio_toolkit::filter_transcription_output(
+        &corrected,
+        &settings.app_language,
+        &settings.custom_filler_words,
+    );
+    Ok(transcribe_rs::TranscriptionResult {
+        text: filtered,
+        segments: result.segments,
+    })
+}
+
+fn validate_language(settings: &AppSettings, model_info: &ModelInfo) -> String {
+    if settings.selected_language == "auto"
+        || model_info.supported_languages.is_empty()
+        || model_info
+            .supported_languages
+            .contains(&settings.selected_language)
+    {
+        settings.selected_language.clone()
+    } else {
+        log::warn!(
+            "Configured transcription language '{}' is not supported by model '{}' ({}); falling back to auto-detect",
+            settings.selected_language,
+            model_info.id,
+            model_info.name
+        );
+        "auto".to_string()
+    }
+}
+
+fn load_isolated_engine(
+    model_info: &ModelInfo,
+    model_id: &str,
+    model_path: &std::path::Path,
+) -> Result<LoadedEngine> {
+    let engine = match &model_info.engine_type {
+        EngineType::Whisper => LoadedEngine::Whisper(
+            WhisperEngine::load(model_path)
+                .map_err(|e| anyhow::anyhow!("Failed to load whisper model {}: {}", model_id, e))?,
+        ),
+        EngineType::Parakeet => LoadedEngine::Parakeet(
+            ParakeetModel::load(model_path, &Quantization::Int8).map_err(|e| {
+                anyhow::anyhow!("Failed to load parakeet model {}: {}", model_id, e)
+            })?,
+        ),
+        EngineType::Moonshine => LoadedEngine::Moonshine(
+            MoonshineModel::load(model_path, MoonshineVariant::Base, &Quantization::default())
+                .map_err(|e| {
+                    anyhow::anyhow!("Failed to load moonshine model {}: {}", model_id, e)
+                })?,
+        ),
+        EngineType::MoonshineStreaming => LoadedEngine::MoonshineStreaming(
+            StreamingModel::load(model_path, 0, &Quantization::default()).map_err(|e| {
+                anyhow::anyhow!(
+                    "Failed to load moonshine streaming model {}: {}",
+                    model_id,
+                    e
+                )
+            })?,
+        ),
+        EngineType::SenseVoice => LoadedEngine::SenseVoice(
+            SenseVoiceModel::load(model_path, &Quantization::Int8).map_err(|e| {
+                anyhow::anyhow!("Failed to load SenseVoice model {}: {}", model_id, e)
+            })?,
+        ),
+        EngineType::GigaAM => LoadedEngine::GigaAM(
+            GigaAMModel::load(model_path, &Quantization::Int8)
+                .map_err(|e| anyhow::anyhow!("Failed to load gigaam model {}: {}", model_id, e))?,
+        ),
+        EngineType::Canary => LoadedEngine::Canary(
+            CanaryModel::load(model_path, &Quantization::Int8)
+                .map_err(|e| anyhow::anyhow!("Failed to load canary model {}: {}", model_id, e))?,
+        ),
+        EngineType::Cohere => LoadedEngine::Cohere(
+            CohereModel::load(model_path, &Quantization::Int8)
+                .map_err(|e| anyhow::anyhow!("Failed to load cohere model {}: {}", model_id, e))?,
+        ),
+        EngineType::ThegaV1 => {
+            LoadedEngine::ThegaV1(MalayalamAsr::load(model_path).map_err(|e| {
+                anyhow::anyhow!("Failed to load Malayalam ASR model {}: {}", model_id, e)
+            })?)
+        }
+    };
+    Ok(engine)
+}
+
+fn transcribe_with_engine(
+    engine: &mut LoadedEngine,
+    audio: &[f32],
+    settings: &AppSettings,
+    validated_language: &str,
+) -> Result<transcribe_rs::TranscriptionResult> {
+    match engine {
+        LoadedEngine::Whisper(whisper_engine) => {
+            let language = if validated_language == "auto" {
+                None
+            } else {
+                Some(
+                    if validated_language == "zh-Hans" || validated_language == "zh-Hant" {
+                        "zh".to_string()
+                    } else {
+                        validated_language.to_string()
+                    },
+                )
+            };
+            whisper_engine
+                .transcribe_with(
+                    audio,
+                    &WhisperInferenceParams {
+                        language,
+                        translate: settings.translate_to_english,
+                        initial_prompt: if settings.custom_words.is_empty() {
+                            None
+                        } else {
+                            Some(settings.custom_words.join(", "))
+                        },
+                        ..Default::default()
+                    },
+                )
+                .map_err(|e| anyhow::anyhow!("Whisper transcription failed: {}", e))
+        }
+        LoadedEngine::Parakeet(parakeet_engine) => parakeet_engine
+            .transcribe_with(
+                audio,
+                &ParakeetParams {
+                    timestamp_granularity: Some(TimestampGranularity::Segment),
+                    ..Default::default()
+                },
+            )
+            .map_err(|e| anyhow::anyhow!("Parakeet transcription failed: {}", e)),
+        LoadedEngine::Moonshine(moonshine_engine) => moonshine_engine
+            .transcribe(audio, &TranscribeOptions::default())
+            .map_err(|e| anyhow::anyhow!("Moonshine transcription failed: {}", e)),
+        LoadedEngine::MoonshineStreaming(streaming_engine) => streaming_engine
+            .transcribe(audio, &TranscribeOptions::default())
+            .map_err(|e| anyhow::anyhow!("Moonshine streaming transcription failed: {}", e)),
+        LoadedEngine::SenseVoice(sense_voice_engine) => {
+            let language = match validated_language {
+                "zh" | "zh-Hans" | "zh-Hant" => Some("zh".to_string()),
+                "en" => Some("en".to_string()),
+                "ja" => Some("ja".to_string()),
+                "ko" => Some("ko".to_string()),
+                "yue" => Some("yue".to_string()),
+                _ => None,
+            };
+            sense_voice_engine
+                .transcribe_with(
+                    audio,
+                    &SenseVoiceParams {
+                        language,
+                        use_itn: Some(true),
+                    },
+                )
+                .map_err(|e| anyhow::anyhow!("SenseVoice transcription failed: {}", e))
+        }
+        LoadedEngine::GigaAM(gigaam_engine) => gigaam_engine
+            .transcribe(audio, &TranscribeOptions::default())
+            .map_err(|e| anyhow::anyhow!("GigaAM transcription failed: {}", e)),
+        LoadedEngine::Canary(canary_engine) => canary_engine
+            .transcribe(
+                audio,
+                &TranscribeOptions {
+                    language: (validated_language != "auto")
+                        .then(|| validated_language.to_string()),
+                    translate: settings.translate_to_english,
+                    ..Default::default()
+                },
+            )
+            .map_err(|e| anyhow::anyhow!("Canary transcription failed: {}", e)),
+        LoadedEngine::Cohere(cohere_engine) => cohere_engine
+            .transcribe(
+                audio,
+                &TranscribeOptions {
+                    language: (validated_language != "auto").then(|| {
+                        if validated_language == "zh-Hans" || validated_language == "zh-Hant" {
+                            "zh".to_string()
+                        } else {
+                            validated_language.to_string()
+                        }
+                    }),
+                    ..Default::default()
+                },
+            )
+            .map_err(|e| anyhow::anyhow!("Cohere transcription failed: {}", e)),
+        LoadedEngine::ThegaV1(asr) => asr
+            .transcribe(audio)
+            .map(|text| transcribe_rs::TranscriptionResult {
+                text,
+                segments: Some(Vec::new()),
+            })
+            .map_err(|e| anyhow::anyhow!("Malayalam ASR transcription failed: {}", e)),
+    }
 }
 
 #[cfg(test)]
