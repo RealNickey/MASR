@@ -321,7 +321,7 @@ Use the existing verification surface instead of inventing new one-off checks.
 - `bun run test:playwright`
 - `cd src-tauri && cargo test`
 
-Read [TEST_INFRA.md](TEST_INFRA.md) before changing Playwright/Tauri mock behavior. The E2E suite already has mock plumbing for:
+The E2E suite already has mock plumbing for Playwright/Tauri behavior, including:
 
 - Google integration state
 - meeting detection flags
