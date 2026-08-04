@@ -1823,9 +1823,13 @@ fn transcribe_meeting_tracks(
 
     let transcript = merge_meeting_transcripts(microphone, system);
     if transcript.text.trim().is_empty() {
-        let mut message = "No speech was detected in the microphone or system meeting tracks".to_string();
+        let mut message =
+            "No speech was detected in the microphone or system meeting tracks".to_string();
         if !track_errors.is_empty() {
-            message.push_str(&format!(". Underlying failures: {}", track_errors.join("; ")));
+            message.push_str(&format!(
+                ". Underlying failures: {}",
+                track_errors.join("; ")
+            ));
         }
         return Err(anyhow::anyhow!(message));
     }

@@ -1663,7 +1663,7 @@ fn parse_pipewire_default_sink(output: &str) -> Option<String> {
             .as_array()?
             .iter()
             .find_map(|entry| {
-                (entry.get("key")?.as_str() == "default.audio.sink").then_some(())?;
+                (entry.get("key")?.as_str() == Some("default.audio.sink")).then_some(())?;
                 let value = entry.get("value")?.as_str()?;
                 serde_json::from_str::<serde_json::Value>(value)
                     .ok()

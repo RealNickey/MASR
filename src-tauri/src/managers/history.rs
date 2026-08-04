@@ -274,7 +274,11 @@ impl HistoryManager {
             .collect();
 
         for directory in candidate_paths {
-            let Some(root) = directory.file_name().and_then(|n| n.to_str()).map(str::to_owned) else {
+            let Some(root) = directory
+                .file_name()
+                .and_then(|n| n.to_str())
+                .map(str::to_owned)
+            else {
                 continue;
             };
             let manifest_path = directory.join("manifest.json");
