@@ -61,6 +61,13 @@ impl TranscriptionManager {
         Ok(LoadModelStatus::Loaded)
     }
 
+    pub fn load_model_if_different_waiting_for_download(
+        &self,
+        _model_id: &str,
+    ) -> Result<()> {
+        Ok(())
+    }
+
     pub fn initiate_model_load(&self) {}
 
     pub fn get_current_model(&self) -> Option<String> {

@@ -1,5 +1,7 @@
 use crate::audio_toolkit::{list_input_devices, vad::SmoothedVad, AudioRecorder, SileroVad};
 use crate::helpers::clamshell;
+use crate::managers::meeting_capture::MeetingCaptureArtifacts;
+use crate::managers::meeting_capture_adapter::MeetingCaptureCoordinator;
 use crate::settings::{get_settings, AppSettings};
 use crate::utils;
 use log::{debug, error, info};
@@ -154,6 +156,10 @@ pub struct AudioRecordingManager {
     is_recording: Arc<Mutex<bool>>,
     did_mute: Arc<Mutex<bool>>,
     close_generation: Arc<AtomicU64>,
+    /// Meeting capture deliberately uses its own native microphone/system
+    /// streams. Keeping it separate from the VAD recorder avoids collapsing
+    /// independently-clocked sources into the ordinary 16 kHz buffer.
+    meeting_capture: Arc<Mutex<Option<MeetingCaptureCoordinator>>>,
 }
 
 impl AudioRecordingManager {
@@ -177,6 +183,7 @@ impl AudioRecordingManager {
             is_recording: Arc::new(Mutex::new(false)),
             did_mute: Arc::new(Mutex::new(false)),
             close_generation: Arc::new(AtomicU64::new(0)),
+            meeting_capture: Arc::new(Mutex::new(None)),
         };
 
         // Always-on?  Open immediately.
@@ -384,6 +391,82 @@ impl AudioRecordingManager {
 
     /* ---------- recording --------------------------------------------------- */
 
+    /// Start a timestamped native microphone + system-audio meeting capture.
+    ///
+    /// The normal VAD recorder is intentionally not involved here: it creates
+    /// a speech-only 16 kHz mono buffer and cannot preserve source-device
+    /// clocks, native formats, or system audio provenance.
+    pub fn try_start_meeting_capture(&self) -> Result<(), String> {
+        {
+            let mut state = self.state.lock().unwrap();
+            if !matches!(*state, RecordingState::Idle) {
+                return Err("Already recording".to_string());
+            }
+            *state = RecordingState::MeetingRecording;
+        }
+
+        let settings = get_settings(&self.app_handle);
+        let microphone_device = self.get_effective_microphone_device(&settings);
+        let recordings_dir = crate::portable::app_data_dir(&self.app_handle)
+            .map_err(|error| format!("resolve meeting recordings directory: {error}"))?
+            .join("recordings");
+        let capture = MeetingCaptureCoordinator::start(
+            &recordings_dir,
+            microphone_device,
+            settings.selected_output_device.as_deref(),
+        );
+
+        match capture {
+            Ok(capture) => {
+                let mut active_capture = self.meeting_capture.lock().unwrap();
+                if active_capture.is_some() {
+                    // State ownership should make this unreachable, but do not
+                    // silently replace a durable capture if a caller races us.
+                    drop(active_capture);
+                    capture.discard();
+                    self.reset_failed_meeting_start();
+                    return Err("A meeting capture is already active".to_string());
+                }
+                *active_capture = Some(capture);
+                *self.is_recording.lock().unwrap() = true;
+                debug!("Timestamped native meeting capture started");
+                Ok(())
+            }
+            Err(error) => {
+                self.reset_failed_meeting_start();
+                Err(error.to_string())
+            }
+        }
+    }
+
+    /// Finalize an active meeting capture and return source/derived paths plus
+    /// the canonical timestamp manifest. This is intentionally synchronous so
+    /// callers can place it on a blocking worker before beginning ASR.
+    pub fn stop_meeting_capture(&self) -> Result<Option<MeetingCaptureArtifacts>, String> {
+        {
+            let mut state = self.state.lock().unwrap();
+            if !matches!(*state, RecordingState::MeetingRecording) {
+                return Ok(None);
+            }
+            *state = RecordingState::Idle;
+        }
+
+        let capture = self.meeting_capture.lock().unwrap().take();
+        *self.is_recording.lock().unwrap() = false;
+        match capture {
+            Some(capture) => capture
+                .finalize()
+                .map(Some)
+                .map_err(|error| format!("finalize meeting capture: {error}")),
+            None => Err("Meeting capture was no longer available".to_string()),
+        }
+    }
+
+    fn reset_failed_meeting_start(&self) {
+        *self.state.lock().unwrap() = RecordingState::Idle;
+        *self.is_recording.lock().unwrap() = false;
+    }
+
     pub fn try_start_recording(&self, binding_id: &str) -> Result<(), String> {
         let mut state = self.state.lock().unwrap();
 
@@ -504,10 +587,20 @@ impl AudioRecordingManager {
     pub fn cancel_recording(&self) {
         let mut state = self.state.lock().unwrap();
 
-        if matches!(
-            *state,
-            RecordingState::Recording { .. } | RecordingState::MeetingRecording
-        ) {
+        if matches!(*state, RecordingState::MeetingRecording) {
+            *state = RecordingState::Idle;
+            drop(state);
+            let capture = self.meeting_capture.lock().unwrap().take();
+            if let Some(capture) = capture {
+                // Cancellation is explicit user intent, so discard only this
+                // unfinalized session rather than leaving a recovery artifact.
+                capture.discard();
+            }
+            *self.is_recording.lock().unwrap() = false;
+            return;
+        }
+
+        if matches!(*state, RecordingState::Recording { .. }) {
             *state = RecordingState::Idle;
             drop(state);
 

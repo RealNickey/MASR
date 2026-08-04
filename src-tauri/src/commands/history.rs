@@ -1,11 +1,12 @@
 use crate::actions::process_transcription_output;
 use crate::managers::{
+    diarization_model::DiarizationModelManager,
     history::{HistoryManager, PaginatedHistory},
     rag::RagManager,
     transcription::TranscriptionManager,
 };
 use std::sync::Arc;
-use tauri::{AppHandle, State};
+use tauri::{AppHandle, Manager, State};
 
 pub async fn clear_summary_and_vectors(
     history_manager: &HistoryManager,
@@ -179,6 +180,24 @@ pub async fn retry_history_entry_transcription(
         .await
         .map_err(|e| e.to_string())?
         .ok_or_else(|| format!("History entry {} not found", id))?;
+
+    // Native meeting sessions retain separate, timestamp-rendered microphone
+    // and system ASR tracks. They must never retry through the generic mix
+    // path below, which would destroy the source attribution and durable
+    // transcript timing collected at capture time.
+    if entry.meeting_session.is_some() {
+        let diarization_model_manager = app
+            .try_state::<Arc<DiarizationModelManager>>()
+            .map(|manager| Arc::clone(manager.inner()));
+        return crate::actions::retry_meeting_history_entry(
+            &app,
+            Arc::clone(&history_manager),
+            Arc::clone(&transcription_manager),
+            diarization_model_manager,
+            entry,
+        )
+        .await;
+    }
 
     let audio_path = history_manager.get_audio_file_path(&entry.file_name);
     let samples = crate::audio_toolkit::read_any_audio_file(&audio_path)

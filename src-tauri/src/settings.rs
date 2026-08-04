@@ -480,6 +480,11 @@ pub struct AppSettings {
     pub meeting_calendar_prompts_enabled: bool,
     #[serde(default = "default_meeting_prompt_lead_minutes")]
     pub meeting_prompt_lead_minutes: u32,
+    /// Opt-in speaker diarization for completed meeting captures. This stays
+    /// disabled until the local model and its results have been explicitly
+    /// tested by the user.
+    #[serde(default)]
+    pub meeting_diarization_enabled: bool,
     #[serde(default)]
     pub rag_enabled: bool,
     #[serde(default)]
@@ -1080,6 +1085,7 @@ pub fn get_default_settings() -> AppSettings {
         meeting_detection_enabled: default_meeting_detection_enabled(),
         meeting_calendar_prompts_enabled: false,
         meeting_prompt_lead_minutes: default_meeting_prompt_lead_minutes(),
+        meeting_diarization_enabled: false,
         rag_enabled: false,
         mcp_server_enabled: false,
         mcp_server_port: default_mcp_server_port(),
@@ -1268,6 +1274,11 @@ mod tests {
         let settings = get_default_settings();
         assert!(!settings.auto_submit);
         assert_eq!(settings.auto_submit_key, AutoSubmitKey::Enter);
+    }
+
+    #[test]
+    fn default_settings_keep_diarization_opt_in() {
+        assert!(!get_default_settings().meeting_diarization_enabled);
     }
 
     #[test]

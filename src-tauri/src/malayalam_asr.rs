@@ -3,6 +3,31 @@ use rustfft::{num_complex::Complex, FftPlanner};
 use std::collections::HashMap;
 use std::path::Path;
 
+/// A word boundary estimated from the ThegaV1 CTC output frames.
+///
+/// These timestamps are model-frame estimates on the source track's clock;
+/// callers are responsible for adding the track's shared-meeting offset.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TimedWord {
+    pub text: String,
+    pub start_ms: u64,
+    pub end_ms: u64,
+}
+
+/// The ThegaV1 transcript together with its CTC-frame-derived word timing.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MalayalamTranscription {
+    pub text: String,
+    pub words: Vec<TimedWord>,
+}
+
+#[derive(Clone, Debug)]
+struct DecodedToken {
+    text: String,
+    start_frame: usize,
+    end_frame: usize,
+}
+
 pub struct MalayalamAsr {
     session: ort::session::Session,
     vocab: HashMap<usize, String>,
@@ -55,8 +80,22 @@ impl MalayalamAsr {
     }
 
     pub fn transcribe(&mut self, audio: &[f32]) -> anyhow::Result<String> {
+        Ok(self.transcribe_with_timing(audio)?.text)
+    }
+
+    /// Transcribes audio and retains timestamps from the CTC output frame
+    /// spans. The model does not expose forced alignment, so the frame mapping
+    /// is deliberately retained as an estimate rather than presented as a
+    /// sample-accurate word alignment.
+    pub fn transcribe_with_timing(
+        &mut self,
+        audio: &[f32],
+    ) -> anyhow::Result<MalayalamTranscription> {
         if audio.is_empty() {
-            return Ok(String::new());
+            return Ok(MalayalamTranscription {
+                text: String::new(),
+                words: Vec::new(),
+            });
         }
 
         // 1. Pre-emphasis
@@ -220,7 +259,8 @@ impl MalayalamAsr {
             }
         }
 
-        // CTC Argmax Decoding
+        // CTC argmax decoding. Preserve each non-blank run's output-frame
+        // span so source-track timestamps survive the decoding step.
         let mut ids = Vec::with_capacity(t_len);
         for t in 0..t_len {
             let mut max_val = f32::NEG_INFINITY;
@@ -235,26 +275,109 @@ impl MalayalamAsr {
             ids.push(max_idx);
         }
 
-        let mut decoded_tokens = Vec::new();
-        let mut prev = -1i32;
-        for idx in ids {
-            let idx_i32 = idx as i32;
-            if idx_i32 != prev {
-                if idx < self.vocab.len() && idx != self.blank_id {
-                    if let Some(token) = self.vocab.get(&idx) {
-                        decoded_tokens.push(token.clone());
-                    }
-                }
-            }
-            prev = idx_i32;
-        }
-
-        let joined = decoded_tokens.join("");
+        let decoded_tokens = decode_ctc_runs(&ids, &self.vocab, self.blank_id);
+        let joined = decoded_tokens
+            .iter()
+            .map(|token| token.text.as_str())
+            .collect::<String>();
         let replaced = joined.replace('\u{2581}', " ").replace('▁', " ");
         let normalized = replaced.split_whitespace().collect::<Vec<&str>>().join(" ");
+        let words =
+            timed_words_from_ctc_tokens(&decoded_tokens, t_len, audio.len(), self.sample_rate);
 
-        Ok(normalized)
+        Ok(MalayalamTranscription {
+            text: normalized,
+            words,
+        })
     }
+}
+
+fn decode_ctc_runs(
+    ids: &[usize],
+    vocab: &HashMap<usize, String>,
+    blank_id: usize,
+) -> Vec<DecodedToken> {
+    let mut decoded = Vec::new();
+    let mut start = 0;
+    while start < ids.len() {
+        let id = ids[start];
+        let mut end = start + 1;
+        while end < ids.len() && ids[end] == id {
+            end += 1;
+        }
+
+        if id != blank_id && id < vocab.len() {
+            if let Some(text) = vocab.get(&id) {
+                decoded.push(DecodedToken {
+                    text: text.clone(),
+                    start_frame: start,
+                    end_frame: end,
+                });
+            }
+        }
+        start = end;
+    }
+    decoded
+}
+
+fn timed_words_from_ctc_tokens(
+    tokens: &[DecodedToken],
+    output_frames: usize,
+    input_samples: usize,
+    sample_rate: usize,
+) -> Vec<TimedWord> {
+    if output_frames == 0 || input_samples == 0 || sample_rate == 0 {
+        return Vec::new();
+    }
+
+    let mut words = Vec::new();
+    let mut current: Option<TimedWord> = None;
+    for token in tokens {
+        let starts_word = token.text.contains('▁') || token.text.contains('\u{2581}');
+        let token_text = token.text.replace('\u{2581}', "").replace('▁', "");
+        let token_text = token_text.trim();
+        let start_ms = frame_to_ms(token.start_frame, output_frames, input_samples, sample_rate);
+        let end_ms = frame_to_ms(token.end_frame, output_frames, input_samples, sample_rate)
+            .max(start_ms.saturating_add(1));
+
+        if starts_word && current.as_ref().is_some_and(|word| !word.text.is_empty()) {
+            if let Some(word) = current.take() {
+                words.push(word);
+            }
+        }
+
+        if token_text.is_empty() {
+            continue;
+        }
+
+        let word = current.get_or_insert_with(|| TimedWord {
+            text: String::new(),
+            start_ms,
+            end_ms,
+        });
+        if word.text.is_empty() {
+            word.start_ms = start_ms;
+        }
+        word.text.push_str(token_text);
+        word.end_ms = end_ms;
+    }
+
+    if let Some(word) = current.filter(|word| !word.text.is_empty()) {
+        words.push(word);
+    }
+    words
+}
+
+fn frame_to_ms(
+    frame: usize,
+    output_frames: usize,
+    input_samples: usize,
+    sample_rate: usize,
+) -> u64 {
+    ((frame as u128)
+        .saturating_mul(input_samples as u128)
+        .saturating_mul(1_000)
+        / (output_frames as u128).saturating_mul(sample_rate as u128)) as u64
 }
 
 fn load_vocab(vocab_path: &Path) -> anyhow::Result<HashMap<usize, String>> {
@@ -459,6 +582,21 @@ mod tests {
         }
         let joined = decoded_tokens.join("");
         assert_eq!(joined, "abc");
+    }
+
+    #[test]
+    fn ctc_word_timing_uses_output_frame_spans() {
+        let vocab: HashMap<usize, String> = [(0, "▁hello".to_string()), (1, "world".to_string())]
+            .into_iter()
+            .collect();
+        let tokens = decode_ctc_runs(&[0, 0, 2, 1, 1], &vocab, 2);
+
+        let words = timed_words_from_ctc_tokens(&tokens, 5, 16_000, 16_000);
+
+        assert_eq!(words.len(), 1);
+        assert_eq!(words[0].text, "helloworld");
+        assert_eq!(words[0].start_ms, 0);
+        assert_eq!(words[0].end_ms, 1_000);
     }
 
     #[test]

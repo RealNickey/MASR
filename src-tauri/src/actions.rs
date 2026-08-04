@@ -3,8 +3,18 @@ use crate::apple_intelligence;
 use crate::audio_feedback::{play_feedback_sound, play_feedback_sound_blocking, SoundType};
 use crate::audio_toolkit::{is_microphone_access_denied, is_no_input_device_error};
 use crate::managers::audio::AudioRecordingManager;
-use crate::managers::history::HistoryManager;
-use crate::managers::model::ModelManager;
+use crate::managers::diarization::{
+    diarize, CaptureSource, DiarizationConfig, DiarizationInput, DiarizationStatus,
+    MeetingCaptureManifest, SpeakerLabel, TranscriptWord,
+};
+use crate::managers::diarization_inference::{
+    detect_speech_turns_from_wav, DiarizationInference, DiarizationInferenceConfig,
+};
+use crate::managers::diarization_model::DiarizationModelManager;
+use crate::managers::history::{
+    HistoryEntry, HistoryManager, MeetingSession, SpeakerSegment, TranscriptSegment,
+};
+use crate::managers::meeting_capture::MeetingCaptureArtifacts;
 use crate::managers::transcription::TranscriptionManager;
 use crate::settings::{
     get_settings, AppSettings, OutputLanguage, PostProcessProvider, APPLE_INTELLIGENCE_PROVIDER_ID,
@@ -15,10 +25,13 @@ use crate::utils::{
     self, show_processing_overlay, show_recording_overlay, show_transcribing_overlay,
 };
 use crate::TranscriptionCoordinator;
+use anyhow::Context;
 use ferrous_opencc::{config::BuiltinConfig, OpenCC};
+use hound::{SampleFormat, WavReader};
 use log::{debug, error, warn};
 use once_cell::sync::Lazy;
 use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Instant;
 use tauri::Manager;
@@ -1463,61 +1476,726 @@ impl ShortcutAction for CancelAction {
 // Meeting Action
 struct MeetingAction;
 
-const MEETING_MIN_RECORDING_SECONDS: usize = 30;
-const MEETING_SAMPLE_RATE: usize = 16_000;
-const MEETING_MIN_SAMPLE_COUNT: usize = MEETING_MIN_RECORDING_SECONDS * MEETING_SAMPLE_RATE;
+/// A word remains associated with its source while the transcript is merged
+/// on the shared meeting clock. The public diarization core intentionally sees
+/// only timestamped words; source attribution comes from its speech timeline.
+#[derive(Clone, Debug)]
+struct MeetingTranscriptWord {
+    source: CaptureSource,
+    text: String,
+    start_ms: u64,
+    end_ms: u64,
+}
+
+#[derive(Clone, Debug, Default)]
+struct MeetingTranscript {
+    text: String,
+    words: Vec<MeetingTranscriptWord>,
+}
+
+impl MeetingTranscript {
+    fn diarization_words(&self) -> Vec<TranscriptWord> {
+        self.words
+            .iter()
+            .map(|word| TranscriptWord {
+                text: word.text.clone(),
+                start_ms: i64::try_from(word.start_ms).unwrap_or(i64::MAX),
+                end_ms: i64::try_from(word.end_ms).unwrap_or(i64::MAX),
+                confidence: None,
+            })
+            .collect()
+    }
+
+    /// Preserve source attribution and meeting-clock timings even when the
+    /// optional speaker diarization experiment is disabled or unavailable.
+    fn history_segments(&self) -> Vec<TranscriptSegment> {
+        self.words
+            .iter()
+            .filter_map(|word| {
+                let text = word.text.trim();
+                (!text.is_empty()).then(|| TranscriptSegment {
+                    start_ms: word.start_ms,
+                    end_ms: word.end_ms.max(word.start_ms.saturating_add(1)),
+                    source: capture_source_name(word.source).to_string(),
+                    text: text.to_string(),
+                    confidence: None,
+                })
+            })
+            .collect()
+    }
+}
+
+fn capture_source_name(source: CaptureSource) -> &'static str {
+    match source {
+        CaptureSource::Microphone => "microphone",
+        CaptureSource::System => "system",
+        CaptureSource::Mix => "mix",
+    }
+}
+
+fn merge_meeting_transcripts(
+    microphone: crate::malayalam_asr::MalayalamTranscription,
+    system: crate::malayalam_asr::MalayalamTranscription,
+) -> MeetingTranscript {
+    let mut words = Vec::new();
+    words.extend(
+        microphone
+            .words
+            .into_iter()
+            .map(|word| MeetingTranscriptWord {
+                source: CaptureSource::Microphone,
+                text: word.text,
+                start_ms: word.start_ms,
+                end_ms: word.end_ms,
+            }),
+    );
+    words.extend(system.words.into_iter().map(|word| MeetingTranscriptWord {
+        source: CaptureSource::System,
+        text: word.text,
+        start_ms: word.start_ms,
+        end_ms: word.end_ms,
+    }));
+    words.sort_by_key(|word| {
+        (
+            word.start_ms,
+            word.end_ms,
+            match word.source {
+                CaptureSource::Microphone => 0_u8,
+                CaptureSource::System => 1,
+                CaptureSource::Mix => 2,
+            },
+        )
+    });
+
+    let text = if words.is_empty() {
+        [microphone.text, system.text]
+            .into_iter()
+            .filter(|text| !text.trim().is_empty())
+            .collect::<Vec<_>>()
+            .join("\n")
+    } else {
+        let mut text = String::new();
+        for word in &words {
+            append_meeting_word(&mut text, &word.text);
+        }
+        text
+    };
+
+    MeetingTranscript { text, words }
+}
+
+fn append_meeting_word(target: &mut String, word: &str) {
+    let word = word.trim();
+    if word.is_empty() {
+        return;
+    }
+    let is_closing_punctuation = word.chars().next().is_some_and(|character| {
+        matches!(character, '.' | ',' | '!' | '?' | ':' | ';' | ')' | ']')
+    });
+    if !target.is_empty() && !is_closing_punctuation {
+        target.push(' ');
+    }
+    target.push_str(word);
+}
+
+const MEETING_ASR_SAMPLE_RATE_HZ: u32 = 16_000;
+const MEETING_ASR_CORE_CHUNK_SECONDS: u64 = 30;
+const MEETING_ASR_CONTEXT_SECONDS: u64 = 1;
+
+fn track_has_audio(samples: &[f32]) -> bool {
+    // A sparse peak check avoids sending a fully silent unavailable track to
+    // ASR while preserving quiet speech. Derived ASR tracks are already mono.
+    samples
+        .iter()
+        .any(|sample| sample.is_finite() && sample.abs() > 1.0e-5)
+}
+
+fn empty_malayalam_transcription() -> crate::malayalam_asr::MalayalamTranscription {
+    crate::malayalam_asr::MalayalamTranscription {
+        text: String::new(),
+        words: Vec::new(),
+    }
+}
+
+/// Transcribe one timestamp-rendered 16 kHz ASR track in bounded, overlapping
+/// windows. The source WAV begins at meeting clock zero (including any
+/// captured leading silence), so each chunk's sample offset is also its shared
+/// meeting offset. This avoids loading several hours of two-track audio into
+/// memory or presenting CTC timings on a length-aligned synthetic timeline.
+fn transcribe_meeting_asr_track(
+    manager: &TranscriptionManager,
+    path: &Path,
+    source: CaptureSource,
+) -> anyhow::Result<crate::malayalam_asr::MalayalamTranscription> {
+    let mut reader = WavReader::open(path)
+        .map_err(|error| anyhow::anyhow!("open derived {source:?} ASR track {path:?}: {error}"))?;
+    let spec = reader.spec();
+    if spec.channels != 1
+        || spec.sample_rate != MEETING_ASR_SAMPLE_RATE_HZ
+        || spec.sample_format != SampleFormat::Int
+        || spec.bits_per_sample != 16
+    {
+        return Err(anyhow::anyhow!(
+            "derived {source:?} ASR track {path:?} must be 16 kHz mono 16-bit PCM"
+        ));
+    }
+
+    let total_samples = u64::from(reader.duration());
+    if total_samples == 0 {
+        return Ok(empty_malayalam_transcription());
+    }
+    let core_samples = MEETING_ASR_CORE_CHUNK_SECONDS
+        .checked_mul(u64::from(MEETING_ASR_SAMPLE_RATE_HZ))
+        .context("meeting ASR core chunk duration overflow")?;
+    let context_samples = MEETING_ASR_CONTEXT_SECONDS
+        .checked_mul(u64::from(MEETING_ASR_SAMPLE_RATE_HZ))
+        .context("meeting ASR context duration overflow")?;
+
+    let mut words = Vec::new();
+    let mut core_start_sample = 0_u64;
+    while core_start_sample < total_samples {
+        let core_end_sample = core_start_sample
+            .saturating_add(core_samples)
+            .min(total_samples);
+        let window_start_sample = core_start_sample.saturating_sub(context_samples);
+        let window_end_sample = core_end_sample
+            .saturating_add(context_samples)
+            .min(total_samples);
+        let window_sample_count = window_end_sample.saturating_sub(window_start_sample);
+        let window_start_u32 = u32::try_from(window_start_sample)
+            .context("meeting ASR track exceeds hound's seek range")?;
+        reader
+            .seek(window_start_u32)
+            .map_err(|error| anyhow::anyhow!("seek {source:?} ASR track: {error}"))?;
+        let window_sample_count_usize = usize::try_from(window_sample_count)
+            .context("meeting ASR window length exceeds addressable memory")?;
+        let mut samples = Vec::with_capacity(window_sample_count_usize);
+        for sample in reader.samples::<i16>().take(window_sample_count_usize) {
+            samples.push(
+                sample.map_err(|error| {
+                    anyhow::anyhow!("read {source:?} ASR track samples: {error}")
+                })? as f32
+                    / i16::MAX as f32,
+            );
+        }
+
+        if track_has_audio(&samples) {
+            match manager.transcribe_thegav1_with_timing(samples) {
+                Ok(transcription) => {
+                    let window_start_ms = samples_to_ms(window_start_sample);
+                    let core_start_ms = samples_to_ms(core_start_sample);
+                    let core_end_ms = samples_to_ms(core_end_sample);
+                    if transcription.words.is_empty() && !transcription.text.trim().is_empty() {
+                        words.push(crate::malayalam_asr::TimedWord {
+                            text: transcription.text,
+                            start_ms: core_start_ms,
+                            end_ms: core_end_ms.max(core_start_ms.saturating_add(1)),
+                        });
+                    } else {
+                        for mut word in transcription.words {
+                            word.start_ms = word.start_ms.saturating_add(window_start_ms);
+                            word.end_ms = word.end_ms.saturating_add(window_start_ms);
+                            let midpoint_ms = word
+                                .start_ms
+                                .saturating_add(word.end_ms.saturating_sub(word.start_ms) / 2);
+                            // Keep exactly one copy of CTC words in overlap
+                            // regions: their midpoint belongs to this core
+                            // interval, except that the final interval owns
+                            // its closing boundary.
+                            if midpoint_ms >= core_start_ms
+                                && (core_end_sample == total_samples || midpoint_ms < core_end_ms)
+                            {
+                                words.push(word);
+                            }
+                        }
+                    }
+                }
+                Err(error) => warn!(
+                    "{source:?} meeting ASR chunk {}-{} ms failed; retaining other chunks: {error}",
+                    samples_to_ms(core_start_sample),
+                    samples_to_ms(core_end_sample),
+                ),
+            }
+        }
+
+        core_start_sample = core_end_sample;
+    }
+
+    words.sort_by_key(|word| (word.start_ms, word.end_ms));
+    let mut text = String::new();
+    for word in &words {
+        append_meeting_word(&mut text, &word.text);
+    }
+    Ok(crate::malayalam_asr::MalayalamTranscription { text, words })
+}
+
+fn samples_to_ms(samples: u64) -> u64 {
+    samples
+        .saturating_mul(1_000)
+        .saturating_add(u64::from(MEETING_ASR_SAMPLE_RATE_HZ / 2))
+        / u64::from(MEETING_ASR_SAMPLE_RATE_HZ)
+}
+
+fn transcribe_meeting_tracks(
+    manager: &TranscriptionManager,
+    microphone_path: &Path,
+    system_path: &Path,
+) -> anyhow::Result<MeetingTranscript> {
+    // A source can legitimately be unavailable (for example, system loopback
+    // denied by the platform). Keep a usable source transcript rather than
+    // discarding an otherwise recoverable meeting because its peer track is
+    // incomplete or cannot be decoded.
+    let microphone =
+        match transcribe_meeting_asr_track(manager, microphone_path, CaptureSource::Microphone) {
+            Ok(transcription) => transcription,
+            Err(error) => {
+                warn!("Microphone meeting ASR track could not be transcribed: {error}");
+                empty_malayalam_transcription()
+            }
+        };
+    let system = match transcribe_meeting_asr_track(manager, system_path, CaptureSource::System) {
+        Ok(transcription) => transcription,
+        Err(error) => {
+            warn!("System meeting ASR track could not be transcribed: {error}");
+            empty_malayalam_transcription()
+        }
+    };
+
+    let transcript = merge_meeting_transcripts(microphone, system);
+    if transcript.text.trim().is_empty() {
+        return Err(anyhow::anyhow!(
+            "No speech was detected in the microphone or system meeting tracks"
+        ));
+    }
+    Ok(transcript)
+}
+
+fn pending_meeting_history_entry(
+    history: &HistoryManager,
+    artifacts: &MeetingCaptureArtifacts,
+    prompt_id: &str,
+) -> Option<i64> {
+    match history.save_entry_with_meeting_session(
+        artifacts.audio_tracks.mix.clone(),
+        String::new(),
+        true,
+        None,
+        Some(prompt_id.to_string()),
+        artifacts.audio_tracks.clone(),
+        MeetingSession {
+            root: artifacts.session_root.clone(),
+            manifest: artifacts.manifest_path.clone(),
+        },
+    ) {
+        Ok(entry) => Some(entry.id),
+        Err(error) => {
+            error!("Failed to save pending meeting history entry: {error}");
+            None
+        }
+    }
+}
+
+/// Run the intentionally opt-in diarization path without making it a
+/// prerequisite for the ordinary meeting transcript or summary. The derived
+/// ASR WAVs have already been rendered onto the shared meeting timeline by
+/// `MeetingCaptureSession`, including leading gaps, so their sample zero is
+/// meeting time zero. Passing the device offset here would apply it twice.
+fn diarize_meeting_tracks(
+    diarization_model_manager: &DiarizationModelManager,
+    manifest: MeetingCaptureManifest,
+    microphone_path: &Path,
+    system_path: &Path,
+    transcript: &MeetingTranscript,
+) -> Option<Vec<SpeakerSegment>> {
+    let inference_config = DiarizationInferenceConfig::default();
+    let microphone_turns = match detect_speech_turns_from_wav(
+        microphone_path,
+        CaptureSource::Microphone,
+        0,
+        &inference_config,
+    ) {
+        Ok(turns) => turns,
+        Err(error) => {
+            warn!("Microphone meeting-track VAD failed; continuing without microphone labels: {error}");
+            Vec::new()
+        }
+    };
+
+    let (system_turns, system_embeddings) = match DiarizationInference::new(
+        diarization_model_manager,
+        inference_config.clone(),
+    )
+    .and_then(|mut inference| inference.infer_system_wav(system_path, 0))
+    {
+        Ok(result) => (result.speech_turns, result.system_embeddings),
+        Err(error) => {
+            // A missing, corrupted, or temporarily unavailable optional
+            // embedding model must not suppress the useful two-source
+            // attribution fallback.
+            warn!(
+                    "System speaker embedding inference unavailable; using source-only attribution: {error}"
+                );
+            let turns = match detect_speech_turns_from_wav(
+                system_path,
+                CaptureSource::System,
+                0,
+                &inference_config,
+            ) {
+                Ok(turns) => turns,
+                Err(vad_error) => {
+                    warn!(
+                            "System meeting-track VAD failed; continuing without remote labels: {vad_error}"
+                        );
+                    Vec::new()
+                }
+            };
+            (turns, Vec::new())
+        }
+    };
+
+    let mut speech_turns = microphone_turns;
+    speech_turns.extend(system_turns);
+    let input = DiarizationInput {
+        manifest,
+        speech_turns,
+        system_embeddings,
+        transcript_words: transcript.diarization_words(),
+    };
+    let config = DiarizationConfig {
+        enabled: true,
+        maximum_embedding_windows: inference_config.maximum_embedding_windows,
+        ..DiarizationConfig::default()
+    };
+
+    let outcome = match diarize(&input, &config) {
+        Ok(outcome) => outcome,
+        Err(error) => {
+            warn!("Meeting diarization policy failed; preserving unlabelled transcript: {error}");
+            return None;
+        }
+    };
+    debug!(
+        "Meeting diarization finished with {:?}: microphone_turns={}, system_turns={}, embeddings={}, remote_speakers={}",
+        outcome.status,
+        outcome.diagnostics.microphone_speech_turns,
+        outcome.diagnostics.system_speech_turns,
+        outcome.diagnostics.embedding_windows,
+        outcome.diagnostics.remote_speaker_count,
+    );
+
+    match outcome.status {
+        DiarizationStatus::Complete | DiarizationStatus::SourceAttributionOnly => Some(
+            outcome
+                .segments
+                .into_iter()
+                .map(history_speaker_segment)
+                .collect(),
+        ),
+        DiarizationStatus::Disabled
+        | DiarizationStatus::Unavailable
+        | DiarizationStatus::Failed => {
+            if let Some(reason) = outcome.diagnostics.reason {
+                debug!("Meeting diarization did not produce labels: {reason}");
+            }
+            None
+        }
+    }
+}
+
+fn history_speaker_segment(
+    segment: crate::managers::diarization::SpeakerSegment,
+) -> SpeakerSegment {
+    let (speaker, source) = match segment.label {
+        SpeakerLabel::LocalUser => ("You".to_string(), "microphone".to_string()),
+        SpeakerLabel::RemoteUnattributed => ("Remote".to_string(), "system".to_string()),
+        SpeakerLabel::RemoteSpeaker { index } => {
+            (format!("Remote Speaker {index}"), "system".to_string())
+        }
+        SpeakerLabel::Multiple => (
+            "Multiple speakers".to_string(),
+            "microphone+system".to_string(),
+        ),
+        SpeakerLabel::Unknown => ("Unknown".to_string(), "unknown".to_string()),
+    };
+    SpeakerSegment {
+        start_ms: u64::try_from(segment.start_ms).unwrap_or_default(),
+        end_ms: u64::try_from(segment.end_ms).unwrap_or_default(),
+        speaker,
+        source,
+        text: segment.text,
+        confidence: Some(segment.label_coverage),
+    }
+}
+
+struct CompletedMeetingTranscription {
+    transcript: MeetingTranscript,
+    summary: Option<String>,
+    display_summary: String,
+}
+
+/// Run track-aware ASR first, then the existing meeting-summary prompt. The
+/// model wait is intentional: if the normal startup download is already in
+/// progress, a completed meeting should wait for it rather than silently
+/// falling back to the derived mix. If no download exists, the caller gets an
+/// error while the durable source tracks remain retryable.
+async fn transcribe_and_summarize_meeting(
+    app: &AppHandle,
+    transcription_manager: Arc<TranscriptionManager>,
+    settings: &AppSettings,
+    prompt_id: &str,
+    microphone_path: PathBuf,
+    system_path: PathBuf,
+) -> anyhow::Result<CompletedMeetingTranscription> {
+    let app_for_transcription = app.clone();
+    let transcription_started = Instant::now();
+    let transcript = tokio::task::spawn_blocking(move || {
+        let loaded_thegav1 = transcription_manager
+            .load_model_if_different_waiting_for_download("thegav1")
+            .map_err(|error| anyhow::anyhow!("load ThegaV1 for meeting transcription: {error}"));
+
+        let result = match loaded_thegav1 {
+            Ok(()) => transcribe_meeting_tracks(
+                &transcription_manager,
+                &microphone_path,
+                &system_path,
+            ),
+            Err(error) => Err(error),
+        };
+
+        // Restore the user's selected engine after both success and failure.
+        // This prevents a retryable failed meeting from unexpectedly changing
+        // future ordinary transcription behaviour.
+        let selected_model = get_settings(&app_for_transcription).selected_model;
+        if !selected_model.is_empty() && selected_model != "thegav1" {
+            if let Err(error) = transcription_manager.load_model_if_different(&selected_model) {
+                warn!(
+                    "Failed to restore selected model {selected_model} after meeting transcription: {error}"
+                );
+            }
+        } else {
+            transcription_manager.maybe_unload_immediately("meeting transcription");
+        }
+        result
+    })
+    .await
+    .map_err(|error| anyhow::anyhow!("Meeting transcription worker panicked: {error}"))??;
+
+    debug!(
+        "Track-aware meeting transcription completed in {:?}",
+        transcription_started.elapsed()
+    );
+    let summary = run_specific_llm_prompt(app, settings, prompt_id, &transcript.text).await;
+    let display_summary = if prompt_id == "default_meeting_notes_with_actions" {
+        summary
+            .as_ref()
+            .and_then(|json| serde_json::from_str::<serde_json::Value>(json).ok())
+            .and_then(|value| {
+                value
+                    .get("summary")
+                    .and_then(|summary| summary.as_str())
+                    .map(str::to_owned)
+            })
+            .unwrap_or_else(|| summary.clone().unwrap_or_else(|| transcript.text.clone()))
+    } else {
+        summary.clone().unwrap_or_else(|| transcript.text.clone())
+    };
+
+    Ok(CompletedMeetingTranscription {
+        transcript,
+        summary,
+        display_summary,
+    })
+}
+
+/// Schedule speaker inference after the primary transcript has been written.
+/// This intentionally has no await point in the normal meeting completion or
+/// retry command: diarization is experimental and must never delay, fail, or
+/// replace the source-aware ASR result.
+fn queue_optional_meeting_diarization(
+    enabled: bool,
+    history: Arc<HistoryManager>,
+    entry_id: Option<i64>,
+    diarization_model_manager: Option<Arc<DiarizationModelManager>>,
+    manifest: MeetingCaptureManifest,
+    microphone_path: PathBuf,
+    system_path: PathBuf,
+    transcript: MeetingTranscript,
+    transcript_segments: Vec<TranscriptSegment>,
+) {
+    if !enabled {
+        return;
+    }
+    let (entry_id, model_manager) = match (entry_id, diarization_model_manager) {
+        (Some(entry_id), Some(model_manager)) => (entry_id, model_manager),
+        (None, _) => {
+            debug!("Skipping optional meeting diarization because history persistence failed");
+            return;
+        }
+        (_, None) => {
+            warn!("Meeting diarization was enabled but its model manager is unavailable");
+            return;
+        }
+    };
+
+    tauri::async_runtime::spawn(async move {
+        let expected_transcription_text = transcript.text.clone();
+        let speaker_segments = match tokio::task::spawn_blocking(move || {
+            diarize_meeting_tracks(
+                &model_manager,
+                manifest,
+                &microphone_path,
+                &system_path,
+                &transcript,
+            )
+        })
+        .await
+        {
+            Ok(segments) => segments,
+            Err(error) => {
+                warn!(
+                    "Meeting diarization worker panicked; transcript remains unlabelled: {error}"
+                );
+                None
+            }
+        };
+
+        if let Some(speaker_segments) = speaker_segments {
+            match history.update_meeting_speaker_segments_if_current(
+                entry_id,
+                &expected_transcription_text,
+                &transcript_segments,
+                speaker_segments,
+            ) {
+                Ok(true) => {}
+                Ok(false) => debug!(
+                    "Skipping stale optional meeting speaker labels for history entry {entry_id}"
+                ),
+                Err(error) => error!("Failed to persist optional meeting speaker labels: {error}"),
+            }
+        }
+    });
+}
+
+/// Retry a native meeting from its individual, timestamp-rendered ASR tracks.
+/// The legacy generic retry command uses a single mix WAV for ordinary
+/// recordings; native meetings must not use that path because it erases the
+/// local-vs-system source attribution retained in their capture manifest.
+pub async fn retry_meeting_history_entry(
+    app: &AppHandle,
+    history_manager: Arc<HistoryManager>,
+    transcription_manager: Arc<TranscriptionManager>,
+    diarization_model_manager: Option<Arc<DiarizationModelManager>>,
+    entry: HistoryEntry,
+) -> Result<(), String> {
+    let (microphone_path, system_path, manifest_path) = history_manager
+        .resolve_meeting_track_paths(&entry)
+        .map_err(|error| error.to_string())?;
+    let manifest =
+        tokio::task::spawn_blocking(move || -> anyhow::Result<MeetingCaptureManifest> {
+            let file = std::fs::File::open(&manifest_path)
+                .with_context(|| format!("open meeting capture manifest {manifest_path:?}"))?;
+            let capture: crate::managers::meeting_capture::CaptureSessionManifest =
+                serde_json::from_reader(file)
+                    .with_context(|| format!("parse meeting capture manifest {manifest_path:?}"))?;
+            Ok(capture.diarization_manifest)
+        })
+        .await
+        .map_err(|error| format!("Meeting manifest reader panicked: {error}"))?
+        .map_err(|error| error.to_string())?;
+
+    let settings = get_settings(app);
+    let prompt_id = entry.post_process_prompt.clone().unwrap_or_else(|| {
+        if settings.google_oauth_token.is_some() {
+            "default_meeting_notes_with_actions".to_string()
+        } else {
+            "default_meeting_summary".to_string()
+        }
+    });
+    let completed = transcribe_and_summarize_meeting(
+        app,
+        transcription_manager,
+        &settings,
+        &prompt_id,
+        microphone_path.clone(),
+        system_path.clone(),
+    )
+    .await
+    .map_err(|error| error.to_string())?;
+
+    let transcript_segments = completed.transcript.history_segments();
+    history_manager
+        .update_meeting_transcription_with_timed_segments(
+            entry.id,
+            completed.transcript.text.clone(),
+            completed.summary.clone(),
+            Some(prompt_id.clone()),
+            Some(transcript_segments.clone()),
+            None,
+        )
+        .map_err(|error| error.to_string())?;
+
+    if !completed.display_summary.is_empty() {
+        let _ = app.emit(
+            "meeting-summary",
+            MeetingSummaryPayload {
+                summary: completed.display_summary,
+                transcript: completed.transcript.text.clone(),
+            },
+        );
+    }
+
+    queue_optional_meeting_diarization(
+        settings.meeting_diarization_enabled,
+        history_manager,
+        Some(entry.id),
+        diarization_model_manager,
+        manifest,
+        microphone_path,
+        system_path,
+        completed.transcript,
+        transcript_segments,
+    );
+    Ok(())
+}
 
 impl ShortcutAction for MeetingAction {
     fn start(&self, app: &AppHandle, binding_id: &str, _shortcut_str: &str) {
         let start_time = Instant::now();
-        debug!("MeetingAction::start called for binding: {}", binding_id);
-
-        let rm = app.state::<Arc<AudioRecordingManager>>();
-
-        let mut recording_error: Option<String> = None;
-        // Meeting mode captures the desktop mix as well as the microphone.
-        // Feedback sounds and output muting would respectively leak into or
-        // suppress that system track, so they are intentionally disabled.
+        debug!("MeetingAction::start called for binding: {binding_id}");
         let recording_start_time = Instant::now();
-        match rm.try_start_recording("meeting") {
+        let result = app
+            .state::<Arc<AudioRecordingManager>>()
+            .try_start_meeting_capture();
+
+        match result {
             Ok(()) => {
                 debug!(
-                    "Meeting recording started in {:?}",
+                    "Timestamped meeting recording started in {:?}",
                     recording_start_time.elapsed()
                 );
+                change_tray_icon(app, TrayIconState::Recording);
+                crate::overlay::show_meeting_recording_overlay(app);
+                let _ = app.emit(
+                    "recording-state-changed",
+                    RecordingStatePayload {
+                        mode: "meeting".to_string(),
+                    },
+                );
+                shortcut::register_cancel_shortcut(app);
             }
-            Err(e) => {
-                debug!("Failed to start meeting recording: {}", e);
-                recording_error = Some(e);
-            }
-        }
-
-        if recording_error.is_none() {
-            change_tray_icon(app, TrayIconState::Recording);
-            crate::overlay::show_meeting_recording_overlay(app);
-
-            // Emit recording state
-            let _ = app.emit(
-                "recording-state-changed",
-                RecordingStatePayload {
-                    mode: "meeting".to_string(),
-                },
-            );
-
-            shortcut::register_cancel_shortcut(app);
-        } else {
-            let _ = app.emit(
-                "recording-state-changed",
-                RecordingStatePayload {
-                    mode: "idle".to_string(),
-                },
-            );
-            crate::overlay::hide_meeting_prompt_window(app);
-            change_tray_icon(app, TrayIconState::Idle);
-            if let Some(err) = recording_error {
-                let error_type = if is_microphone_access_denied(&err) {
+            Err(error) => {
+                debug!("Failed to start native meeting recording: {error}");
+                let _ = app.emit(
+                    "recording-state-changed",
+                    RecordingStatePayload {
+                        mode: "idle".to_string(),
+                    },
+                );
+                crate::overlay::hide_meeting_prompt_window(app);
+                change_tray_icon(app, TrayIconState::Idle);
+                let error_type = if is_microphone_access_denied(&error) {
                     "microphone_permission_denied"
-                } else if is_no_input_device_error(&err) {
+                } else if is_no_input_device_error(&error) {
                     "no_input_device"
                 } else {
                     "unknown"
@@ -1526,12 +2204,11 @@ impl ShortcutAction for MeetingAction {
                     "recording-error",
                     RecordingErrorEvent {
                         error_type: error_type.to_string(),
-                        detail: Some(err),
+                        detail: Some(error),
                     },
                 );
             }
         }
-
         debug!(
             "MeetingAction::start completed in {:?}",
             start_time.elapsed()
@@ -1540,238 +2217,115 @@ impl ShortcutAction for MeetingAction {
 
     fn stop(&self, app: &AppHandle, binding_id: &str, _shortcut_str: &str) {
         shortcut::unregister_cancel_shortcut(app);
-
         let stop_time = Instant::now();
-        debug!("MeetingAction::stop called for binding: {}", binding_id);
+        debug!("MeetingAction::stop called for binding: {binding_id}");
 
         let ah = app.clone();
         let rm = Arc::clone(&app.state::<Arc<AudioRecordingManager>>());
         let tm = Arc::clone(&app.state::<Arc<TranscriptionManager>>());
         let hm = Arc::clone(&app.state::<Arc<HistoryManager>>());
-        let mm = Arc::clone(&app.state::<Arc<ModelManager>>());
-
+        let diarization_model_manager = app
+            .try_state::<Arc<DiarizationModelManager>>()
+            .map(|manager| Arc::clone(manager.inner()));
         change_tray_icon(app, TrayIconState::Transcribing);
 
-        // See start(): system-audio meeting capture must not be affected by
-        // feedback playback or output mute changes.
-
-        let binding_id_str = binding_id.to_string();
         tauri::async_runtime::spawn(async move {
             let _guard = FinishGuard(ah.clone());
+            let finalize_started = Instant::now();
+            let artifacts =
+                match tokio::task::spawn_blocking(move || rm.stop_meeting_capture()).await {
+                    Ok(Ok(Some(artifacts))) => artifacts,
+                    Ok(Ok(None)) => {
+                        debug!("No active native meeting capture to stop");
+                        change_tray_icon(&ah, TrayIconState::Idle);
+                        return;
+                    }
+                    Ok(Err(error)) => {
+                        error!("Failed to finalize meeting capture: {error}");
+                        change_tray_icon(&ah, TrayIconState::Idle);
+                        return;
+                    }
+                    Err(error) => {
+                        error!("Meeting capture finalization worker panicked: {error}");
+                        change_tray_icon(&ah, TrayIconState::Idle);
+                        return;
+                    }
+                };
             debug!(
-                "Starting async meeting transcription task for binding: {}",
-                binding_id_str
+                "Meeting source tracks finalized in {:?}: {}",
+                finalize_started.elapsed(),
+                artifacts.manifest_path
             );
+            crate::overlay::show_meeting_stopped_overlay(&ah);
 
-            let stop_recording_time = Instant::now();
-            if let Some(samples) = rm.stop_recording("meeting") {
-                debug!(
-                    "Recording stopped and samples retrieved in {:?}, sample count: {}",
-                    stop_recording_time.elapsed(),
-                    samples.len()
-                );
+            let settings = get_settings(&ah);
+            let prompt_id = if settings.google_oauth_token.is_some() {
+                "default_meeting_notes_with_actions"
+            } else {
+                "default_meeting_summary"
+            };
+            let history_entry_id = pending_meeting_history_entry(&hm, &artifacts, prompt_id);
 
-                if samples.len() < MEETING_MIN_SAMPLE_COUNT {
-                    debug!(
-                        "Meeting recording shorter than {} seconds ({} samples); discarding",
-                        MEETING_MIN_RECORDING_SECONDS,
-                        samples.len()
-                    );
-                    change_tray_icon(&ah, TrayIconState::Idle);
-                    crate::overlay::show_meeting_discarded_overlay(&ah);
-                } else {
-                    crate::overlay::show_meeting_stopped_overlay(&ah);
+            let microphone_path = hm.recordings_dir().join(&artifacts.audio_tracks.microphone);
+            let system_path = hm.recordings_dir().join(&artifacts.audio_tracks.system);
+            // The ASR worker owns its path copies. Keep independent copies for
+            // the optional background diarization pass so the standard
+            // transcript/summary completion never waits on speaker inference.
+            let microphone_diarization_path = microphone_path.clone();
+            let system_diarization_path = system_path.clone();
+            match transcribe_and_summarize_meeting(
+                &ah,
+                Arc::clone(&tm),
+                &settings,
+                prompt_id,
+                microphone_path,
+                system_path,
+            )
+            .await
+            {
+                Ok(completed) => {
+                    let transcript = completed.transcript;
+                    let summary_opt = completed.summary;
+                    let transcript_segments = transcript.history_segments();
 
-                    // Save WAV concurrently with transcription
-                    let sample_count = samples.len();
-                    let file_name = format!("thegai-{}.wav", chrono::Utc::now().timestamp());
-                    let wav_path = hm.recordings_dir().join(&file_name);
-                    let wav_path_for_verify = wav_path.clone();
-                    let samples_for_wav = samples.clone();
-                    let wav_handle = tauri::async_runtime::spawn_blocking(move || {
-                        crate::audio_toolkit::save_wav_file(&wav_path, &samples_for_wav)
-                    });
-
-                    let settings = get_settings(&ah);
-                    let prompt_id = if settings.google_oauth_token.is_some() {
-                        "default_meeting_notes_with_actions"
-                    } else {
-                        "default_meeting_summary"
-                    };
-
-                    // Transcribe concurrently with WAV save
-                    let transcription_time = Instant::now();
-
-                    let tm_clone = tm.clone();
-                    let samples_for_transcribe = samples.clone();
-                    let ah_clone = ah.clone();
-                    let mm_clone = mm.clone();
-                    let transcribe_handle = tauri::async_runtime::spawn(async move {
-                        // Wait for model download if not yet completed
-                        let mut retries = 0;
-                        loop {
-                            let model_info = mm_clone.get_model_info("thegav1");
-                            match model_info {
-                                Some(m) => {
-                                    if m.is_downloaded {
-                                        break;
-                                    }
-                                }
-                                None => {
-                                    retries += 1;
-                                    if retries > 5 {
-                                        return Err(anyhow::anyhow!(
-                                            "Model 'thegav1' not found in catalog"
-                                        ));
-                                    }
-                                }
-                            }
-                            tokio::time::sleep(std::time::Duration::from_secs(2)).await;
-                        }
-
-                        tokio::task::spawn_blocking(move || {
-                            if let Err(e) = tm_clone.load_model_if_different("thegav1") {
-                                error!(
-                                    "Failed to load ThegaV1 model for meeting transcription: {}",
-                                    e
-                                );
-                                return Err(anyhow::anyhow!("Failed to load ThegaV1 model: {}", e));
-                            }
-                            let res = tm_clone.transcribe(samples_for_transcribe);
-
-                            // Load back the correct model if different from "thegav1"
-                            let settings = get_settings(&ah_clone);
-                            let selected_model = settings.selected_model.clone();
-                            if selected_model != "thegav1" && !selected_model.is_empty() {
-                                if let Err(e) = tm_clone.load_model_if_different(&selected_model) {
-                                    warn!("Failed to load back selected model {} after meeting transcription: {}", selected_model, e);
-                                }
-                            } else {
-                                tm_clone.maybe_unload_immediately("meeting transcription");
-                            }
-
-                            res
-                        }).await.map_err(|e| anyhow::anyhow!("Transcription task panicked: {}", e))?
-                    });
-
-                    // Await WAV save and verify
-                    let wav_saved = match wav_handle.await {
-                        Ok(Ok(())) => {
-                            match crate::audio_toolkit::verify_wav_file(
-                                &wav_path_for_verify,
-                                sample_count,
-                            ) {
-                                Ok(()) => true,
-                                Err(e) => {
-                                    error!("WAV verification failed: {}", e);
-                                    false
-                                }
-                            }
-                        }
-                        Ok(Err(e)) => {
-                            error!("Failed to save WAV file: {}", e);
-                            false
-                        }
-                        Err(e) => {
-                            error!("WAV save task panicked: {}", e);
-                            false
-                        }
-                    };
-
-                    let history_entry_id = if wav_saved {
-                        match hm.save_entry(
-                            file_name.clone(),
-                            String::new(),
-                            true,
-                            None,
+                    if let Some(entry_id) = history_entry_id {
+                        if let Err(error) = hm.update_meeting_transcription_with_timed_segments(
+                            entry_id,
+                            transcript.text.clone(),
+                            summary_opt.clone(),
                             Some(prompt_id.to_string()),
+                            Some(transcript_segments.clone()),
+                            None,
                         ) {
-                            Ok(entry) => Some(entry.id),
-                            Err(err) => {
-                                error!("Failed to save pending meeting history entry: {}", err);
-                                None
-                            }
-                        }
-                    } else {
-                        None
-                    };
-
-                    let transcription_result = match transcribe_handle.await {
-                        Ok(res) => res,
-                        Err(e) => Err(anyhow::anyhow!("Transcription task panicked: {}", e)),
-                    };
-
-                    match transcription_result {
-                        Ok(result) => {
-                            let transcription = result.text.clone();
-                            debug!(
-                                "Transcription completed in {:?}: '{}'",
-                                transcription_time.elapsed(),
-                                transcription
-                            );
-
-                            let summary_opt =
-                                run_specific_llm_prompt(&ah, &settings, prompt_id, &transcription)
-                                    .await;
-
-                            let display_summary = if prompt_id
-                                == "default_meeting_notes_with_actions"
-                            {
-                                summary_opt
-                                    .as_ref()
-                                    .and_then(|json_str| {
-                                        serde_json::from_str::<serde_json::Value>(json_str)
-                                            .ok()
-                                            .and_then(|v| {
-                                                v.get("summary")
-                                                    .and_then(|s| s.as_str())
-                                                    .map(|s| s.to_string())
-                                            })
-                                    })
-                                    .unwrap_or_else(|| {
-                                        summary_opt.clone().unwrap_or_else(|| transcription.clone())
-                                    })
-                            } else {
-                                summary_opt.clone().unwrap_or_else(|| transcription.clone())
-                            };
-
-                            if let Some(entry_id) = history_entry_id {
-                                if let Err(err) = hm.update_transcription(
-                                    entry_id,
-                                    transcription.clone(),
-                                    summary_opt.clone(),
-                                    Some(prompt_id.to_string()),
-                                ) {
-                                    error!("Failed to update meeting history entry: {}", err);
-                                }
-                            }
-
-                            if display_summary.is_empty() {
-                                change_tray_icon(&ah, TrayIconState::Idle);
-                            } else {
-                                let _ = ah.emit(
-                                    "meeting-summary",
-                                    MeetingSummaryPayload {
-                                        summary: display_summary,
-                                        transcript: transcription,
-                                    },
-                                );
-                                change_tray_icon(&ah, TrayIconState::Idle);
-                            }
-                        }
-                        Err(err) => {
-                            debug!("Global Shortcut Transcription error: {}", err);
-                            if history_entry_id.is_none() && wav_saved {
-                                error!("Meeting WAV was saved but no history placeholder exists");
-                            }
-                            change_tray_icon(&ah, TrayIconState::Idle);
+                            error!("Failed to update meeting history entry: {error}");
                         }
                     }
+                    if !completed.display_summary.is_empty() {
+                        let _ = ah.emit(
+                            "meeting-summary",
+                            MeetingSummaryPayload {
+                                summary: completed.display_summary,
+                                transcript: transcript.text.clone(),
+                            },
+                        );
+                    }
+                    queue_optional_meeting_diarization(
+                        settings.meeting_diarization_enabled,
+                        Arc::clone(&hm),
+                        history_entry_id,
+                        diarization_model_manager,
+                        artifacts.manifest.clone(),
+                        microphone_diarization_path,
+                        system_diarization_path,
+                        transcript,
+                        transcript_segments,
+                    );
                 }
-            } else {
-                debug!("No samples retrieved from recording stop");
-                change_tray_icon(&ah, TrayIconState::Idle);
+                Err(error) => {
+                    error!("Track-aware meeting transcription failed; source tracks remain saved: {error}");
+                }
             }
+            change_tray_icon(&ah, TrayIconState::Idle);
         });
 
         debug!("MeetingAction::stop completed in {:?}", stop_time.elapsed());
@@ -1854,5 +2408,82 @@ mod tests {
         let fallback_result =
             resolve_google_api_key(None, Some("runtime-fallback-key-test".to_string()), None);
         assert_eq!(fallback_result, "runtime-fallback-key-test");
+    }
+
+    #[test]
+    fn meeting_tracks_merge_by_timestamp_not_source_length() {
+        let microphone = crate::malayalam_asr::MalayalamTranscription {
+            text: "local first local later".to_string(),
+            words: vec![
+                crate::malayalam_asr::TimedWord {
+                    text: "local".to_string(),
+                    start_ms: 100,
+                    end_ms: 200,
+                },
+                crate::malayalam_asr::TimedWord {
+                    text: "later".to_string(),
+                    start_ms: 900,
+                    end_ms: 1_000,
+                },
+            ],
+        };
+        let system = crate::malayalam_asr::MalayalamTranscription {
+            text: "remote".to_string(),
+            words: vec![crate::malayalam_asr::TimedWord {
+                text: "remote".to_string(),
+                start_ms: 500,
+                end_ms: 700,
+            }],
+        };
+
+        let merged = merge_meeting_transcripts(microphone, system);
+        assert_eq!(merged.text, "local remote later");
+        assert_eq!(merged.words.len(), 3);
+        assert_eq!(merged.words[1].source, CaptureSource::System);
+        assert_eq!(merged.diarization_words()[1].start_ms, 500);
+    }
+
+    #[test]
+    fn meeting_word_joining_keeps_closing_punctuation_attached() {
+        let mut output = String::new();
+        for word in ["hello", ",", "world", "!"] {
+            append_meeting_word(&mut output, word);
+        }
+        assert_eq!(output, "hello, world!");
+    }
+
+    #[test]
+    fn meeting_history_segments_retain_source_and_shared_clock() {
+        let transcript = MeetingTranscript {
+            text: "local remote".to_string(),
+            words: vec![
+                MeetingTranscriptWord {
+                    source: CaptureSource::Microphone,
+                    text: "local".to_string(),
+                    start_ms: 125,
+                    end_ms: 260,
+                },
+                MeetingTranscriptWord {
+                    source: CaptureSource::System,
+                    text: "remote".to_string(),
+                    start_ms: 400,
+                    end_ms: 540,
+                },
+            ],
+        };
+
+        let segments = transcript.history_segments();
+        assert_eq!(segments.len(), 2);
+        assert_eq!(segments[0].source, "microphone");
+        assert_eq!(segments[0].start_ms, 125);
+        assert_eq!(segments[1].source, "system");
+        assert_eq!(segments[1].end_ms, 540);
+    }
+
+    #[test]
+    fn samples_to_meeting_clock_rounds_half_up() {
+        assert_eq!(samples_to_ms(0), 0);
+        assert_eq!(samples_to_ms(8), 1);
+        assert_eq!(samples_to_ms(16_000), 1_000);
     }
 }

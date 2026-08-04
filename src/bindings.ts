@@ -387,6 +387,19 @@ async changeMeetingPromptLeadMinutesSetting(minutes: number) : Promise<Result<nu
     else return { status: "error", error: e  as any };
 }
 },
+/**
+ * Enables the optional, local-only speaker diarization pass for completed
+ * meeting captures. Keeping this independent of recording lets users test
+ * the model without changing the reliable transcription path.
+ */
+async changeMeetingDiarizationEnabledSetting(enabled: boolean) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_meeting_diarization_enabled_setting", { enabled }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async changeWhisperAcceleratorSetting(accelerator: WhisperAcceleratorSetting) : Promise<Result<null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("change_whisper_accelerator_setting", { accelerator }) };
@@ -413,7 +426,7 @@ async changeWhisperGpuDevice(device: number) : Promise<Result<null, string>> {
 },
 /**
  * Return which accelerators and GPU devices are available for this build.
- * 
+ *
  * First-call cost is dominated by enumerating GPU devices through the
  * whisper.cpp Metal/Vulkan backend, which loads dynamic libraries and
  * probes hardware. Run it on the blocking pool so the webview thread
@@ -836,6 +849,20 @@ async getClamshellMicrophone() : Promise<Result<string, string>> {
 async isRecording() : Promise<boolean> {
     return await TAURI_INVOKE("is_recording");
 },
+async getDiarizationModelStatus() : Promise<DiarizationModelStatus> {
+    return await TAURI_INVOKE("get_diarization_model_status");
+},
+async downloadDiarizationModel() : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("download_diarization_model") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async cancelDiarizationModelDownload() : Promise<void> {
+    await TAURI_INVOKE("cancel_diarization_model_download");
+},
 async setModelUnloadTimeout(timeout: ModelUnloadTimeout) : Promise<void> {
     await TAURI_INVOKE("set_model_unload_timeout", { timeout });
 },
@@ -1071,7 +1098,13 @@ historyUpdatePayload: "history-update-payload"
 
 /** user-defined types **/
 
-export type AppSettings = { bindings: Partial<{ [key in string]: ShortcutBinding }>; push_to_talk: boolean; audio_feedback: boolean; audio_feedback_volume?: number; sound_theme?: SoundTheme; start_hidden?: boolean; autostart_enabled?: boolean; update_checks_enabled?: boolean; selected_model?: string; always_on_microphone?: boolean; selected_microphone?: string | null; clamshell_microphone?: string | null; selected_output_device?: string | null; translate_to_english?: boolean; selected_language?: string; overlay_position?: OverlayPosition; debug_mode?: boolean; log_level?: LogLevel; custom_words?: string[]; model_unload_timeout?: ModelUnloadTimeout; word_correction_threshold?: number; history_limit?: number; recording_retention_period?: RecordingRetentionPeriod; paste_method?: PasteMethod; clipboard_handling?: ClipboardHandling; auto_submit?: boolean; auto_submit_key?: AutoSubmitKey; post_process_enabled?: boolean; post_process_provider_id?: string; post_process_providers?: PostProcessProvider[]; post_process_api_keys?: SecretMap; post_process_models?: Partial<{ [key in string]: string }>; post_process_prompts?: LLMPrompt[]; llm_daily_usage_date?: string | null; llm_daily_request_count?: number; post_process_selected_prompt_id?: string | null; mute_while_recording?: boolean; append_trailing_space?: boolean; app_language?: string; experimental_enabled?: boolean; lazy_stream_close?: boolean; keyboard_implementation?: KeyboardImplementation; show_tray_icon?: boolean; paste_delay_ms?: number; typing_tool?: TypingTool; external_script_path: string | null; custom_filler_words?: string[] | null; whisper_accelerator?: WhisperAcceleratorSetting; ort_accelerator?: OrtAcceleratorSetting; whisper_gpu_device?: number; extra_recording_buffer_ms?: number; output_language?: OutputLanguage; google_oauth_token?: string | null; google_auth_tokens?: GoogleAuthTokens; meeting_detection_enabled?: boolean; meeting_calendar_prompts_enabled?: boolean; meeting_prompt_lead_minutes?: number; rag_enabled?: boolean; mcp_server_enabled?: boolean; mcp_server_port?: number; mcp_server_token?: string | null }
+export type AppSettings = { bindings: Partial<{ [key in string]: ShortcutBinding }>; push_to_talk: boolean; audio_feedback: boolean; audio_feedback_volume?: number; sound_theme?: SoundTheme; start_hidden?: boolean; autostart_enabled?: boolean; update_checks_enabled?: boolean; selected_model?: string; always_on_microphone?: boolean; selected_microphone?: string | null; clamshell_microphone?: string | null; selected_output_device?: string | null; translate_to_english?: boolean; selected_language?: string; overlay_position?: OverlayPosition; debug_mode?: boolean; log_level?: LogLevel; custom_words?: string[]; model_unload_timeout?: ModelUnloadTimeout; word_correction_threshold?: number; history_limit?: number; recording_retention_period?: RecordingRetentionPeriod; paste_method?: PasteMethod; clipboard_handling?: ClipboardHandling; auto_submit?: boolean; auto_submit_key?: AutoSubmitKey; post_process_enabled?: boolean; post_process_provider_id?: string; post_process_providers?: PostProcessProvider[]; post_process_api_keys?: SecretMap; post_process_models?: Partial<{ [key in string]: string }>; post_process_prompts?: LLMPrompt[]; llm_daily_usage_date?: string | null; llm_daily_request_count?: number; post_process_selected_prompt_id?: string | null; mute_while_recording?: boolean; append_trailing_space?: boolean; app_language?: string; experimental_enabled?: boolean; lazy_stream_close?: boolean; keyboard_implementation?: KeyboardImplementation; show_tray_icon?: boolean; paste_delay_ms?: number; typing_tool?: TypingTool; external_script_path: string | null; custom_filler_words?: string[] | null; whisper_accelerator?: WhisperAcceleratorSetting; ort_accelerator?: OrtAcceleratorSetting; whisper_gpu_device?: number; extra_recording_buffer_ms?: number; output_language?: OutputLanguage; google_oauth_token?: string | null; google_auth_tokens?: GoogleAuthTokens; meeting_detection_enabled?: boolean; meeting_calendar_prompts_enabled?: boolean; meeting_prompt_lead_minutes?: number;
+/**
+ * Opt-in speaker diarization for completed meeting captures. This stays
+ * disabled until the local model and its results have been explicitly
+ * tested by the user.
+ */
+meeting_diarization_enabled?: boolean; rag_enabled?: boolean; mcp_server_enabled?: boolean; mcp_server_port?: number; mcp_server_token?: string | null }
 export type AudioDevice = { index: string; name: string; is_default: boolean }
 export type AudioTracks = { mix: string; microphone: string; system: string }
 export type AutoSubmitKey = "enter" | "ctrl_enter" | "cmd_enter"
@@ -1079,6 +1112,10 @@ export type AvailableAccelerators = { whisper: string[]; ort: string[]; gpu_devi
 export type BindingResponse = { success: boolean; binding: ShortcutBinding | null; error: string | null }
 export type ClipboardHandling = "dont_modify" | "copy_to_clipboard"
 export type CustomSounds = { start: boolean; stop: boolean }
+/**
+ * A frontend-safe snapshot. It intentionally exposes no local absolute path.
+ */
+export type DiarizationModelStatus = { model_id: string; is_downloaded: boolean; is_downloading: boolean; downloaded: number; total: number; error: string | null }
 export type EngineType = "Whisper" | "Parakeet" | "Moonshine" | "MoonshineStreaming" | "SenseVoice" | "GigaAM" | "Canary" | "Cohere" | "ThegaV1"
 export type GoogleAuthTokens = { gmail_tasks_refresh_token?: string | null; calendar_refresh_token?: string | null }
 export type GoogleFeature = "gmail_tasks" | "calendar"
@@ -1089,12 +1126,27 @@ export type HistoryEntry = { id: number; file_name: string; timestamp: number; s
  * Relative paths for the retained meeting sources. Normal recordings and
  * imported files deliberately keep this as `None` for backwards compatibility.
  */
-audio_tracks: AudioTracks | null }
+audio_tracks: AudioTracks | null;
+/**
+ * Durable meeting-session metadata. Both paths are relative to the recordings
+ * directory, and the manifest must remain inside the session root.
+ */
+meeting_session?: MeetingSession | null;
+/**
+ * Timestamped, speaker-labelled transcript rows. `None` preserves the
+ * unlabelled transcript behaviour used by old and imported entries.
+ */
+speaker_segments?: SpeakerSegment[] | null;
+/**
+ * Timestamped transcript rows retained independently of optional speaker
+ * diarization. `None` preserves entries created before timestamped ASR.
+ */
+transcript_segments?: TranscriptSegment[] | null }
 export type HistoryUpdatePayload = { action: "added"; entry: HistoryEntry } | { action: "updated"; entry: HistoryEntry } | { action: "deleted"; id: number } | { action: "toggled"; id: number }
 /**
  * Result of changing keyboard implementation
  */
-export type ImplementationChangeResult = { success: boolean; 
+export type ImplementationChangeResult = { success: boolean;
 /**
  * List of binding IDs that were reset to defaults due to incompatibility
  */
@@ -1116,6 +1168,14 @@ export type MeetingOverlayPrompt = { provider: string; title: string; source: Me
 export type MeetingOverlaySnapshot = { sequence: number; mode: MeetingOverlayMode; prompt: MeetingOverlayPrompt | null; recording_started_at: string | null }
 export type MeetingPromptPayload = { provider: string; title: string; source: MeetingPromptSource; start_time: string; join_url: string | null }
 export type MeetingPromptSource = "LocalDetection" | "GoogleCalendar"
+/**
+ * Locations for a complete meeting capture session.
+ *
+ * The paths are relative to the recordings directory. Keeping the explicit
+ * session root prevents retention cleanup from mistaking a nested derived mix
+ * path for the directory that owns the complete session.
+ */
+export type MeetingSession = { root: string; manifest: string }
 export type ModelInfo = { id: string; name: string; description: string; filename: string; url: string | null; sha256: string | null; size_mb: number; is_downloaded: boolean; is_downloading: boolean; partial_size: number; is_directory: boolean; engine_type: EngineType; accuracy_score: number; speed_score: number; supports_translation: boolean; is_recommended: boolean; supported_languages: string[]; supports_language_selection: boolean; is_custom: boolean }
 export type ModelLoadStatus = { is_loaded: boolean; current_model: string | null }
 export type ModelUnloadTimeout = "never" | "immediately" | "min_2" | "min_5" | "min_10" | "min_15" | "hour_1" | "sec_15"
@@ -1133,6 +1193,61 @@ export type RecordingRetentionPeriod = "never" | "preserve_limit" | "days_3" | "
 export type SecretMap = Partial<{ [key in string]: string }>
 export type ShortcutBinding = { id: string; name: string; description: string; default_binding: string; current_binding: string }
 export type SoundTheme = "marimba" | "pop" | "custom"
+/**
+ * A transcript span annotated with its meeting-local speaker and source.
+ */
+export type SpeakerSegment = {
+/**
+ * Start on the meeting clock, in milliseconds.
+ */
+start_ms: number;
+/**
+ * Exclusive end on the meeting clock, in milliseconds.
+ */
+end_ms: number;
+/**
+ * A meeting-local label such as `You`, `Remote Speaker 1`, or `Unknown`.
+ */
+speaker: string;
+/**
+ * Capture source such as `microphone`, `system`, `mix`, or `unknown`.
+ */
+source: string;
+/**
+ * Transcript text covered by this speaker interval.
+ */
+text: string;
+/**
+ * Optional confidence after source/speaker attribution.
+ */
+confidence: number | null }
+/**
+ * A timestamped ASR span on the shared meeting timeline.
+ *
+ * These rows are persisted as soon as track-aware ASR completes, regardless
+ * of whether optional diarization is enabled or produces speaker labels.
+ */
+export type TranscriptSegment = {
+/**
+ * Start on the meeting clock, in milliseconds.
+ */
+start_ms: number;
+/**
+ * Exclusive end on the meeting clock, in milliseconds.
+ */
+end_ms: number;
+/**
+ * Capture source such as `microphone`, `system`, `mix`, or `unknown`.
+ */
+source: string;
+/**
+ * Transcript text covered by this timestamp interval.
+ */
+text: string;
+/**
+ * Optional ASR confidence in the inclusive range `0.0..=1.0`.
+ */
+confidence: number | null }
 export type TypingTool = "auto" | "wtype" | "kwtype" | "dotool" | "ydotool" | "xdotool"
 export type WhisperAcceleratorSetting = "auto" | "cpu" | "gpu"
 export type WindowsMicrophonePermissionStatus = { supported: boolean; overall_access: PermissionAccess; device_access: PermissionAccess; app_access: PermissionAccess; desktop_app_access: PermissionAccess }

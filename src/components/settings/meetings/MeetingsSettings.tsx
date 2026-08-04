@@ -1,5 +1,12 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { readFile } from "@tauri-apps/plugin-fs";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -14,12 +21,16 @@ import {
   Mail,
   MessageSquare,
   Send,
+  Download,
+  RefreshCw,
+  X,
 } from "lucide-react";
 import { toast } from "sonner";
 import { open } from "@tauri-apps/plugin-dialog";
 import {
   commands,
   events,
+  type DiarizationModelStatus,
   type HistoryEntry,
   type HistoryUpdatePayload,
 } from "@/bindings";
@@ -30,6 +41,142 @@ import { AudioPlayer } from "../../ui/AudioPlayer";
 import { LocalFileTranscriber } from "../../LocalFileTranscriber";
 import { ToggleSwitch } from "../../ui/ToggleSwitch";
 import { Select } from "../../ui/Select";
+
+const WESPEAKER_MODEL_ID = "wespeaker-voxceleb-resnet34";
+
+const formatBytes = (bytes: number): string => {
+  if (bytes <= 0) return "0 B";
+
+  const units = ["B", "KB", "MB", "GB"];
+  const exponent = Math.min(
+    Math.floor(Math.log(bytes) / Math.log(1024)),
+    units.length - 1,
+  );
+  const value = bytes / 1024 ** exponent;
+  return `${value >= 10 || exponent === 0 ? value.toFixed(0) : value.toFixed(1)} ${units[exponent]}`;
+};
+
+interface DiarizationModelCardProps {
+  enabled: boolean;
+  status: DiarizationModelStatus | null;
+  statusError: string | null;
+  isCancelling: boolean;
+  onDownload: () => void;
+  onCancel: () => void;
+}
+
+const DiarizationModelCard: React.FC<DiarizationModelCardProps> = ({
+  enabled,
+  status,
+  statusError,
+  isCancelling,
+  onDownload,
+  onCancel,
+}) => {
+  const isDownloading = status?.is_downloading ?? false;
+  const isDownloaded = status?.is_downloaded ?? false;
+  const error = status?.error ?? statusError;
+  const percentage =
+    status && status.total > 0
+      ? Math.min(100, Math.round((status.downloaded / status.total) * 100))
+      : 0;
+  const progressLabel =
+    status && status.total > 0
+      ? `${formatBytes(status.downloaded)} of ${formatBytes(status.total)} (${percentage}%)`
+      : status?.downloaded
+        ? `${formatBytes(status.downloaded)} downloaded`
+        : "Preparing download…";
+
+  return (
+    <div className="mx-4 mb-3 rounded-md border border-mid-gray/20 bg-mid-gray/5 px-3 py-3 space-y-2.5">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-xs font-semibold text-text">
+            {"Optional local speaker model"}
+          </p>
+          <p className="mt-0.5 text-xs leading-relaxed text-mid-gray">
+            {
+              "Diarization runs after a meeting is complete. It can distinguish your microphone from anonymous remote-speaker labels, but cannot identify remote participants by name."
+            }
+          </p>
+        </div>
+        {isDownloaded && (
+          <span className="shrink-0 rounded-full bg-forest-green/10 px-2 py-0.5 text-[10px] font-semibold text-forest-green">
+            {"Ready"}
+          </span>
+        )}
+      </div>
+
+      {isDownloading && (
+        <div className="space-y-1.5" aria-live="polite">
+          <div className="h-1.5 overflow-hidden rounded-full bg-mid-gray/20">
+            <div
+              className="h-full rounded-full bg-logo-primary transition-[width] duration-200"
+              style={{ width: `${Math.max(2, percentage)}%` }}
+            />
+          </div>
+          <div className="flex items-center justify-between gap-3 text-[11px] text-mid-gray">
+            <span>{progressLabel}</span>
+            <button
+              type="button"
+              onClick={onCancel}
+              disabled={isCancelling}
+              className="inline-flex shrink-0 items-center gap-1 font-medium text-text/70 transition-colors hover:text-logo-primary disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {isCancelling ? (
+                <RefreshCw className="h-3 w-3 animate-spin" />
+              ) : (
+                <X className="h-3 w-3" />
+              )}
+              <span>{isCancelling ? "Cancelling…" : "Cancel"}</span>
+            </button>
+          </div>
+        </div>
+      )}
+
+      {!isDownloading && error && (
+        <div
+          className="rounded border border-alarm-red/25 bg-alarm-red/5 px-2.5 py-2 text-xs leading-relaxed text-alarm-red"
+          role="alert"
+        >
+          {error}
+        </div>
+      )}
+
+      {!isDownloading && !isDownloaded && (
+        <div className="flex items-center justify-between gap-3 pt-0.5">
+          <p className="text-[11px] text-mid-gray">
+            {enabled
+              ? "The model is needed only for experimental speaker labels."
+              : "Enable diarization when you are ready to test it."}
+          </p>
+          {enabled && (
+            <button
+              type="button"
+              onClick={onDownload}
+              className="inline-flex shrink-0 items-center gap-1.5 rounded-md bg-logo-primary px-2.5 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-logo-primary/90"
+            >
+              {error ? (
+                <RefreshCw className="h-3.5 w-3.5" />
+              ) : (
+                <Download className="h-3.5 w-3.5" />
+              )}
+              <span>{error ? "Retry download" : "Download model"}</span>
+            </button>
+          )}
+        </div>
+      )}
+
+      {isDownloaded && (
+        <p className="text-[11px] text-mid-gray">
+          {enabled
+            ? "Experimental speaker labels will be generated for newly completed meetings."
+            : "Downloaded but inactive. Enable the experimental setting to use it."}
+        </p>
+      )}
+    </div>
+  );
+};
 
 const IconButton: React.FC<{
   onClick: () => void;
@@ -60,6 +207,54 @@ export const MeetingsSettings: React.FC = () => {
   const [transcriberFiles, setTranscriberFiles] = useState<string[]>([]);
   const [googleStatus, setGoogleStatus] = useState<any>(null);
   const [isConnecting, setIsConnecting] = useState(false);
+  const [diarizationModelStatus, setDiarizationModelStatus] =
+    useState<DiarizationModelStatus | null>(null);
+  const [diarizationStatusError, setDiarizationStatusError] = useState<
+    string | null
+  >(null);
+  const [isCancellingDiarizationDownload, setIsCancellingDiarizationDownload] =
+    useState(false);
+  const pendingDiarizationStatus = useRef<DiarizationModelStatus | null>(null);
+  const diarizationStatusAnimationFrame = useRef<number | null>(null);
+
+  const queueDiarizationModelStatus = useCallback(
+    (nextStatus: DiarizationModelStatus) => {
+      pendingDiarizationStatus.current = nextStatus;
+      if (diarizationStatusAnimationFrame.current !== null) return;
+
+      diarizationStatusAnimationFrame.current = requestAnimationFrame(() => {
+        diarizationStatusAnimationFrame.current = null;
+        setDiarizationModelStatus(pendingDiarizationStatus.current);
+        setDiarizationStatusError(null);
+      });
+    },
+    [],
+  );
+
+  const refreshDiarizationModelStatus = useCallback(async () => {
+    try {
+      const status = await commands.getDiarizationModelStatus();
+      queueDiarizationModelStatus(status);
+    } catch (error) {
+      console.error("Failed to get diarization model status:", error);
+      setDiarizationStatusError("Could not check the speaker model status.");
+    }
+  }, [queueDiarizationModelStatus]);
+
+  useEffect(() => {
+    void refreshDiarizationModelStatus();
+    const unlisten = listen<DiarizationModelStatus>(
+      "diarization-model-status",
+      (event) => queueDiarizationModelStatus(event.payload),
+    );
+
+    return () => {
+      unlisten.then((fn) => fn());
+      if (diarizationStatusAnimationFrame.current !== null) {
+        cancelAnimationFrame(diarizationStatusAnimationFrame.current);
+      }
+    };
+  }, [queueDiarizationModelStatus, refreshDiarizationModelStatus]);
 
   const refreshGoogleStatus = useCallback(async () => {
     try {
@@ -124,6 +319,66 @@ export const MeetingsSettings: React.FC = () => {
       }
     } catch (error) {
       console.error("Failed to open file dialog:", error);
+    }
+  };
+
+  const handleDiarizationSettingChange = async (enabled: boolean) => {
+    await updateSetting("meeting_diarization_enabled", enabled);
+
+    if (enabled && !diarizationModelStatus?.is_downloaded) {
+      // Enabling starts the download on the native side. Give immediate visual
+      // feedback while waiting for the first native progress event.
+      setDiarizationModelStatus((current) => ({
+        model_id: current?.model_id ?? WESPEAKER_MODEL_ID,
+        is_downloaded: false,
+        is_downloading: true,
+        downloaded: current?.downloaded ?? 0,
+        total: current?.total ?? 0,
+        error: null,
+      }));
+      window.setTimeout(() => void refreshDiarizationModelStatus(), 0);
+    }
+  };
+
+  const handleDiarizationModelDownload = async () => {
+    if (diarizationModelStatus?.is_downloading) return;
+
+    setDiarizationStatusError(null);
+    setDiarizationModelStatus((current) => ({
+      model_id: current?.model_id ?? WESPEAKER_MODEL_ID,
+      is_downloaded: false,
+      is_downloading: true,
+      downloaded: current?.downloaded ?? 0,
+      total: current?.total ?? 0,
+      error: null,
+    }));
+
+    try {
+      const result = await commands.downloadDiarizationModel();
+      if (result.status === "error") {
+        toast.error(`Speaker model download failed: ${result.error}`);
+      } else {
+        toast.success("Speaker diarization model is ready.");
+      }
+    } catch (error) {
+      console.error("Failed to download diarization model:", error);
+      toast.error("Speaker model download failed. You can retry it here.");
+    } finally {
+      await refreshDiarizationModelStatus();
+    }
+  };
+
+  const handleCancelDiarizationModelDownload = async () => {
+    setIsCancellingDiarizationDownload(true);
+    try {
+      await commands.cancelDiarizationModelDownload();
+      toast.message("Cancelling speaker model download…");
+    } catch (error) {
+      console.error("Failed to cancel diarization model download:", error);
+      toast.error("Could not cancel the speaker model download.");
+    } finally {
+      setIsCancellingDiarizationDownload(false);
+      window.setTimeout(() => void refreshDiarizationModelStatus(), 0);
     }
   };
 
@@ -302,6 +557,25 @@ export const MeetingsSettings: React.FC = () => {
             }
           />
         </div>
+        <ToggleSwitch
+          checked={!!settings?.meeting_diarization_enabled}
+          onChange={(checked) => void handleDiarizationSettingChange(checked)}
+          isUpdating={isUpdating("meeting_diarization_enabled")}
+          label={"Experimental Speaker Diarization"}
+          description={
+            "An opt-in local pass for completed meetings. It never changes source recordings, and remote participants remain anonymous labels."
+          }
+          descriptionMode="inline"
+          grouped
+        />
+        <DiarizationModelCard
+          enabled={!!settings?.meeting_diarization_enabled}
+          status={diarizationModelStatus}
+          statusError={diarizationStatusError}
+          isCancelling={isCancellingDiarizationDownload}
+          onDownload={() => void handleDiarizationModelDownload()}
+          onCancel={() => void handleCancelDiarizationModelDownload()}
+        />
       </div>
 
       <div className="bg-background border border-mid-gray/20 rounded-lg p-4 space-y-4">

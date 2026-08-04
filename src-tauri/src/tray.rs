@@ -252,6 +252,9 @@ mod tests {
             post_process_prompt: None,
             post_process_requested: false,
             audio_tracks: None,
+            meeting_session: None,
+            speaker_segments: None,
+            transcript_segments: None,
         }
     }
 

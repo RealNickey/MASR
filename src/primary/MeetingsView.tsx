@@ -29,6 +29,8 @@ import {
   events,
   type HistoryEntry,
   type HistoryUpdatePayload,
+  type SpeakerSegment,
+  type TranscriptSegment,
 } from "@/bindings";
 import { useOsType } from "@/hooks/useOsType";
 import { LocalFileTranscriber } from "@/components/LocalFileTranscriber";
@@ -52,6 +54,136 @@ function isMeetingEntry(entry: HistoryEntry): boolean {
     entry.post_process_prompt as (typeof MEETING_PROMPTS)[number],
   );
 }
+
+type MeetingTimelineSegment = {
+  start_ms: number;
+  end_ms: number;
+  speaker: string;
+  source: string;
+  text: string;
+};
+
+function formatMeetingOffset(milliseconds: number): string {
+  const seconds = Math.max(0, Math.floor(milliseconds / 1_000));
+  const hours = Math.floor(seconds / 3_600);
+  const minutes = Math.floor((seconds % 3_600) / 60);
+  const remainderSeconds = seconds % 60;
+
+  if (hours > 0) {
+    return `${hours}:${String(minutes).padStart(2, "0")}:${String(remainderSeconds).padStart(2, "0")}`;
+  }
+
+  return `${String(minutes).padStart(2, "0")}:${String(remainderSeconds).padStart(2, "0")}`;
+}
+
+function captureSourceLabel(source: string): string {
+  switch (source) {
+    case "microphone":
+      return "Microphone";
+    case "system":
+      return "Computer audio";
+    case "microphone+system":
+      return "Overlapping microphone and computer audio";
+    case "mix":
+      return "Mixed audio";
+    default:
+      return "Unattributed";
+  }
+}
+
+function appendTimelineText(target: string, next: string): string {
+  const text = next.trim();
+  if (!text) return target;
+  const startsWithClosingPunctuation = /^[,.:;!?\])}]/.test(text);
+  return target && !startsWithClosingPunctuation
+    ? `${target} ${text}`
+    : `${target}${text}`;
+}
+
+function mergeTimestampedTranscriptSegments(
+  segments: TranscriptSegment[],
+): MeetingTimelineSegment[] {
+  const merged: MeetingTimelineSegment[] = [];
+  const ordered = [...segments].sort(
+    (left, right) =>
+      left.start_ms - right.start_ms || left.end_ms - right.end_ms,
+  );
+
+  for (const segment of ordered) {
+    const text = segment.text.trim();
+    if (!text) continue;
+    const previous = merged[merged.length - 1];
+    if (
+      previous &&
+      previous.source === segment.source &&
+      segment.start_ms - previous.end_ms <= 750
+    ) {
+      previous.end_ms = Math.max(previous.end_ms, segment.end_ms);
+      previous.text = appendTimelineText(previous.text, text);
+      continue;
+    }
+    merged.push({
+      start_ms: segment.start_ms,
+      end_ms: segment.end_ms,
+      speaker: captureSourceLabel(segment.source),
+      source: segment.source,
+      text,
+    });
+  }
+  return merged;
+}
+
+function getTimelineSegments(entry: HistoryEntry): MeetingTimelineSegment[] {
+  const diarized: SpeakerSegment[] = entry.speaker_segments ?? [];
+  if (diarized.length > 0) {
+    return diarized.map((segment) => ({
+      start_ms: segment.start_ms,
+      end_ms: segment.end_ms,
+      speaker: segment.speaker,
+      source: segment.source,
+      text: segment.text,
+    }));
+  }
+
+  return mergeTimestampedTranscriptSegments(entry.transcript_segments ?? []);
+}
+
+const SpeakerTranscript: React.FC<{ segments: MeetingTimelineSegment[] }> = ({
+  segments,
+}) => (
+  <div className="space-y-2" aria-label="Timestamped meeting transcript">
+    {segments.map((segment, index) => {
+      const range = `${formatMeetingOffset(segment.start_ms)}–${formatMeetingOffset(segment.end_ms)}`;
+      const speaker = segment.speaker.trim() || "Unknown speaker";
+
+      return (
+        <article
+          key={`${segment.start_ms}-${segment.end_ms}-${segment.speaker}-${index}`}
+          className="rounded-xl border border-stone-mist/35 bg-warm-bone/35 px-3 py-2.5"
+        >
+          <div className="mb-1.5 flex flex-wrap items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider">
+            <time
+              className="rounded-full bg-stone-mist/55 px-1.5 py-0.5 font-mono-tag text-bark-grey"
+              dateTime={`PT${Math.max(0, Math.floor(segment.start_ms / 1_000))}S`}
+              title={`Meeting time ${range}`}
+            >
+              {range}
+            </time>
+            <span className="rounded-full bg-forest-green/10 px-1.5 py-0.5 text-forest-green">
+              {speaker}
+            </span>
+            <span className="text-pebble normal-case tracking-normal">
+              {captureSourceLabel(segment.source)}
+            </span>
+          </div>
+          <p className="whitespace-pre-wrap text-sm leading-relaxed text-bark-grey">
+            {segment.text}
+          </p>
+        </article>
+      );
+    })}
+  </div>
+);
 
 // Custom interactive checkbox for Markdown rendering
 // Custom interactive list item for task lists
@@ -948,6 +1080,11 @@ export const MeetingsView: React.FC = () => {
     return chats[selectedMeeting.id] || [];
   }, [chats, selectedMeeting]);
 
+  const selectedTimelineSegments = useMemo(
+    () => (selectedMeeting ? getTimelineSegments(selectedMeeting) : []),
+    [selectedMeeting],
+  );
+
   const handleSendChatMessage = async (message: string) => {
     if (!selectedMeeting || isAsking || !message.trim()) return;
 
@@ -1318,10 +1455,16 @@ export const MeetingsView: React.FC = () => {
                       </button>
                     </div>
                     <div className="text-sm text-bark-grey whitespace-pre-wrap leading-relaxed select-text font-normal font-sans max-h-96 overflow-y-auto pr-2 scrollbar-thin">
-                      {selectedMeeting.transcription_text || (
-                        <p className="italic text-pebble">
-                          {"No transcript text available."}
-                        </p>
+                      {selectedTimelineSegments.length > 0 ? (
+                        <SpeakerTranscript
+                          segments={selectedTimelineSegments}
+                        />
+                      ) : (
+                        selectedMeeting.transcription_text || (
+                          <p className="italic text-pebble">
+                            {"No transcript text available."}
+                          </p>
+                        )
                       )}
                     </div>
                   </div>
