@@ -42,6 +42,7 @@ const CHECKPOINT_B: &str = ".capture-checkpoint-b.json";
 const MANIFEST_FILE: &str = "manifest.json";
 const SOURCE_DIR: &str = "source";
 const TIMELINE_DIR: &str = "timeline";
+const ACTIVE_LOCK: &str = ".capture-active";
 
 static SESSION_COUNTER: AtomicU64 = AtomicU64::new(0);
 
@@ -363,6 +364,12 @@ impl MeetingCaptureSession {
             )?;
             fs::create_dir_all(staging_dir.join(TIMELINE_DIR))?;
 
+            // Create a lock file to indicate this session is actively owned by a
+            // capture worker. Recovery must not publish staged sessions that are
+            // still owned by an active process.
+            File::create(staging_dir.join(ACTIVE_LOCK))
+                .context("create active capture lock file")?;
+
             let microphone = SourceState::new(
                 &staging_dir,
                 CaptureSource::Microphone,
@@ -639,6 +646,9 @@ impl MeetingCaptureSession {
         write_capture_details_durable(&self.staging_dir.join(MANIFEST_FILE), &capture_details)?;
         sync_outputs(&self.staging_dir, &capture_details)?;
 
+        // Release the active lock before rename so recovery cannot race us.
+        let _ = fs::remove_file(self.staging_dir.join(ACTIVE_LOCK));
+
         let final_dir = self.recordings_dir.join(&self.final_dir_name);
         if final_dir.exists() {
             bail!("meeting capture output directory already exists: {final_dir:?}");
@@ -666,6 +676,7 @@ impl MeetingCaptureSession {
     pub fn discard(mut self) {
         let _ = finish_source_state(&mut self.microphone);
         let _ = finish_source_state(&mut self.system);
+        let _ = fs::remove_file(self.staging_dir.join(ACTIVE_LOCK));
         let _ = fs::remove_dir_all(&self.staging_dir);
         self.discarded = true;
     }
@@ -691,6 +702,12 @@ impl MeetingCaptureSession {
                 continue;
             };
             if !name.starts_with(".capture-meeting-") {
+                continue;
+            }
+            // Skip directories still owned by an active capture worker. The lock
+            // file indicates the session is still being written to and must not be
+            // recovered until the worker releases it.
+            if entry.path().join(ACTIVE_LOCK).exists() {
                 continue;
             }
             let capture_details = match read_latest_checkpoint(&entry.path()).with_context(|| {
@@ -736,6 +753,15 @@ impl MeetingCaptureSession {
         recordings_dir: &Path,
         session_root: &Path,
     ) -> Result<MeetingCaptureArtifacts> {
+        // Refuse to recover sessions still owned by an active worker. The lock
+        // file must be absent before recovery can safely rename the directory.
+        if session_root.join(ACTIVE_LOCK).exists() {
+            bail!(
+                "cannot recover {:?}: still owned by an active capture worker",
+                session_root
+            );
+        }
+
         let mut capture_details = read_latest_checkpoint(session_root)?;
         let final_dir = recordings_dir.join(&capture_details.final_directory);
         if final_dir.exists() {
@@ -1338,8 +1364,20 @@ fn derive_outputs(session_root: &Path, manifest: &mut CaptureSessionManifest) ->
     // Both derived tracks were rendered into the shared timestamp origin. The
     // mix duration therefore comes from that clock, not `max(track.len())`;
     // startup offsets, callback gaps, and long-running device-clock drift are
-    // already represented as silence at their measured positions.
-    let mix_frames = meeting_timeline_asr_frames(manifest)?;
+    // already represented as silence at their measured positions. However, the
+    // mix must be at least as long as both derived tracks to avoid truncation.
+    let timeline_frames = meeting_timeline_asr_frames(manifest)?;
+    let mic_frames = manifest
+        .microphone
+        .derived_asr
+        .as_ref()
+        .map_or(0, |d| d.sample_frames);
+    let sys_frames = manifest
+        .system
+        .derived_asr
+        .as_ref()
+        .map_or(0, |d| d.sample_frames);
+    let mix_frames = timeline_frames.max(mic_frames).max(sys_frames);
     let mix_frames = derive_mix(session_root, mix_frames)?;
     manifest.mix = Some(MixManifest {
         path: "mix.wav".to_owned(),

@@ -32,6 +32,13 @@ struct DownloadState {
     error: Option<String>,
 }
 
+#[derive(Clone, Debug)]
+struct IntegrityCache {
+    mtime_ns: i64,
+    size: u64,
+    is_valid: bool,
+}
+
 /// A frontend-safe snapshot. It intentionally exposes no local absolute path.
 #[derive(Clone, Debug, Serialize, Deserialize, Type)]
 pub struct DiarizationModelStatus {
@@ -49,6 +56,7 @@ pub struct DiarizationModelManager {
     models_dir: PathBuf,
     state: Arc<Mutex<DownloadState>>,
     cancelled: Arc<AtomicBool>,
+    integrity_cache: Arc<Mutex<Option<IntegrityCache>>>,
 }
 
 struct DownloadCleanup {
@@ -83,6 +91,7 @@ impl DiarizationModelManager {
             models_dir,
             state: Arc::new(Mutex::new(DownloadState::default())),
             cancelled: Arc::new(AtomicBool::new(false)),
+            integrity_cache: Arc::new(Mutex::new(None)),
         })
     }
 
@@ -246,8 +255,30 @@ impl DiarizationModelManager {
         if !path.is_file() {
             return Ok(false);
         }
-        self.verify_final_file()?;
-        Ok(true)
+
+        let metadata = path.metadata().context("read diarization model metadata")?;
+        let mtime_ns = metadata
+            .modified()
+            .ok()
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|d| d.as_nanos() as i64)
+            .unwrap_or(0);
+        let size = metadata.len();
+
+        let mut cache = self.integrity_cache.lock().unwrap();
+        if let Some(cached) = cache.as_ref() {
+            if cached.mtime_ns == mtime_ns && cached.size == size {
+                return Ok(cached.is_valid);
+            }
+        }
+
+        let is_valid = self.verify_final_file().is_ok();
+        *cache = Some(IntegrityCache {
+            mtime_ns,
+            size,
+            is_valid,
+        });
+        Ok(is_valid)
     }
 
     fn complete_download(&self, result: Result<()>) -> Result<()> {

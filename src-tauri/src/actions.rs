@@ -1745,11 +1745,13 @@ fn transcribe_meeting_tracks(
     // denied by the platform). Keep a usable source transcript rather than
     // discarding an otherwise recoverable meeting because its peer track is
     // incomplete or cannot be decoded.
+    let mut track_errors = Vec::new();
     let microphone =
         match transcribe_meeting_asr_track(manager, microphone_path, CaptureSource::Microphone) {
             Ok(transcription) => transcription,
             Err(error) => {
                 warn!("Microphone meeting ASR track could not be transcribed: {error}");
+                track_errors.push(format!("microphone: {error}"));
                 empty_malayalam_transcription()
             }
         };
@@ -1757,15 +1759,18 @@ fn transcribe_meeting_tracks(
         Ok(transcription) => transcription,
         Err(error) => {
             warn!("System meeting ASR track could not be transcribed: {error}");
+            track_errors.push(format!("system: {error}"));
             empty_malayalam_transcription()
         }
     };
 
     let transcript = merge_meeting_transcripts(microphone, system);
     if transcript.text.trim().is_empty() {
-        return Err(anyhow::anyhow!(
-            "No speech was detected in the microphone or system meeting tracks"
-        ));
+        let mut message = "No speech was detected in the microphone or system meeting tracks".to_string();
+        if !track_errors.is_empty() {
+            message.push_str(&format!(". Underlying failures: {}", track_errors.join("; ")));
+        }
+        return Err(anyhow::anyhow!(message));
     }
     Ok(transcript)
 }

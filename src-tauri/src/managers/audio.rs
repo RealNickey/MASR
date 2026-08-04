@@ -408,7 +408,10 @@ impl AudioRecordingManager {
         let settings = get_settings(&self.app_handle);
         let microphone_device = self.get_effective_microphone_device(&settings);
         let recordings_dir = crate::portable::app_data_dir(&self.app_handle)
-            .map_err(|error| format!("resolve meeting recordings directory: {error}"))?
+            .map_err(|error| {
+                self.reset_failed_meeting_start();
+                format!("resolve meeting recordings directory: {error}")
+            })?
             .join("recordings");
         let capture = MeetingCaptureCoordinator::start(
             &recordings_dir,
