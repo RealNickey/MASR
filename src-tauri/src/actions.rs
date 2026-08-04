@@ -18,6 +18,7 @@ use crate::managers::meeting_capture::MeetingCaptureArtifacts;
 use crate::managers::transcription::TranscriptionManager;
 use crate::settings::{
     get_settings, AppSettings, OutputLanguage, PostProcessProvider, APPLE_INTELLIGENCE_PROVIDER_ID,
+    DEFAULT_MEETING_SUMMARY_PROMPT,
 };
 use crate::shortcut;
 use crate::tray::{change_tray_icon, TrayIconState};
@@ -224,7 +225,9 @@ async fn post_process_transcription(
         }
 
         // Define JSON schema for transcription output
-        let description = if selected_prompt_id == "default_meeting_summary" {
+        let description = if selected_prompt_id == "default_meeting_summary"
+            || selected_prompt_id == "default_meeting_notes_with_actions"
+        {
             "The meeting summary and action items in English"
         } else if selected_prompt_id == "default_translate_to_english" {
             "The translated text in English"
@@ -437,11 +440,6 @@ const FALLBACK_CHAIN: &[FallbackModel] = &[
     },
 ];
 
-const DEFAULT_MEETING_NOTES_WITH_ACTIONS_PROMPT: &str = r#"You are a helpful assistant. Write a high-level, concise summary of the meeting transcript in English. Focus on the main topics discussed, key arguments, and decisions made. Return a JSON object with a "summary" field containing the summary text and an "action_items" field containing a list of action items.
-
-Transcript:
-${output}"#;
-
 fn sanitize_error_msg(mut err: String, custom_keys: &[&str]) -> String {
     let keys = [
         GOOGLE_API_KEY.as_str(),
@@ -594,7 +592,9 @@ async fn attempt_chat_completion(
         let system_prompt = build_system_prompt(prompt);
         let user_content = text.to_string();
 
-        let description = if prompt_id == "default_meeting_summary" {
+        let description = if prompt_id == "default_meeting_summary"
+            || prompt_id == "default_meeting_notes_with_actions"
+        {
             "The meeting summary and action items in English"
         } else if prompt_id == "default_translate_to_english" {
             "The translated text in English"
@@ -693,11 +693,10 @@ async fn run_specific_llm_prompt_with_quota(
     {
         Some(prompt) => prompt.prompt.clone(),
         None => {
-            if prompt_id == "default_meeting_notes_with_actions" {
-                DEFAULT_MEETING_NOTES_WITH_ACTIONS_PROMPT.to_string()
-            } else if prompt_id == "default_meeting_summary" {
-                // Return default meeting summary prompt if not found
-                "You are a helpful assistant. Write a high-level, concise summary of the meeting transcript in English.\n\nTranscript:\n${output}".to_string()
+            if prompt_id == "default_meeting_notes_with_actions"
+                || prompt_id == "default_meeting_summary"
+            {
+                DEFAULT_MEETING_SUMMARY_PROMPT.to_string()
             } else {
                 debug!(
                     "run_specific_llm_prompt: prompt '{}' was not found",
@@ -1525,6 +1524,64 @@ impl MeetingTranscript {
     }
 }
 
+/// Coalesce adjacent word-level ASR rows into readable source spans. The
+/// grouping mirrors the frontend transcript timeline so citation IDs resolve
+/// to the same Malayalam excerpts in both places.
+fn coalesce_meeting_transcript_segments(segments: &[TranscriptSegment]) -> Vec<TranscriptSegment> {
+    let mut merged: Vec<TranscriptSegment> = Vec::new();
+    let mut ordered: Vec<&TranscriptSegment> = segments.iter().collect();
+    ordered.sort_by_key(|segment| segment.start_ms);
+
+    for segment in ordered {
+        let text = segment.text.trim();
+        if text.is_empty() {
+            continue;
+        }
+
+        if let Some(previous) = merged.last_mut() {
+            if previous.source == segment.source
+                && segment.start_ms.saturating_sub(previous.end_ms) <= 750
+            {
+                previous.end_ms = previous.end_ms.max(segment.end_ms);
+                if !previous.text.is_empty() {
+                    previous.text.push(' ');
+                }
+                previous.text.push_str(text);
+                continue;
+            }
+        }
+
+        merged.push(TranscriptSegment {
+            start_ms: segment.start_ms,
+            end_ms: segment.end_ms,
+            source: segment.source.clone(),
+            text: text.to_string(),
+            confidence: segment.confidence,
+        });
+    }
+
+    merged
+}
+
+fn indexed_meeting_transcript(transcript: &MeetingTranscript) -> String {
+    let segments = coalesce_meeting_transcript_segments(&transcript.history_segments());
+    if segments.is_empty() {
+        return transcript.text.clone();
+    }
+
+    segments
+        .iter()
+        .enumerate()
+        .map(|(index, segment)| {
+            format!(
+                "[SEG-{index:03} start_ms={} end_ms={} source={}]\n{}",
+                segment.start_ms, segment.end_ms, segment.source, segment.text
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n\n")
+}
+
 fn capture_source_name(source: CaptureSource) -> &'static str {
     match source {
         CaptureSource::Microphone => "microphone",
@@ -1984,7 +2041,8 @@ async fn transcribe_and_summarize_meeting(
         "Track-aware meeting transcription completed in {:?}",
         transcription_started.elapsed()
     );
-    let summary = run_specific_llm_prompt(app, settings, prompt_id, &transcript.text).await;
+    let summary_input = indexed_meeting_transcript(&transcript);
+    let summary = run_specific_llm_prompt(app, settings, prompt_id, &summary_input).await;
     let display_summary = if prompt_id == "default_meeting_notes_with_actions" {
         summary
             .as_ref()

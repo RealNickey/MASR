@@ -35,10 +35,13 @@ import {
 import { useOsType } from "@/hooks/useOsType";
 import { LocalFileTranscriber } from "@/components/LocalFileTranscriber";
 import { AudioPlayer } from "@/components/ui/AudioPlayer";
+import {
+  getMeetingActionItems,
+  getMeetingFollowUpSummary,
+  MeetingSummaryRenderer,
+} from "@/components/meetings/MeetingSummaryRenderer";
 import { formatDateTime } from "@/utils/dateFormat";
 import { motion, AnimatePresence } from "framer-motion";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
 import { FloatingBar, type ChatMessage } from "./FloatingBar";
 
 // ---------------------------------------------------------------------------
@@ -184,166 +187,6 @@ const SpeakerTranscript: React.FC<{ segments: MeetingTimelineSegment[] }> = ({
     })}
   </div>
 );
-
-// Custom interactive checkbox for Markdown rendering
-// Custom interactive list item for task lists
-const InteractiveTaskListItem: React.FC<{ children?: React.ReactNode }> = ({
-  children,
-}) => {
-  const childrenArray = React.Children.toArray(children);
-
-  // Find if there is an input checkbox to determine initial state
-  const checkboxChild = childrenArray.find(
-    (child: any) =>
-      child?.type === "input" && child?.props?.type === "checkbox",
-  ) as any;
-
-  const initialChecked = !!(
-    checkboxChild?.props?.checked || checkboxChild?.props?.defaultChecked
-  );
-
-  const [checked, setChecked] = useState(initialChecked);
-
-  // Filter out the default input checkbox rendered by react-markdown / remark-gfm
-  const textContent = childrenArray.filter(
-    (child: any) =>
-      !(child?.type === "input" && child?.props?.type === "checkbox"),
-  );
-
-  return (
-    <li
-      onClick={() => setChecked(!checked)}
-      className="flex items-start gap-2.5 list-none my-2 select-none cursor-pointer group"
-    >
-      {/* Circle checkbox */}
-      <div
-        className={`relative flex-shrink-0 w-4 h-4 rounded-full border transition-all duration-200 mt-1 flex items-center justify-center ${
-          checked
-            ? "bg-forest-green border-forest-green text-charcoal"
-            : "border-bark-grey/60 hover:border-forest-green bg-transparent"
-        }`}
-      >
-        <motion.span
-          initial={false}
-          animate={{ scale: checked ? 1 : 0, opacity: checked ? 1 : 0 }}
-          transition={{ type: "spring", stiffness: 500, damping: 30 }}
-          className="flex items-center justify-center"
-        >
-          <Check className="w-2.5 h-2.5 stroke-[3.5] text-orange-off-white" />
-        </motion.span>
-      </div>
-
-      {/* Label text with strikethrough transition */}
-      <span
-        className={`text-sm leading-relaxed transition-all duration-200 ${
-          checked
-            ? "text-bark-grey/60 line-through decoration-bark-grey/40"
-            : "text-charcoal group-hover:text-obsidian"
-        }`}
-      >
-        {textContent}
-      </span>
-    </li>
-  );
-};
-
-// Custom blockquote to render GitHub-style alert callouts ([!NOTE], [!IMPORTANT], [!WARNING])
-const AlertBlockquote: React.FC<{ children?: React.ReactNode }> = ({
-  children,
-}) => {
-  const findText = (node: any): string => {
-    if (!node) return "";
-    if (typeof node === "string") return node;
-    if (node.props && node.props.children) {
-      if (Array.isArray(node.props.children)) {
-        return node.props.children.map(findText).join("");
-      }
-      return findText(node.props.children);
-    }
-    return "";
-  };
-
-  const fullText = findText(children).trim();
-  let alertType: "note" | "important" | "warning" | "none" = "none";
-  let cleanChildren = children;
-
-  if (fullText.startsWith("[!NOTE]")) {
-    alertType = "note";
-  } else if (fullText.startsWith("[!IMPORTANT]")) {
-    alertType = "important";
-  } else if (fullText.startsWith("[!WARNING]")) {
-    alertType = "warning";
-  }
-
-  if (alertType !== "none") {
-    const removePrefix = (node: any): any => {
-      if (typeof node === "string") {
-        return node.replace(/^\[!(NOTE|IMPORTANT|WARNING)\]\s*/i, "");
-      }
-      if (node && node.props && node.props.children) {
-        return React.cloneElement(node, {
-          children: Array.isArray(node.props.children)
-            ? node.props.children.map(removePrefix)
-            : removePrefix(node.props.children),
-        });
-      }
-      return node;
-    };
-
-    cleanChildren = removePrefix(children);
-
-    const borderClass =
-      alertType === "important"
-        ? "border-l-4 border-terracotta bg-terracotta/5"
-        : alertType === "warning"
-          ? "border-l-4 border-alarm-red bg-alarm-red/5"
-          : "border-l-4 border-lichen-green bg-lichen-green/5";
-
-    const titleText =
-      alertType === "important"
-        ? "Important"
-        : alertType === "warning"
-          ? "Warning"
-          : "Note";
-
-    const titleColor =
-      alertType === "important"
-        ? "text-terracotta font-semibold"
-        : alertType === "warning"
-          ? "text-alarm-red font-semibold"
-          : "text-lichen-green font-semibold";
-
-    return (
-      <div className={`p-4 my-4 rounded-r-xl ${borderClass} font-sans`}>
-        <div
-          className={`text-xs font-bold uppercase tracking-wider mb-1 font-mono-tag ${titleColor}`}
-        >
-          {titleText}
-        </div>
-        <div className="text-sm text-bark-grey leading-relaxed select-text">
-          {cleanChildren}
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <blockquote className="border-l-4 border-stone-mist pl-4 italic text-bark-grey my-4">
-      {children}
-    </blockquote>
-  );
-};
-
-const markdownComponents = {
-  li: ({ children, ...props }: any) => {
-    const isTask = props.className?.includes("task-list-item");
-    if (isTask) {
-      return <InteractiveTaskListItem>{children}</InteractiveTaskListItem>;
-    }
-    return <li {...props}>{children}</li>;
-  },
-  blockquote: AlertBlockquote,
-};
 
 // ---------------------------------------------------------------------------
 // Animation Variants
@@ -1037,18 +880,16 @@ export const MeetingsView: React.FC = () => {
 
     setIsSendingFollowUp(true);
     try {
-      let summary = "";
-      let actionItems: string[] = [];
-      try {
-        const parsed = JSON.parse(followUpMeeting.post_processed_text || "");
-        summary = parsed.summary || "";
-        actionItems = parsed.action_items || [];
-      } catch (e) {
-        summary =
-          followUpMeeting.post_processed_text ||
-          followUpMeeting.transcription_text;
-        actionItems = [];
-      }
+      const summary = getMeetingFollowUpSummary(followUpMeeting);
+      const actionItems = getMeetingActionItems(followUpMeeting).map((item) => {
+        const metadata = [
+          item.owner && `Owner: ${item.owner}`,
+          item.dueDate && `Due: ${item.dueDate}`,
+        ]
+          .filter(Boolean)
+          .join(" · ");
+        return `${item.text}${metadata ? ` (${metadata})` : ""}`;
+      });
 
       const result = await commands.sendMeetingFollowUp(
         emails,
@@ -1135,43 +976,6 @@ export const MeetingsView: React.FC = () => {
         [selectedMeeting.id]: [],
       }));
     }
-  };
-
-  // -------------------------------------------------------------------------
-  // Render details summary helper
-  // -------------------------------------------------------------------------
-  const getDisplaySummary = (entry: HistoryEntry) => {
-    let text = "";
-    if (
-      entry.post_process_prompt === "default_meeting_notes_with_actions" &&
-      entry.post_processed_text
-    ) {
-      try {
-        const parsed = JSON.parse(entry.post_processed_text);
-        let summary = parsed.summary || "";
-        if (parsed.action_items && parsed.action_items.length > 0) {
-          const actionMarkdown = parsed.action_items
-            .map((item: string) => `- [ ] ${item}`)
-            .join("\n");
-          summary += `\n\n## Action Items\n${actionMarkdown}`;
-        }
-        text = summary || entry.post_processed_text;
-      } catch (e) {
-        text = entry.post_processed_text;
-      }
-    } else {
-      text = entry.post_processed_text || entry.transcription_text;
-    }
-
-    if (text) {
-      // Strip out the first H1 title heading
-      text = text.replace(/^#\s+.+$/m, "").trim();
-      // Strip out the Tags line so it's not rendered inside the markdown body
-      text = text.replace(/^Tags:\s*.+$/gim, "").trim();
-      // Dynamically convert ✅ bullet points to task list checkboxes for retro-compatibility
-      text = text.replace(/^[•*\-\s]*✅\s*/gm, "- [ ] ");
-    }
-    return text;
   };
 
   const isGoogleConnected = !!googleStatus?.gmail_tasks_connected;
@@ -1409,12 +1213,7 @@ export const MeetingsView: React.FC = () => {
               /* Summary Section (Direct area, no card) */
               <div className="text-sm leading-relaxed text-charcoal select-text markdown-summary min-h-[200px]">
                 {selectedMeeting.post_processed_text ? (
-                  <ReactMarkdown
-                    remarkPlugins={[remarkGfm]}
-                    components={markdownComponents}
-                  >
-                    {getDisplaySummary(selectedMeeting)}
-                  </ReactMarkdown>
+                  <MeetingSummaryRenderer entry={selectedMeeting} />
                 ) : selectedMeeting.transcription_text === "" ? (
                   <div className="flex items-center gap-2 text-bark-grey py-1">
                     <span className="w-4 h-4 border-2 border-forest-green border-t-transparent rounded-full animate-spin"></span>

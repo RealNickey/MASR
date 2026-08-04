@@ -39,6 +39,11 @@ import { useSettings } from "@/hooks/useSettings";
 import { formatDateTime } from "@/utils/dateFormat";
 import { AudioPlayer } from "../../ui/AudioPlayer";
 import { LocalFileTranscriber } from "../../LocalFileTranscriber";
+import {
+  getMeetingActionItems,
+  getMeetingFollowUpSummary,
+  MeetingSummaryRenderer,
+} from "@/components/meetings/MeetingSummaryRenderer";
 import { ToggleSwitch } from "../../ui/ToggleSwitch";
 import { Select } from "../../ui/Select";
 
@@ -800,16 +805,16 @@ export const MeetingEntryComponent: React.FC<MeetingEntryProps> = ({
 
     setIsSending(true);
     try {
-      let summary = "";
-      let actionItems: string[] = [];
-      try {
-        const parsed = JSON.parse(entry.post_processed_text || "");
-        summary = parsed.summary || "";
-        actionItems = parsed.action_items || [];
-      } catch (e) {
-        summary = entry.post_processed_text || entry.transcription_text;
-        actionItems = [];
-      }
+      const summary = getMeetingFollowUpSummary(entry);
+      const actionItems = getMeetingActionItems(entry).map((item) => {
+        const metadata = [
+          item.owner && `Owner: ${item.owner}`,
+          item.dueDate && `Due: ${item.dueDate}`,
+        ]
+          .filter(Boolean)
+          .join(" · ");
+        return `${item.text}${metadata ? ` (${metadata})` : ""}`;
+      });
 
       const result = await commands.sendMeetingFollowUp(
         emails,
@@ -869,32 +874,6 @@ export const MeetingEntryComponent: React.FC<MeetingEntryProps> = ({
 
   const formattedDate = formatDateTime(String(entry.timestamp), "en");
 
-  const displaySummary = React.useMemo(() => {
-    if (
-      entry.post_process_prompt === "default_meeting_notes_with_actions" &&
-      entry.post_processed_text
-    ) {
-      try {
-        const parsed = JSON.parse(entry.post_processed_text);
-        let summary = parsed.summary || "";
-        if (parsed.action_items && parsed.action_items.length > 0) {
-          const actionMarkdown = parsed.action_items
-            .map((item: string) => `- [ ] ${item}`)
-            .join("\n");
-          summary += `\n\n## Action Items\n${actionMarkdown}`;
-        }
-        return summary || entry.post_processed_text;
-      } catch (e) {
-        return entry.post_processed_text;
-      }
-    }
-    return entry.post_processed_text || entry.transcription_text;
-  }, [
-    entry.post_process_prompt,
-    entry.post_processed_text,
-    entry.transcription_text,
-  ]);
-
   return (
     <div className="px-4 py-4 flex flex-col gap-4">
       <div className="flex justify-between items-center border-b border-mid-gray/10 pb-2">
@@ -936,9 +915,7 @@ export const MeetingEntryComponent: React.FC<MeetingEntryProps> = ({
         </div>
         <div className="p-3 bg-mid-gray/5 rounded-md border border-mid-gray/10 text-sm text-text/90 select-text markdown-summary">
           {entry.post_processed_text ? (
-            <ReactMarkdown remarkPlugins={[remarkGfm]}>
-              {displaySummary}
-            </ReactMarkdown>
+            <MeetingSummaryRenderer entry={entry} />
           ) : entry.transcription_text === "" ? (
             <div className="flex items-center gap-2 text-mid-gray py-1">
               <span className="w-3.5 h-3.5 border-2 border-logo-primary border-t-transparent rounded-full animate-spin"></span>
