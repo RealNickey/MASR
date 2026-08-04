@@ -833,10 +833,11 @@ impl MeetingCaptureSession {
 
 impl Drop for MeetingCaptureSession {
     fn drop(&mut self) {
-        // A deliberate no-op: hound finalizes the currently open headers on
-        // drop, while our last alternating checkpoint keeps only the portion
-        // that was explicitly synced. `discard()` is the destructive path.
-        let _ = (self.published, self.discarded);
+        // Dropping preserves the checkpoint directory for crash recovery,
+        // but no longer marks it as actively owned by this worker.
+        if !self.published && !self.discarded {
+            let _ = fs::remove_file(self.staging_dir.join(ACTIVE_LOCK));
+        }
     }
 }
 
