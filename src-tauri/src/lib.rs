@@ -204,7 +204,7 @@ fn initialize_core_logic(app_handle: &AppHandle) {
     let diarization_model_manager = match DiarizationModelManager::new(app_handle) {
         Ok(manager) => Some(Arc::new(manager)),
         Err(error) => {
-            error!("Failed to initialize diarization model manager: {error}");
+            log::error!("Failed to initialize diarization model manager: {error}");
             None
         }
     };
