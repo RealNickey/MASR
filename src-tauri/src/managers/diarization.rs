@@ -1008,7 +1008,7 @@ fn label_for_word(
         .find(|(label, _)| *label == SpeakerLabel::Multiple)
         .map_or(0, |(_, covered_ms)| *covered_ms) as f32
         / word_duration;
-    if multiple_coverage >= config.multiple_overlap_coverage {
+    if multiple_coverage > 0.0 && multiple_coverage >= config.multiple_overlap_coverage {
         return (SpeakerLabel::Multiple, multiple_coverage);
     }
 

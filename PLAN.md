@@ -27,9 +27,11 @@ and keep diarization an independently downloadable, opt-in local feature.
 
 ## System impact and source of truth
 
-- The authoritative recording becomes a validated meeting session directory:
-  `sources/`, `chunks/`, `asr/`, `derived/`, and an atomically checkpointed
-  `manifest.json`. `derived/mix.wav` is compatibility output only.
+- The authoritative recording becomes a validated meeting session directory with
+  `source/<source>/chunk-*.wav` native chunks, `timeline/<source>.ndjson`
+  metadata, flat `microphone.wav`/`system.wav`/`mix.wav` derived outputs, and an
+  atomically checkpointed `manifest.json`. The single
+  `managers/meeting_capture_adapter.rs` module implements the platform adapters.
 - Every incoming frame carries source, native stream format, monotonic meeting
   timestamp, sequence number, and discontinuity/drop information. The
   coordinator maps both device clocks to one meeting clock and explicitly

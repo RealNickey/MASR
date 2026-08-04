@@ -201,10 +201,13 @@ fn initialize_core_logic(app_handle: &AppHandle) {
     );
     let model_manager =
         Arc::new(ModelManager::new(app_handle).expect("Failed to initialize model manager"));
-    let diarization_model_manager = Arc::new(
-        DiarizationModelManager::new(app_handle)
-            .expect("Failed to initialize diarization model manager"),
-    );
+    let diarization_model_manager = match DiarizationModelManager::new(app_handle) {
+        Ok(manager) => Some(Arc::new(manager)),
+        Err(error) => {
+            error!("Failed to initialize diarization model manager: {error}");
+            None
+        }
+    };
     let transcription_manager = Arc::new(
         TranscriptionManager::new(app_handle, model_manager.clone())
             .expect("Failed to initialize transcription manager"),
@@ -225,7 +228,9 @@ fn initialize_core_logic(app_handle: &AppHandle) {
     // Add managers to Tauri's managed state
     app_handle.manage(recording_manager.clone());
     app_handle.manage(model_manager.clone());
-    app_handle.manage(diarization_model_manager);
+    if let Some(manager) = diarization_model_manager {
+        app_handle.manage(manager);
+    }
     app_handle.manage(transcription_manager.clone());
     app_handle.manage(history_manager.clone());
     app_handle.manage(rag_manager);

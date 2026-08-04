@@ -745,8 +745,8 @@ fn macos_system_capture(
     };
 
     let content = SCShareableContent::get().context("enumerate shareable macOS displays")?;
-    let display = content
-        .displays()
+    let displays = content.displays();
+    let display = displays
         .first()
         .context("No macOS display is available for system-audio capture")?;
     let filter = SCContentFilter::create()
@@ -792,10 +792,12 @@ fn macos_system_capture(
                 let frame_count = (samples.len() / usize::from(channels)) as u64;
                 let presentation = sample.presentation_timestamp();
                 let source_timestamp_ns = if presentation.timescale > 0 {
-                    presentation
-                        .value
+                    let value_i128 = i128::from(presentation.value);
+                    let timescale_i128 = i128::from(presentation.timescale);
+                    let ns_i128 = value_i128
                         .saturating_mul(1_000_000_000)
-                        .saturating_div(i64::from(presentation.timescale))
+                        .saturating_div(timescale_i128);
+                    ns_i128.clamp(i64::MIN as i128, i64::MAX as i128) as i64
                 } else {
                     duration_to_ns(meeting_start.elapsed())
                 };

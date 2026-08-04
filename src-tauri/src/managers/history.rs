@@ -254,26 +254,36 @@ impl HistoryManager {
                 return;
             }
         };
-        for entry in entries.flatten() {
-            let Ok(file_type) = entry.file_type() else {
+
+        // Materialize candidate directory paths before registration to avoid
+        // iterator invalidation if cleanup mutates the filesystem during
+        // the registration loop.
+        let candidate_paths: Vec<_> = entries
+            .flatten()
+            .filter_map(|entry| {
+                let file_type = entry.file_type().ok()?;
+                if !file_type.is_dir() {
+                    return None;
+                }
+                let root = entry.file_name().to_str().map(str::to_owned)?;
+                if !root.starts_with("meeting-") {
+                    return None;
+                }
+                Some(entry.path())
+            })
+            .collect();
+
+        for directory in candidate_paths {
+            let Some(root) = directory.file_name().and_then(|n| n.to_str()).map(str::to_owned) else {
                 continue;
             };
-            if !file_type.is_dir() {
-                continue;
-            }
-            let Some(root) = entry.file_name().to_str().map(str::to_owned) else {
-                continue;
-            };
-            if !root.starts_with("meeting-") {
-                continue;
-            }
-            let manifest_path = entry.path().join("manifest.json");
+            let manifest_path = directory.join("manifest.json");
             let manifest = match fs::File::open(&manifest_path)
                 .ok()
                 .and_then(|file| serde_json::from_reader::<_, CaptureSessionManifest>(file).ok())
             {
                 Some(manifest)
-                    if Self::is_finalized_meeting_session(&entry.path(), &root, &manifest) =>
+                    if Self::is_finalized_meeting_session(&directory, &root, &manifest) =>
                 {
                     manifest
                 }
@@ -750,6 +760,7 @@ impl HistoryManager {
         expected_transcript_segments: &[TranscriptSegment],
         speaker_segments: Vec<SpeakerSegment>,
     ) -> Result<Option<HistoryEntry>> {
+        Self::validate_speaker_segments(&speaker_segments)?;
         let expected_segments_json = serde_json::to_string(expected_transcript_segments)?;
         let speaker_segments_json = serde_json::to_string(&speaker_segments)?;
         let tx = conn.transaction()?;
@@ -793,6 +804,9 @@ impl HistoryManager {
     ) -> Result<HistoryEntry> {
         if let Some(segments) = transcript_segments.as_deref() {
             Self::validate_transcript_segments(segments)?;
+        }
+        if let Some(segments) = speaker_segments.as_deref() {
+            Self::validate_speaker_segments(segments)?;
         }
 
         let transcript_segments_json = transcript_segments
@@ -925,6 +939,32 @@ impl HistoryManager {
                 if !confidence.is_finite() || !(0.0..=1.0).contains(&confidence) {
                     return Err(anyhow!(
                         "Transcript segment {index} has invalid confidence {confidence}"
+                    ));
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn validate_speaker_segments(segments: &[SpeakerSegment]) -> Result<()> {
+        for (index, segment) in segments.iter().enumerate() {
+            if segment.end_ms < segment.start_ms {
+                return Err(anyhow!(
+                    "Speaker segment {index} ends before it starts: {} < {}",
+                    segment.end_ms,
+                    segment.start_ms
+                ));
+            }
+            if segment.source.trim().is_empty() {
+                return Err(anyhow!("Speaker segment {index} has an empty source"));
+            }
+            if segment.text.trim().is_empty() {
+                return Err(anyhow!("Speaker segment {index} has empty text"));
+            }
+            if let Some(confidence) = segment.confidence {
+                if !confidence.is_finite() || !(0.0..=1.0).contains(&confidence) {
+                    return Err(anyhow!(
+                        "Speaker segment {index} has invalid confidence {confidence}"
                     ));
                 }
             }
