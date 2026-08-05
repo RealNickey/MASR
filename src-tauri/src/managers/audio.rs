@@ -421,13 +421,26 @@ impl AudioRecordingManager {
 
         match capture {
             Ok(capture) => {
+                // Hold both the recording-state and capture locks while
+                // verifying the session is still recording and claiming the
+                // freshly started capture. A cancel may have raced us between
+                // the state transition above and native capture start.
+                let mut state = self.state.lock().unwrap();
                 let mut active_capture = self.meeting_capture.lock().unwrap();
+                if !matches!(*state, RecordingState::MeetingRecording) {
+                    *state = RecordingState::Idle;
+                    *self.is_recording.lock().unwrap() = false;
+                    drop(active_capture);
+                    capture.discard();
+                    return Ok(());
+                }
                 if active_capture.is_some() {
                     // State ownership should make this unreachable, but do not
                     // silently replace a durable capture if a caller races us.
+                    *state = RecordingState::Idle;
+                    *self.is_recording.lock().unwrap() = false;
                     drop(active_capture);
                     capture.discard();
-                    self.reset_failed_meeting_start();
                     return Err("A meeting capture is already active".to_string());
                 }
                 *active_capture = Some(capture);

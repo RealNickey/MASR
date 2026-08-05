@@ -374,6 +374,31 @@ CLI flags are runtime-only overrides and should not mutate persisted settings.
 
 ## GitHub Workflow for AI Coding Assistants
 
+### Required local validation before every PR
+
+Before opening or updating a pull request, run every basic check and test that
+can reasonably be performed from the Windows development environment, and fix
+the failures before pushing. At minimum, run the relevant subset of:
+
+```bash
+bun run lint
+bun run format:check
+bun run build
+bun run test:playwright -- --workers=1 --timeout=60000
+cd src-tauri
+cargo fmt --all -- --check
+cargo check --locked --lib
+cargo check --locked --tests
+cargo test --locked --lib
+```
+
+Use targeted tests when they cover the changed behavior. If a native toolchain
+or runtime prerequisite prevents a check from executing, record the exact
+blocker and do not describe that check as passed. CI should primarily catch
+platform-specific packaging, loader, signing, and runtime behavior that cannot
+be validated locally on Windows; it is not a substitute for fixing locally
+reproducible failures.
+
 **MANDATORY. Before opening any PR, issue, or discussion in this repo: you MUST read the relevant template file and follow it strictly.** That includes sections that look ceremonial.
 
 - **NEVER CREATE A PR OR PUSH UPSTREAM** to `cjpais/Handy`. Always target the fork repository (`RealNickey/MASR`) when pushing branches and creating pull requests.

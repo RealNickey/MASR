@@ -54,9 +54,12 @@ static MIGRATIONS: &[M] = &[
          ALTER TABLE transcription_history ADD COLUMN speaker_segments TEXT;",
     ),
     M::up("ALTER TABLE transcription_history ADD COLUMN transcript_segments TEXT;"),
+    M::up("ALTER TABLE transcription_history ADD COLUMN revision INTEGER NOT NULL DEFAULT 0;"),
 ];
 
 const DEFAULT_MEETING_SUMMARY_PROMPT_ID: &str = "default_meeting_summary";
+
+const HISTORY_ENTRY_COLUMNS: &str = "SELECT id, file_name, timestamp, saved, title, transcription_text, post_processed_text, post_process_prompt, post_process_requested, audio_tracks, meeting_session, speaker_segments, transcript_segments FROM transcription_history";
 
 #[derive(Clone, Debug, Serialize, Deserialize, Type)]
 pub struct PaginatedHistory {
@@ -698,6 +701,9 @@ impl HistoryManager {
     /// written even when diarization is disabled. Passing `None` explicitly
     /// clears the relevant JSON field, so retries cannot retain timestamps or
     /// labels from a previous transcript.
+    ///
+    /// Returns the refreshed entry together with the new monotonic revision,
+    /// which callers use to guard detached speaker-label writes.
     pub fn update_meeting_transcription_with_timed_segments(
         &self,
         id: i64,
@@ -706,46 +712,45 @@ impl HistoryManager {
         post_process_prompt: Option<String>,
         transcript_segments: Option<Vec<TranscriptSegment>>,
         speaker_segments: Option<Vec<SpeakerSegment>>,
-    ) -> Result<HistoryEntry> {
+    ) -> Result<(HistoryEntry, i64)> {
         let mut conn = self.get_connection()?;
-        let entry = Self::update_meeting_transcription_with_timed_segments_in_connection(
-            &mut conn,
-            id,
-            transcription_text,
-            post_processed_text,
-            post_process_prompt,
-            transcript_segments,
-            speaker_segments,
-        )?;
+        let (entry, revision) =
+            Self::update_meeting_transcription_with_timed_segments_in_connection(
+                &mut conn,
+                id,
+                transcription_text,
+                post_processed_text,
+                post_process_prompt,
+                transcript_segments,
+                speaker_segments,
+            )?;
 
         self.emit_history_updated(entry.clone());
-        Ok(entry)
+        Ok((entry, revision))
     }
 
     /// Persist optional speaker labels only when they still belong to the
     /// exact timestamped transcript that produced them.
     ///
     /// Diarization runs in a detached background task, while a user can retry
-    /// the same meeting immediately. Matching both the plain transcript and
-    /// its serialized timed rows gives the background result an optimistic
-    /// concurrency guard without allowing it to replace a newer retry's
-    /// transcript, summary, or timing metadata.
+    /// the same meeting immediately. Matching the monotonic revision of the
+    /// row written together with the transcript gives the background result an
+    /// optimistic concurrency guard without allowing it to replace a newer
+    /// retry's transcript, summary, or timing metadata.
     ///
     /// Returns `Ok(true)` when labels were written and `Ok(false)` when the
     /// entry was deleted or has since received a different transcript.
     pub fn update_meeting_speaker_segments_if_current(
         &self,
         id: i64,
-        expected_transcription_text: &str,
-        expected_transcript_segments: &[TranscriptSegment],
+        expected_revision: i64,
         speaker_segments: Vec<SpeakerSegment>,
     ) -> Result<bool> {
         let mut conn = self.get_connection()?;
         let entry = Self::update_meeting_speaker_segments_if_current_in_connection(
             &mut conn,
             id,
-            expected_transcription_text,
-            expected_transcript_segments,
+            expected_revision,
             speaker_segments,
         )?;
 
@@ -760,26 +765,18 @@ impl HistoryManager {
     fn update_meeting_speaker_segments_if_current_in_connection(
         conn: &mut Connection,
         id: i64,
-        expected_transcription_text: &str,
-        expected_transcript_segments: &[TranscriptSegment],
+        expected_revision: i64,
         speaker_segments: Vec<SpeakerSegment>,
     ) -> Result<Option<HistoryEntry>> {
         Self::validate_speaker_segments(&speaker_segments)?;
-        let expected_segments_json = serde_json::to_string(expected_transcript_segments)?;
         let speaker_segments_json = serde_json::to_string(&speaker_segments)?;
         let tx = conn.transaction()?;
         let updated = tx.execute(
             "UPDATE transcription_history
              SET speaker_segments = ?1
              WHERE id = ?2
-               AND transcription_text = ?3
-               AND transcript_segments = ?4",
-            params![
-                speaker_segments_json,
-                id,
-                expected_transcription_text,
-                expected_segments_json,
-            ],
+               AND revision = ?3",
+            params![speaker_segments_json, id, expected_revision],
         )?;
 
         if updated == 0 {
@@ -788,8 +785,7 @@ impl HistoryManager {
         }
 
         let entry = tx.query_row(
-            "SELECT id, file_name, timestamp, saved, title, transcription_text, post_processed_text, post_process_prompt, post_process_requested, audio_tracks, meeting_session, speaker_segments, transcript_segments
-             FROM transcription_history WHERE id = ?1",
+            &format!("{HISTORY_ENTRY_COLUMNS} WHERE id = ?1"),
             params![id],
             Self::map_history_entry,
         )?;
@@ -805,7 +801,7 @@ impl HistoryManager {
         post_process_prompt: Option<String>,
         transcript_segments: Option<Vec<TranscriptSegment>>,
         speaker_segments: Option<Vec<SpeakerSegment>>,
-    ) -> Result<HistoryEntry> {
+    ) -> Result<(HistoryEntry, i64)> {
         if let Some(segments) = transcript_segments.as_deref() {
             Self::validate_transcript_segments(segments)?;
         }
@@ -829,7 +825,8 @@ impl HistoryManager {
                   post_processed_text = ?2,
                   post_process_prompt = ?3,
                   transcript_segments = ?4,
-                  speaker_segments = ?5
+                  speaker_segments = ?5,
+                  revision = revision + 1
              WHERE id = ?6",
             params![
                 transcription_text,
@@ -845,14 +842,18 @@ impl HistoryManager {
         }
 
         let entry = tx.query_row(
-            "SELECT id, file_name, timestamp, saved, title, transcription_text, post_processed_text, post_process_prompt, post_process_requested, audio_tracks, meeting_session, speaker_segments, transcript_segments
-             FROM transcription_history WHERE id = ?1",
+            &format!("{HISTORY_ENTRY_COLUMNS} WHERE id = ?1"),
             params![id],
             Self::map_history_entry,
         )?;
+        let revision: i64 = tx.query_row(
+            "SELECT revision FROM transcription_history WHERE id = ?1",
+            params![id],
+            |row| row.get(0),
+        )?;
         tx.commit()?;
 
-        Ok(entry)
+        Ok((entry, revision))
     }
 
     fn update_transcription_with_segments(
@@ -864,6 +865,9 @@ impl HistoryManager {
         speaker_segments: Option<Option<Vec<SpeakerSegment>>>,
     ) -> Result<HistoryEntry> {
         let mut conn = self.get_connection()?;
+        if let Some(Some(segments)) = speaker_segments.as_ref() {
+            Self::validate_speaker_segments(segments)?;
+        }
         let tx = conn.transaction()?;
         let updated = match speaker_segments {
             Some(speaker_segments) => tx.execute(
@@ -871,7 +875,8 @@ impl HistoryManager {
                  SET transcription_text = ?1,
                       post_processed_text = ?2,
                       post_process_prompt = ?3,
-                      speaker_segments = ?4
+                      speaker_segments = ?4,
+                      revision = revision + 1
                  WHERE id = ?5",
                 params![
                     transcription_text,
@@ -888,7 +893,8 @@ impl HistoryManager {
                 "UPDATE transcription_history
                  SET transcription_text = ?1,
                       post_processed_text = ?2,
-                      post_process_prompt = ?3
+                      post_process_prompt = ?3,
+                      revision = revision + 1
                  WHERE id = ?4",
                 params![
                     transcription_text,
@@ -904,8 +910,7 @@ impl HistoryManager {
         }
 
         let entry = tx.query_row(
-            "SELECT id, file_name, timestamp, saved, title, transcription_text, post_processed_text, post_process_prompt, post_process_requested, audio_tracks, meeting_session, speaker_segments, transcript_segments
-             FROM transcription_history WHERE id = ?1",
+            &format!("{HISTORY_ENTRY_COLUMNS} WHERE id = ?1"),
             params![id],
             Self::map_history_entry,
         )?;
@@ -964,6 +969,9 @@ impl HistoryManager {
             }
             if segment.text.trim().is_empty() {
                 return Err(anyhow!("Speaker segment {index} has empty text"));
+            }
+            if segment.speaker.trim().is_empty() {
+                return Err(anyhow!("Speaker segment {index} has an empty speaker"));
             }
             if let Some(confidence) = segment.confidence {
                 if !confidence.is_finite() || !(0.0..=1.0).contains(&confidence) {
@@ -1142,13 +1150,9 @@ impl HistoryManager {
         let mut entries: Vec<HistoryEntry> = match (cursor, limit) {
             (Some(cursor_id), Some(lim)) => {
                 let fetch_count = (lim + 1) as i64;
-                let mut stmt = conn.prepare(
-                    "SELECT id, file_name, timestamp, saved, title, transcription_text, post_processed_text, post_process_prompt, post_process_requested, audio_tracks, meeting_session, speaker_segments, transcript_segments
-                     FROM transcription_history
-                     WHERE id < ?1
-                     ORDER BY id DESC
-                     LIMIT ?2",
-                )?;
+                let mut stmt = conn.prepare(&format!(
+                        "{HISTORY_ENTRY_COLUMNS}\n                     WHERE id < ?1\n                     ORDER BY id DESC\n                     LIMIT ?2",
+                    ))?;
                 let result = stmt
                     .query_map(params![cursor_id, fetch_count], Self::map_history_entry)?
                     .collect::<std::result::Result<Vec<_>, _>>()?;
@@ -1156,23 +1160,18 @@ impl HistoryManager {
             }
             (None, Some(lim)) => {
                 let fetch_count = (lim + 1) as i64;
-                let mut stmt = conn.prepare(
-                    "SELECT id, file_name, timestamp, saved, title, transcription_text, post_processed_text, post_process_prompt, post_process_requested, audio_tracks, meeting_session, speaker_segments, transcript_segments
-                     FROM transcription_history
-                     ORDER BY id DESC
-                     LIMIT ?1",
-                )?;
+                let mut stmt = conn.prepare(&format!(
+                        "{HISTORY_ENTRY_COLUMNS}\n                     ORDER BY id DESC\n                     LIMIT ?1",
+                    ))?;
                 let result = stmt
                     .query_map(params![fetch_count], Self::map_history_entry)?
                     .collect::<std::result::Result<Vec<_>, _>>()?;
                 result
             }
             (_, None) => {
-                let mut stmt = conn.prepare(
-                    "SELECT id, file_name, timestamp, saved, title, transcription_text, post_processed_text, post_process_prompt, post_process_requested, audio_tracks, meeting_session, speaker_segments, transcript_segments
-                     FROM transcription_history
-                     ORDER BY id DESC",
-                )?;
+                let mut stmt = conn.prepare(&format!(
+                    "{HISTORY_ENTRY_COLUMNS}\n                     ORDER BY id DESC"
+                ))?;
                 let result = stmt
                     .query_map([], Self::map_history_entry)?
                     .collect::<std::result::Result<Vec<_>, _>>()?;
@@ -1190,25 +1189,9 @@ impl HistoryManager {
 
     #[cfg(test)]
     fn get_latest_entry_with_conn(conn: &Connection) -> Result<Option<HistoryEntry>> {
-        let mut stmt = conn.prepare(
-            "SELECT
-                id,
-                file_name,
-                timestamp,
-                saved,
-                title,
-                transcription_text,
-                post_processed_text,
-                post_process_prompt,
-                post_process_requested,
-                audio_tracks,
-                meeting_session,
-                speaker_segments,
-                transcript_segments
-             FROM transcription_history
-             ORDER BY timestamp DESC
-             LIMIT 1",
-        )?;
+        let mut stmt = conn.prepare(&format!(
+            "{HISTORY_ENTRY_COLUMNS}\n             ORDER BY timestamp DESC\n             LIMIT 1"
+        ))?;
 
         let entry = stmt.query_row([], Self::map_history_entry).optional()?;
         Ok(entry)
@@ -1222,24 +1205,9 @@ impl HistoryManager {
 
     fn get_latest_completed_entry_with_conn(conn: &Connection) -> Result<Option<HistoryEntry>> {
         let mut stmt = conn.prepare(
-            "SELECT
-                id,
-                file_name,
-                timestamp,
-                saved,
-                title,
-                transcription_text,
-                post_processed_text,
-                post_process_prompt,
-                post_process_requested,
-                audio_tracks,
-                meeting_session,
-                speaker_segments,
-                transcript_segments
-             FROM transcription_history
-             WHERE transcription_text != ''
-             ORDER BY timestamp DESC
-             LIMIT 1",
+            &format!(
+                "{HISTORY_ENTRY_COLUMNS}\n             WHERE transcription_text != ''\n             ORDER BY timestamp DESC\n             LIMIT 1"
+            ),
         )?;
 
         let entry = stmt.query_row([], Self::map_history_entry).optional()?;
@@ -1355,24 +1323,9 @@ impl HistoryManager {
 
     pub async fn get_entry_by_id(&self, id: i64) -> Result<Option<HistoryEntry>> {
         let conn = self.get_connection()?;
-        let mut stmt = conn.prepare(
-            "SELECT
-                id,
-                file_name,
-                timestamp,
-                saved,
-                title,
-                transcription_text,
-                post_processed_text,
-                post_process_prompt,
-                post_process_requested,
-                audio_tracks,
-                meeting_session,
-                speaker_segments,
-                transcript_segments
-             FROM transcription_history
-             WHERE id = ?1",
-        )?;
+        let mut stmt = conn.prepare(&format!(
+            "{HISTORY_ENTRY_COLUMNS}\n             WHERE id = ?1"
+        ))?;
 
         let entry = stmt.query_row([id], Self::map_history_entry).optional()?;
 
@@ -1454,8 +1407,7 @@ impl HistoryManager {
             return Err(anyhow!("History entry {} not found", id));
         }
         let entry = conn.query_row(
-            "SELECT id, file_name, timestamp, saved, title, transcription_text, post_processed_text, post_process_prompt, post_process_requested, audio_tracks, meeting_session, speaker_segments, transcript_segments
-             FROM transcription_history WHERE id = ?1",
+            &format!("{HISTORY_ENTRY_COLUMNS} WHERE id = ?1"),
             params![id],
             Self::map_history_entry,
         )?;
@@ -1968,16 +1920,17 @@ mod tests {
             confidence: Some(1.0),
         }];
 
-        let entry = HistoryManager::update_meeting_transcription_with_timed_segments_in_connection(
-            &mut conn,
-            1,
-            "Good morning".to_string(),
-            Some("Summary".to_string()),
-            Some(DEFAULT_MEETING_SUMMARY_PROMPT_ID.to_string()),
-            Some(transcript_segments.clone()),
-            Some(speaker_segments.clone()),
-        )
-        .expect("update timestamped meeting transcript");
+        let (entry, _) =
+            HistoryManager::update_meeting_transcription_with_timed_segments_in_connection(
+                &mut conn,
+                1,
+                "Good morning".to_string(),
+                Some("Summary".to_string()),
+                Some(DEFAULT_MEETING_SUMMARY_PROMPT_ID.to_string()),
+                Some(transcript_segments.clone()),
+                Some(speaker_segments.clone()),
+            )
+            .expect("update timestamped meeting transcript");
 
         assert_eq!(entry.transcript_segments, Some(transcript_segments));
         assert_eq!(entry.speaker_segments, Some(speaker_segments));
@@ -1995,16 +1948,17 @@ mod tests {
             text: "Good morning".to_string(),
             confidence: None,
         }];
-        HistoryManager::update_meeting_transcription_with_timed_segments_in_connection(
-            &mut conn,
-            1,
-            "Good morning".to_string(),
-            Some("Original summary".to_string()),
-            Some(DEFAULT_MEETING_SUMMARY_PROMPT_ID.to_string()),
-            Some(transcript_segments.clone()),
-            None,
-        )
-        .expect("write initial transcript");
+        let (_, revision) =
+            HistoryManager::update_meeting_transcription_with_timed_segments_in_connection(
+                &mut conn,
+                1,
+                "Good morning".to_string(),
+                Some("Original summary".to_string()),
+                Some(DEFAULT_MEETING_SUMMARY_PROMPT_ID.to_string()),
+                Some(transcript_segments.clone()),
+                None,
+            )
+            .expect("write initial transcript");
         let speaker_segments = vec![SpeakerSegment {
             start_ms: 100,
             end_ms: 450,
@@ -2017,8 +1971,7 @@ mod tests {
         let entry = HistoryManager::update_meeting_speaker_segments_if_current_in_connection(
             &mut conn,
             1,
-            "Good morning",
-            &transcript_segments,
+            revision,
             speaker_segments.clone(),
         )
         .expect("write current speaker labels")
@@ -2044,16 +1997,17 @@ mod tests {
             text: "Original words".to_string(),
             confidence: None,
         }];
-        HistoryManager::update_meeting_transcription_with_timed_segments_in_connection(
-            &mut conn,
-            1,
-            "Original words".to_string(),
-            Some("Original summary".to_string()),
-            Some(DEFAULT_MEETING_SUMMARY_PROMPT_ID.to_string()),
-            Some(original_segments.clone()),
-            None,
-        )
-        .expect("write original transcript");
+        let (_, original_revision) =
+            HistoryManager::update_meeting_transcription_with_timed_segments_in_connection(
+                &mut conn,
+                1,
+                "Original words".to_string(),
+                Some("Original summary".to_string()),
+                Some(DEFAULT_MEETING_SUMMARY_PROMPT_ID.to_string()),
+                Some(original_segments.clone()),
+                None,
+            )
+            .expect("write original transcript");
 
         let retry_segments = vec![TranscriptSegment {
             start_ms: 120,
@@ -2084,8 +2038,7 @@ mod tests {
         let updated = HistoryManager::update_meeting_speaker_segments_if_current_in_connection(
             &mut conn,
             1,
-            "Original words",
-            &original_segments,
+            original_revision,
             stale_labels,
         )
         .expect("compare stale diarization snapshot");

@@ -2052,15 +2052,22 @@ async fn transcribe_and_summarize_meeting(
     );
     let summary_input = indexed_meeting_transcript(&transcript);
     let summary = run_specific_llm_prompt(app, settings, prompt_id, &summary_input).await;
-    let display_summary = if prompt_id == "default_meeting_notes_with_actions" {
+    let display_summary = if prompt_id == "default_meeting_notes_with_actions"
+        || prompt_id == "default_meeting_summary"
+    {
         summary
             .as_ref()
             .and_then(|json| serde_json::from_str::<serde_json::Value>(json).ok())
             .and_then(|value| {
-                value
-                    .get("summary")
-                    .and_then(|summary| summary.as_str())
-                    .map(str::to_owned)
+                [
+                    "summary",
+                    "overview",
+                    "executive_summary",
+                    "executiveSummary",
+                ]
+                .iter()
+                .find_map(|key| value.get(*key).and_then(|field| field.as_str()))
+                .map(str::to_owned)
             })
             .unwrap_or_else(|| summary.clone().unwrap_or_else(|| transcript.text.clone()))
     } else {
@@ -2082,30 +2089,32 @@ fn queue_optional_meeting_diarization(
     enabled: bool,
     history: Arc<HistoryManager>,
     entry_id: Option<i64>,
+    expected_revision: Option<i64>,
     diarization_model_manager: Option<Arc<DiarizationModelManager>>,
     manifest: MeetingCaptureManifest,
     microphone_path: PathBuf,
     system_path: PathBuf,
     transcript: MeetingTranscript,
-    transcript_segments: Vec<TranscriptSegment>,
 ) {
     if !enabled {
         return;
     }
-    let (entry_id, model_manager) = match (entry_id, diarization_model_manager) {
-        (Some(entry_id), Some(model_manager)) => (entry_id, model_manager),
-        (None, _) => {
-            debug!("Skipping optional meeting diarization because history persistence failed");
-            return;
-        }
-        (_, None) => {
-            warn!("Meeting diarization was enabled but its model manager is unavailable");
-            return;
-        }
-    };
+    let (entry_id, expected_revision, model_manager) =
+        match (entry_id, expected_revision, diarization_model_manager) {
+            (Some(entry_id), Some(expected_revision), Some(model_manager)) => {
+                (entry_id, expected_revision, model_manager)
+            }
+            (None, _, _) | (_, None, _) => {
+                debug!("Skipping optional meeting diarization because history persistence failed");
+                return;
+            }
+            (_, _, None) => {
+                warn!("Meeting diarization was enabled but its model manager is unavailable");
+                return;
+            }
+        };
 
     tauri::async_runtime::spawn(async move {
-        let expected_transcription_text = transcript.text.clone();
         let speaker_segments = match tokio::task::spawn_blocking(move || {
             diarize_meeting_tracks(
                 &model_manager,
@@ -2129,8 +2138,7 @@ fn queue_optional_meeting_diarization(
         if let Some(speaker_segments) = speaker_segments {
             match history.update_meeting_speaker_segments_if_current(
                 entry_id,
-                &expected_transcription_text,
-                &transcript_segments,
+                expected_revision,
                 speaker_segments,
             ) {
                 Ok(true) => {}
@@ -2190,7 +2198,7 @@ pub async fn retry_meeting_history_entry(
     .map_err(|error| error.to_string())?;
 
     let transcript_segments = completed.transcript.history_segments();
-    history_manager
+    let (_, expected_revision) = history_manager
         .update_meeting_transcription_with_timed_segments(
             entry.id,
             completed.transcript.text.clone(),
@@ -2215,12 +2223,12 @@ pub async fn retry_meeting_history_entry(
         settings.meeting_diarization_enabled,
         history_manager,
         Some(entry.id),
+        Some(expected_revision),
         diarization_model_manager,
         manifest,
         microphone_path,
         system_path,
         completed.transcript,
-        transcript_segments,
     );
     Ok(())
 }
@@ -2355,8 +2363,8 @@ impl ShortcutAction for MeetingAction {
                     let summary_opt = completed.summary;
                     let transcript_segments = transcript.history_segments();
 
-                    if let Some(entry_id) = history_entry_id {
-                        if let Err(error) = hm.update_meeting_transcription_with_timed_segments(
+                    let expected_revision = if let Some(entry_id) = history_entry_id {
+                        match hm.update_meeting_transcription_with_timed_segments(
                             entry_id,
                             transcript.text.clone(),
                             summary_opt.clone(),
@@ -2364,9 +2372,15 @@ impl ShortcutAction for MeetingAction {
                             Some(transcript_segments.clone()),
                             None,
                         ) {
-                            error!("Failed to update meeting history entry: {error}");
+                            Ok((_, revision)) => Some(revision),
+                            Err(error) => {
+                                error!("Failed to update meeting history entry: {error}");
+                                None
+                            }
                         }
-                    }
+                    } else {
+                        None
+                    };
                     if !completed.display_summary.is_empty() {
                         let _ = ah.emit(
                             "meeting-summary",
@@ -2380,12 +2394,12 @@ impl ShortcutAction for MeetingAction {
                         settings.meeting_diarization_enabled,
                         Arc::clone(&hm),
                         history_entry_id,
+                        expected_revision,
                         diarization_model_manager,
                         artifacts.manifest.clone(),
                         microphone_diarization_path,
                         system_diarization_path,
                         transcript,
-                        transcript_segments,
                     );
                 }
                 Err(error) => {

@@ -252,7 +252,7 @@ function jsonToMarkdown(record: JsonRecord): string {
   renderJsonSection(
     output,
     "Next Steps",
-    jsonArray(record, ["next_steps", "nextSteps", "follow_ups"]),
+    jsonArray(record, ["next_steps", "nextSteps"]),
   );
 
   if (output.length === 0) {
@@ -266,7 +266,7 @@ function jsonToMarkdown(record: JsonRecord): string {
 function stripLegacyDecorators(markdown: string): string {
   return markdown
     .replace(/^(#\s+[^\n]+\r?\nTags:\s*[^\n]+\r?\n?)/i, "")
-    .replace(/^[•*\-\s]*✅\s*/gm, "- [ ] ")
+    .replace(/^[•*\-\s]*✅\s*/gm, "- [x] ")
     .trim();
 }
 
@@ -283,7 +283,8 @@ function extractMarkdownActionItems(markdown: string): MeetingActionItem[] {
 export function getMeetingSummaryMarkdown(entry: HistoryEntry): string {
   const raw = entry.post_processed_text || entry.transcription_text || "";
   const parsed = parseJsonSummary(raw);
-  return stripLegacyDecorators(parsed ? jsonToMarkdown(parsed) : raw);
+  const markdown = parsed ? jsonToMarkdown(parsed) : raw;
+  return stripLegacyDecorators(markdown || raw);
 }
 
 export function getMeetingFollowUpSummary(entry: HistoryEntry): string {
@@ -321,12 +322,15 @@ export function getMeetingActionItems(
   return extractMarkdownActionItems(getMeetingSummaryMarkdown(entry));
 }
 
-function mergeTranscriptSegments(
+export function mergeTranscriptSegments(
   segments: TranscriptSegment[],
+  joinText: (target: string, next: string) => string = (target, next) =>
+    `${target} ${next}`,
 ): TranscriptSegment[] {
   const merged: TranscriptSegment[] = [];
   for (const segment of [...segments].sort(
-    (left, right) => left.start_ms - right.start_ms,
+    (left, right) =>
+      left.start_ms - right.start_ms || left.end_ms - right.end_ms,
   )) {
     const text = segment.text.trim();
     if (!text) continue;
@@ -337,7 +341,7 @@ function mergeTranscriptSegments(
       segment.start_ms - previous.end_ms <= 750
     ) {
       previous.end_ms = Math.max(previous.end_ms, segment.end_ms);
-      previous.text = `${previous.text} ${text}`;
+      previous.text = joinText(previous.text, text);
       continue;
     }
     merged.push({ ...segment, text });
@@ -533,10 +537,16 @@ const AlertBlockquote: React.FC<{ children?: React.ReactNode }> = ({
       : type === "warning"
         ? "text-alarm-red"
         : "text-lichen-green";
+  const containerColor =
+    type === "important"
+      ? "border-terracotta bg-terracotta/5"
+      : type === "warning"
+        ? "border-alarm-red bg-alarm-red/5"
+        : "border-lichen-green bg-lichen-green/5";
   const cleaned = removeAlertMarker(children);
 
   return (
-    <div className="my-4 rounded-r-xl border-l-4 border-lichen-green bg-lichen-green/5 p-4">
+    <div className={`my-4 rounded-r-xl border-l-4 p-4 ${containerColor}`}>
       <div
         className={`mb-1 text-xs font-bold uppercase tracking-wider ${color}`}
       >
@@ -565,7 +575,7 @@ export const MeetingSummaryRenderer: React.FC<{
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         components={{
-          li: ({ children, ...props }) => {
+          li: ({ node, children, ...props }) => {
             if (props.className?.includes("task-list-item")) {
               return (
                 <InteractiveTaskListItem>{children}</InteractiveTaskListItem>
@@ -574,7 +584,7 @@ export const MeetingSummaryRenderer: React.FC<{
             return <li {...props}>{children}</li>;
           },
           blockquote: AlertBlockquote,
-          a: ({ href, children, ...props }) => {
+          a: ({ node, href, children, ...props }) => {
             if (href?.startsWith("#meeting-citation-")) {
               const id = href.slice("#meeting-citation-".length);
               const citation = citations.get(id);
@@ -586,14 +596,14 @@ export const MeetingSummaryRenderer: React.FC<{
               </a>
             );
           },
-          table: ({ children, ...props }) => (
+          table: ({ node, children, ...props }) => (
             <div className="my-4 overflow-x-auto rounded-xl border border-stone-mist/60">
               <table {...props} className="min-w-full text-left text-sm">
                 {children}
               </table>
             </div>
           ),
-          th: ({ children, ...props }) => (
+          th: ({ node, children, ...props }) => (
             <th
               {...props}
               className="border-b border-stone-mist bg-stone-mist/20 px-3 py-2 font-semibold text-charcoal"
@@ -601,7 +611,7 @@ export const MeetingSummaryRenderer: React.FC<{
               {children}
             </th>
           ),
-          td: ({ children, ...props }) => (
+          td: ({ node, children, ...props }) => (
             <td
               {...props}
               className="border-b border-stone-mist/40 px-3 py-2 align-top text-bark-grey"

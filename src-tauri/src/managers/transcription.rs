@@ -996,9 +996,21 @@ impl TranscriptionManager {
 
         match transcription {
             Ok(result) => {
-                let mut engine_guard = self.lock_engine();
-                *engine_guard = Some(engine);
-                drop(engine_guard);
+                // Only restore the taken ThegaV1 engine if the selected model
+                // is still ThegaV1. A concurrent load may have replaced it in
+                // the engine slot (and its current_model_id) while we held the
+                // engine, and restoring would clobber that engine.
+                let still_thegav1 = self
+                    .current_model_id
+                    .lock()
+                    .unwrap_or_else(|error| error.into_inner())
+                    .as_deref()
+                    == Some("thegav1");
+                if still_thegav1 {
+                    let mut engine_guard = self.lock_engine();
+                    *engine_guard = Some(engine);
+                    drop(engine_guard);
+                }
 
                 let mut result = result?;
                 let settings = get_settings(&self.app_handle);

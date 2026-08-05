@@ -77,6 +77,16 @@ impl TranscriptionManager {
     pub fn transcribe(&self, _audio: Vec<f32>) -> Result<String> {
         Ok(String::new())
     }
+
+    pub fn transcribe_thegav1_with_timing(
+        &self,
+        _audio: Vec<f32>,
+    ) -> Result<crate::malayalam_asr::MalayalamTranscription> {
+        Ok(crate::malayalam_asr::MalayalamTranscription {
+            text: String::new(),
+            words: Vec::new(),
+        })
+    }
 }
 
 /// No-op in CI mock.

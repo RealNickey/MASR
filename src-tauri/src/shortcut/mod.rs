@@ -1186,11 +1186,13 @@ pub fn change_meeting_diarization_enabled_setting(
             crate::managers::diarization_model::DiarizationModelManager,
         >>() {
             let manager = std::sync::Arc::clone(manager.inner());
-            tauri::async_runtime::spawn(async move {
+tauri::async_runtime::spawn(async move {
                 if let Err(error) = manager.download().await {
                     warn!("Optional diarization model download did not complete: {error}");
                 }
             });
+        } else {
+            warn!("Diarization model manager is unavailable; cannot download the optional speaker model");
         }
     }
     Ok(())

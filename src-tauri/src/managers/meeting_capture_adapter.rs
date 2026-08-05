@@ -15,9 +15,9 @@ use std::io::{self, Read};
 use std::process::{Child, Command, Stdio};
 #[cfg(target_os = "linux")]
 use std::sync::atomic::AtomicBool;
-use std::sync::atomic::{AtomicPtr, Ordering};
+use std::sync::atomic::Ordering;
 use std::sync::mpsc::{self, Receiver, SyncSender, TrySendError};
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 #[cfg(target_os = "linux")]
 use std::time::Duration;
 use std::time::Instant;
@@ -612,12 +612,12 @@ where
 /// WASAPI provides microphone and loopback capture timestamps as global QPC
 /// positions. The streams can reach their callbacks with very different driver
 /// buffering, so using one `SourceClock` per callback would turn that delivery
-/// latency into an incorrect, permanent alignment offset. This atomic one-time
+/// latency into an incorrect, permanent alignment offset. This one-time
 /// publication keeps callback work lock-free: after the first frame it is one
-/// pointer load plus timestamp arithmetic, without a mutex or channel wait.
+/// read plus timestamp arithmetic, without a mutex or channel wait.
 #[derive(Default)]
 struct SharedCpalCaptureClock {
-    anchor: AtomicPtr<CpalCaptureClockAnchor>,
+    anchor: OnceLock<CpalCaptureClockAnchor>,
 }
 
 #[derive(Clone, Copy)]
@@ -654,45 +654,10 @@ impl SharedCpalCaptureClock {
         capture: StreamInstant,
         observed_meeting_ns: i64,
     ) -> &CpalCaptureClockAnchor {
-        let current = self.anchor.load(Ordering::Acquire);
-        if !current.is_null() {
-            // The anchor is immutable after publication and this object is
-            // owned by every callback through an `Arc`, so it remains alive.
-            return unsafe { &*current };
-        }
-
-        let candidate = Box::into_raw(Box::new(CpalCaptureClockAnchor {
+        self.anchor.get_or_init(|| CpalCaptureClockAnchor {
             capture,
             meeting_timestamp_ns: observed_meeting_ns,
-        }));
-        let anchor = match self.anchor.compare_exchange(
-            std::ptr::null_mut(),
-            candidate,
-            Ordering::AcqRel,
-            Ordering::Acquire,
-        ) {
-            Ok(_) => candidate,
-            Err(existing) => {
-                // Another callback won the first-frame race. Its immutable
-                // anchor is the meeting-wide source-clock origin.
-                unsafe { drop(Box::from_raw(candidate)) };
-                existing
-            }
-        };
-        // `compare_exchange` can only fail with a non-null current value.
-        debug_assert!(!anchor.is_null());
-        unsafe { &*anchor }
-    }
-}
-
-impl Drop for SharedCpalCaptureClock {
-    fn drop(&mut self) {
-        let anchor = self.anchor.swap(std::ptr::null_mut(), Ordering::AcqRel);
-        if !anchor.is_null() {
-            // Safe because `Drop` requires the final callback-held Arc to be
-            // gone, and the anchor is never replaced after publication.
-            unsafe { drop(Box::from_raw(anchor)) };
-        }
+        })
     }
 }
 
@@ -848,6 +813,21 @@ fn macos_system_capture(
     Ok(stream)
 }
 
+/// Decode a buffer of native-endian f32 samples, returning `None` when the
+/// buffer length is not a whole number of samples.
+fn decode_f32_samples(bytes: &[u8]) -> Option<Vec<f32>> {
+    if bytes.len() % std::mem::size_of::<f32>() != 0 {
+        return None;
+    }
+    let mut samples = Vec::with_capacity(bytes.len() / std::mem::size_of::<f32>());
+    for chunk in bytes.chunks_exact(std::mem::size_of::<f32>()) {
+        let mut chunk_bytes = [0u8; 4];
+        chunk_bytes.copy_from_slice(chunk);
+        samples.push(f32::from_ne_bytes(chunk_bytes));
+    }
+    Some(samples)
+}
+
 /// ScreenCaptureKit's requested audio output is linear PCM f32. It may be
 /// delivered as one interleaved buffer or one planar buffer per channel; copy
 /// either form into the common interleaved frame representation.
@@ -858,14 +838,10 @@ fn decode_macos_float_audio(
     let mut decoded: Vec<(u16, Vec<f32>)> = Vec::new();
     for buffer in buffers {
         let channels = u16::try_from(buffer.number_channels).ok()?;
-        if channels == 0 || buffer.data().len() % std::mem::size_of::<f32>() != 0 {
+        if channels == 0 {
             return None;
         }
-        let values = buffer
-            .data()
-            .chunks_exact(std::mem::size_of::<f32>())
-            .map(|bytes| f32::from_ne_bytes(bytes.try_into().expect("f32 chunk size")))
-            .collect::<Vec<_>>();
+        let values = decode_f32_samples(buffer.data())?;
         decoded.push((channels, values));
     }
     match decoded.as_slice() {
@@ -1522,17 +1498,42 @@ struct LinuxPipeWireSink {
 }
 
 #[cfg(target_os = "linux")]
+const LINUX_COMMAND_TIMEOUT: Duration = Duration::from_secs(10);
+
+#[cfg(target_os = "linux")]
 fn linux_command_output(program: &str, args: &[&str]) -> Result<String> {
-    let output = Command::new(program)
+    let mut child = Command::new(program)
         .args(args)
         .stdin(Stdio::null())
-        .output()
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
         .with_context(|| format!("run {program}"))?;
-    if !output.status.success() {
+    let deadline = Instant::now() + LINUX_COMMAND_TIMEOUT;
+    let status = loop {
+        if let Some(status) = child
+            .try_wait()
+            .with_context(|| format!("wait for {program}"))?
+        {
+            break status;
+        }
+        if Instant::now() >= deadline {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(anyhow!(
+                "{program} did not finish within {LINUX_COMMAND_TIMEOUT:?}"
+            ));
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    };
+    let output = child
+        .wait_with_output()
+        .with_context(|| format!("collect output from {program}"))?;
+    if !status.success() {
         let detail = String::from_utf8_lossy(&output.stderr).trim().to_string();
         return Err(anyhow!(
             "{program} exited with {}{}",
-            output.status,
+            status,
             if detail.is_empty() {
                 String::new()
             } else {
@@ -1742,6 +1743,41 @@ mod tests {
             clock.map_capture_time_at(earlier_capture, 125_000_000),
             80_000_000
         );
+    }
+
+    #[test]
+    fn decodes_native_endian_f32_samples() {
+        let bytes = [0.25f32.to_ne_bytes(), (-2.0f32).to_ne_bytes()].concat();
+
+        assert_eq!(decode_f32_samples(&bytes), Some(vec![0.25, -2.0]));
+    }
+
+    #[test]
+    fn rejects_a_truncated_f32_tail() {
+        let mut bytes = [0.25f32.to_ne_bytes(), 1.0f32.to_ne_bytes()].concat();
+        bytes.push(0xFF);
+
+        assert_eq!(decode_f32_samples(&bytes), None);
+    }
+
+    #[test]
+    fn rejects_a_non_multiple_buffer_length() {
+        assert_eq!(decode_f32_samples(&[0x00, 0x00]), None);
+        assert_eq!(decode_f32_samples(&[0x00; 6]), None);
+    }
+
+    #[test]
+    fn decodes_an_empty_buffer_to_no_samples() {
+        assert_eq!(decode_f32_samples(&[]), Some(Vec::<f32>::new()));
+    }
+
+    #[test]
+    fn preserves_non_finite_float_values() {
+        let bytes = [f32::NAN.to_ne_bytes(), f32::INFINITY.to_ne_bytes()].concat();
+        let decoded = decode_f32_samples(&bytes).unwrap();
+
+        assert!(decoded[0].is_nan());
+        assert_eq!(decoded[1], f32::INFINITY);
     }
 }
 

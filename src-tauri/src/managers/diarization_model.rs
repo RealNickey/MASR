@@ -218,6 +218,8 @@ impl DiarizationModelManager {
         };
 
         let mut stream = response.bytes_stream();
+        const EMIT_STATUS_THROTTLE_BYTES: u64 = 256 * 1024;
+        let mut pending_emit_bytes = 0_u64;
         while let Some(chunk) = stream.next().await {
             if self.cancelled.load(Ordering::SeqCst) {
                 return Err(anyhow!("Diarization model download cancelled"));
@@ -228,8 +230,13 @@ impl DiarizationModelManager {
             let mut state = self.state.lock().unwrap();
             state.downloaded = state.downloaded.saturating_add(chunk.len() as u64);
             drop(state);
-            self.emit_status();
+            pending_emit_bytes = pending_emit_bytes.saturating_add(chunk.len() as u64);
+            if pending_emit_bytes >= EMIT_STATUS_THROTTLE_BYTES {
+                pending_emit_bytes = 0;
+                self.emit_status();
+            }
         }
+        self.emit_status();
         file.sync_all()
             .context("sync diarization model partial file")?;
         drop(file);

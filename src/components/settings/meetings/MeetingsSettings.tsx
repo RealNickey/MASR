@@ -328,7 +328,17 @@ export const MeetingsSettings: React.FC = () => {
   };
 
   const handleDiarizationSettingChange = async (enabled: boolean) => {
-    await updateSetting("meeting_diarization_enabled", enabled);
+    try {
+      await updateSetting("meeting_diarization_enabled", enabled);
+    } catch (error) {
+      console.error("Failed to update diarization setting:", error);
+      toast.error("Failed to update the diarization setting.");
+      setDiarizationModelStatus((current) =>
+        current ? { ...current, is_downloading: false } : current,
+      );
+      await refreshDiarizationModelStatus();
+      return;
+    }
 
     if (enabled && !diarizationModelStatus?.is_downloaded) {
       // Enabling starts the download on the native side. Give immediate visual

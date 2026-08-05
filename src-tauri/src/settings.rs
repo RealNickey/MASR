@@ -885,6 +885,23 @@ ${output}
 
 Based only on the raw transcript above, produce the most accurate and well-structured comprehensive meeting minutes possible."#;
 
+const EARLY_DEFAULT_MEETING_SUMMARY_PROMPT: &str =
+    "Summarize the following meeting transcript in English:\n\n${output}";
+
+const CHECKMARK_DEFAULT_MEETING_SUMMARY_PROMPT: &str = r#"You are a helpful assistant. Write a high-level, concise summary of the meeting transcript in English. Focus on the main topics discussed, key arguments, and decisions made. Do NOT translate the transcript sentence-by-sentence. Keep the summary under 200 words. At the end, add an "Action Items" section with bullet points prefixed with ✅ for any tasks, decisions, or follow-ups mentioned.
+
+Format:
+## Summary
+[Write a concise meeting summary here]
+
+## Action Items
+✅ [action item 1]
+✅ [action item 2]
+...
+
+Transcript:
+${output}"#;
+
 const LEGACY_DEFAULT_MEETING_SUMMARY_PROMPT: &str = r#"You are a helpful assistant. Write a high-level, concise summary of the meeting transcript in English. Focus on the main topics discussed, key arguments, and decisions made. Do NOT translate the transcript sentence-by-sentence. Keep the summary under 200 words. At the end, add an "Action Items" section with task-list style checkboxes (- [ ]) for any tasks, decisions, or follow-ups mentioned. Use GitHub-style alerts (> [!NOTE] or > [!IMPORTANT]) for key highlights or warnings if needed.
 
 Format:
@@ -901,6 +918,12 @@ Tags: [up to 3 comma-separated key topics/tags]
 
 Transcript:
 ${output}"#;
+
+const HISTORICAL_DEFAULT_MEETING_SUMMARY_PROMPTS: &[&str] = &[
+    EARLY_DEFAULT_MEETING_SUMMARY_PROMPT,
+    CHECKMARK_DEFAULT_MEETING_SUMMARY_PROMPT,
+    LEGACY_DEFAULT_MEETING_SUMMARY_PROMPT,
+];
 
 fn default_post_process_prompts() -> Vec<LLMPrompt> {
     vec![
@@ -1020,7 +1043,9 @@ fn ensure_post_process_defaults(settings: &mut AppSettings) -> bool {
         {
             Some(existing) => {
                 if existing.id == "default_meeting_summary"
-                    && existing.prompt.trim() == LEGACY_DEFAULT_MEETING_SUMMARY_PROMPT.trim()
+                    && HISTORICAL_DEFAULT_MEETING_SUMMARY_PROMPTS
+                        .iter()
+                        .any(|historical| existing.prompt.trim() == historical.trim())
                 {
                     existing.prompt = prompt.prompt.clone();
                     changed = true;

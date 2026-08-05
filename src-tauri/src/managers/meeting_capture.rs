@@ -15,6 +15,7 @@ use hound::{SampleFormat, WavReader, WavSpec, WavWriter};
 use log::warn;
 use rubato::{FftFixedIn, Resampler};
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use std::fs::{self, File, OpenOptions};
 use std::io::{BufWriter, Write};
 use std::path::{Path, PathBuf};
@@ -45,6 +46,39 @@ const TIMELINE_DIR: &str = "timeline";
 const ACTIVE_LOCK: &str = ".capture-active";
 
 static SESSION_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+const ACTIVE_LOCK_STALE_AFTER_MS: i64 = 30_000;
+
+#[derive(Serialize, Deserialize)]
+struct ActiveCaptureLockRecord {
+    owner: String,
+    refreshed_at_ms: i64,
+}
+
+fn write_active_lock(session_root: &Path) -> Result<()> {
+    let path = session_root.join(ACTIVE_LOCK);
+    let record = ActiveCaptureLockRecord {
+        owner: std::process::id().to_string(),
+        refreshed_at_ms: unix_timestamp_ms(),
+    };
+    let mut file =
+        File::create(&path).with_context(|| format!("create active capture lock {path:?}"))?;
+    serde_json::to_writer(&mut file, &record)
+        .with_context(|| format!("serialize active capture lock {path:?}"))?;
+    file.sync_all().context("sync active capture lock file")?;
+    Ok(())
+}
+
+fn is_active_lock_live(session_root: &Path) -> bool {
+    let path = session_root.join(ACTIVE_LOCK);
+    let Ok(bytes) = fs::read(&path) else {
+        return false;
+    };
+    let Ok(record) = serde_json::from_slice::<ActiveCaptureLockRecord>(&bytes) else {
+        return false;
+    };
+    unix_timestamp_ms().saturating_sub(record.refreshed_at_ms) < ACTIVE_LOCK_STALE_AFTER_MS
+}
 
 type WavFileWriter = WavWriter<BufWriter<File>>;
 
@@ -364,11 +398,10 @@ impl MeetingCaptureSession {
             )?;
             fs::create_dir_all(staging_dir.join(TIMELINE_DIR))?;
 
-            // Create a lock file to indicate this session is actively owned by a
-            // capture worker. Recovery must not publish staged sessions that are
-            // still owned by an active process.
-            File::create(staging_dir.join(ACTIVE_LOCK))
-                .context("create active capture lock file")?;
+            // Create a lock record to indicate this session is actively owned by
+            // a capture worker. Recovery must not publish staged sessions that
+            // are still owned by an active process.
+            write_active_lock(&staging_dir)?;
 
             let microphone = SourceState::new(
                 &staging_dir,
@@ -560,9 +593,13 @@ impl MeetingCaptureSession {
 
     /// Writes a durable checkpoint. Active WAV headers are flushed and synced
     /// before metadata is committed to one of two alternating checkpoint files.
+    /// The active-lock record is refreshed so a long-running worker never looks
+    /// stale to recovery.
     pub fn checkpoint(&mut self) -> Result<()> {
         sync_source_state(&mut self.microphone)?;
         sync_source_state(&mut self.system)?;
+
+        write_active_lock(&self.staging_dir)?;
 
         self.checkpoint_generation = self.checkpoint_generation.saturating_add(1);
         let manifest = self.build_manifest();
@@ -704,10 +741,11 @@ impl MeetingCaptureSession {
             if !name.starts_with(".capture-meeting-") {
                 continue;
             }
-            // Skip directories still owned by an active capture worker. The lock
-            // file indicates the session is still being written to and must not be
-            // recovered until the worker releases it.
-            if entry.path().join(ACTIVE_LOCK).exists() {
+            // Skip directories still owned by an active capture worker. A fresh
+            // lock record indicates the session is still being written to and
+            // must not be recovered until the worker releases it. Stale,
+            // malformed, or absent records mean the owner is gone.
+            if is_active_lock_live(&entry.path()) {
                 continue;
             }
             let capture_details = match read_latest_checkpoint(&entry.path()).with_context(|| {
@@ -754,8 +792,9 @@ impl MeetingCaptureSession {
         session_root: &Path,
     ) -> Result<MeetingCaptureArtifacts> {
         // Refuse to recover sessions still owned by an active worker. The lock
-        // file must be absent before recovery can safely rename the directory.
-        if session_root.join(ACTIVE_LOCK).exists() {
+        // record must be absent or stale before recovery can safely rename the
+        // directory.
+        if is_active_lock_live(session_root) {
             bail!(
                 "cannot recover {:?}: still owned by an active capture worker",
                 session_root
@@ -1453,31 +1492,48 @@ fn derive_asr_track(
         )
     });
 
+    // Group segments by chunk so each chunk's WAV file is opened once and read
+    // in ascending source-frame order via seek, instead of reopening and
+    // skipping through the stream for every segment.
+    let mut grouped: BTreeMap<&String, Vec<&SourceSegmentManifest>> = BTreeMap::new();
     for segment in &segments {
+        grouped
+            .entry(&segment.chunk_path)
+            .or_default()
+            .push(segment);
+    }
+    let mut reads: Vec<(i64, Vec<f32>)> = Vec::with_capacity(segments.len());
+    for (chunk_path, mut chunk_segments) in grouped {
         let chunk = track
             .chunks
             .iter()
-            .find(|chunk| chunk.path == segment.chunk_path)
-            .with_context(|| {
-                format!(
-                    "derived track references missing chunk {}",
-                    segment.chunk_path
-                )
-            })?;
-        let raw = read_source_segment(
-            &session_root.join(&chunk.path),
-            segment.source_frame_offset,
-            segment.source_frame_count,
-            chunk.format.channels,
-        )?;
-        let mono = downmix_to_mono(&raw, chunk.format.channels);
-        let expected_samples = scaled_frame_count(
-            segment.source_frame_count,
-            chunk.format.sample_rate,
-            ASR_SAMPLE_RATE,
-        );
-        let resampled = resample_to_asr(mono, chunk.format.sample_rate, expected_samples)?;
-        timeline.write_at(segment.timeline_start_timestamp_ns, &resampled)?;
+            .find(|chunk| chunk.path == *chunk_path)
+            .with_context(|| format!("derived track references missing chunk {chunk_path}"))?;
+        let chunk_path_buf = session_root.join(chunk_path);
+        let mut reader = WavReader::open(&chunk_path_buf)
+            .with_context(|| format!("open source chunk {chunk_path_buf:?}"))?;
+        chunk_segments.sort_by_key(|segment| segment.source_frame_offset);
+        for segment in chunk_segments {
+            let raw = read_source_segment_from_reader(
+                &mut reader,
+                &chunk_path_buf,
+                segment.source_frame_offset,
+                segment.source_frame_count,
+                chunk.format.channels,
+            )?;
+            let mono = downmix_to_mono(&raw, chunk.format.channels);
+            let expected_samples = scaled_frame_count(
+                segment.source_frame_count,
+                chunk.format.sample_rate,
+                ASR_SAMPLE_RATE,
+            );
+            let resampled = resample_to_asr(mono, chunk.format.sample_rate, expected_samples)?;
+            reads.push((segment.timeline_start_timestamp_ns, resampled));
+        }
+    }
+    reads.sort_by_key(|(timestamp_ns, _)| *timestamp_ns);
+    for (timestamp_ns, resampled) in reads {
+        timeline.write_at(timestamp_ns, &resampled)?;
     }
     let sample_frames = timeline.finalize()?;
     File::open(&output_path)?.sync_all()?;
@@ -1548,14 +1604,13 @@ fn write_silence(writer: &mut WavFileWriter, count: u64) -> Result<()> {
     Ok(())
 }
 
-fn read_source_segment(
+fn read_source_segment_from_reader<R: std::io::Read + std::io::Seek>(
+    reader: &mut WavReader<R>,
     path: &Path,
     source_frame_offset: u64,
     source_frame_count: u64,
     channels: u16,
 ) -> Result<Vec<f32>> {
-    let mut reader =
-        WavReader::open(path).with_context(|| format!("open source chunk {path:?}"))?;
     let spec = reader.spec();
     if spec.sample_format != SampleFormat::Int || spec.bits_per_sample != 32 {
         bail!("source chunk {path:?} is not a 32-bit PCM WAV");
@@ -1566,18 +1621,16 @@ fn read_source_segment(
             spec.channels
         );
     }
-    let sample_offset = source_frame_offset
-        .checked_mul(u64::from(channels))
-        .context("source segment sample offset overflow")? as usize;
+    let frame_offset =
+        u32::try_from(source_frame_offset).context("source segment frame offset exceeds u32")?;
+    reader
+        .seek(frame_offset)
+        .with_context(|| format!("seek source chunk {path:?}"))?;
     let sample_count = source_frame_count
         .checked_mul(u64::from(channels))
         .context("source segment sample length overflow")? as usize;
     let mut samples = Vec::with_capacity(sample_count);
-    for sample in reader
-        .samples::<i32>()
-        .skip(sample_offset)
-        .take(sample_count)
-    {
+    for sample in reader.samples::<i32>().take(sample_count) {
         samples.push(sample? as f32 / i32::MAX as f32);
     }
     if samples.len() != sample_count {
@@ -1633,15 +1686,21 @@ fn resample_to_asr(input: Vec<f32>, input_rate: u32, expected_samples: usize) ->
     let mut output = Vec::with_capacity(expected_samples.saturating_add(output_delay));
     let mut offset = 0_usize;
     while offset < total_input_frames {
-        let mut block = vec![0.0_f32; RESAMPLER_CHUNK_SIZE];
+        // rubato reports exactly how many input frames the next process call
+        // needs; the finished resampler reports zero once it has drained.
+        let needed = resampler.input_frames_next();
+        if needed == 0 {
+            break;
+        }
         let remaining = input.len().saturating_sub(offset);
-        let copied = remaining.min(RESAMPLER_CHUNK_SIZE);
+        let copied = remaining.min(needed);
+        let mut block = vec![0.0_f32; needed];
         if copied > 0 {
             block[..copied].copy_from_slice(&input[offset..offset + copied]);
         }
         let processed = resampler.process(&[&block], None)?;
         output.extend_from_slice(&processed[0]);
-        offset = offset.saturating_add(RESAMPLER_CHUNK_SIZE);
+        offset = offset.saturating_add(needed);
     }
     if output.len() > output_delay {
         output.drain(..output_delay);
@@ -1694,22 +1753,35 @@ fn mark_recovered_track(track: &mut CaptureTrackDetailsManifest) {
         CaptureBackendStatus::Failed => CaptureTrackStatus::Failed,
         _ => CaptureTrackStatus::Partial,
     };
-    for chunk in &mut track.chunks {
-        if !chunk.complete {
-            // Its latest checkpoint flushed the header and fsynced the file.
-            // It is usable, but explicitly not a cleanly completed chunk.
-            chunk.complete = false;
+}
+
+fn sync_parent_directory(path: &Path) {
+    let Some(parent) = path.parent() else {
+        return;
+    };
+    #[cfg(unix)]
+    {
+        if let Ok(directory) = File::open(parent) {
+            let _ = directory.sync_all();
         }
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = parent;
     }
 }
 
 fn sync_outputs(session_root: &Path, manifest: &CaptureSessionManifest) -> Result<()> {
     for path in ["microphone.wav", "system.wav", "mix.wav", MANIFEST_FILE] {
-        File::open(session_root.join(path))?.sync_all()?;
+        let output_path = session_root.join(path);
+        File::open(&output_path)?.sync_all()?;
+        sync_parent_directory(&output_path);
     }
     for track in [&manifest.microphone, &manifest.system] {
         for chunk in &track.chunks {
-            File::open(session_root.join(&chunk.path))?.sync_all()?;
+            let output_path = session_root.join(&chunk.path);
+            File::open(&output_path)?.sync_all()?;
+            sync_parent_directory(&output_path);
         }
     }
     Ok(())
@@ -1721,6 +1793,7 @@ fn write_capture_details_durable(path: &Path, manifest: &CaptureSessionManifest)
     file.write_all(&bytes)?;
     file.write_all(b"\n")?;
     file.sync_all()?;
+    sync_parent_directory(path);
     Ok(())
 }
 
@@ -1964,6 +2037,65 @@ mod tests {
             .path()
             .join(&artifacts.audio_tracks.microphone)
             .exists());
+    }
+
+    #[test]
+    fn recovers_session_with_stale_or_malformed_lock_but_skips_active() {
+        let temp = tempdir().unwrap();
+        let root = {
+            let mut session = MeetingCaptureSession::create(temp.path()).unwrap();
+            session
+                .append_frame(frame(
+                    CaptureSource::Microphone,
+                    0,
+                    0,
+                    ASR_SAMPLE_RATE,
+                    1,
+                    vec![0.5; 160],
+                ))
+                .unwrap();
+            session.checkpoint().unwrap();
+            session.session_root().to_path_buf()
+        };
+        assert!(root.exists());
+        assert!(!root.join(ACTIVE_LOCK).exists());
+        assert_eq!(
+            MeetingCaptureSession::find_recoverable_sessions(temp.path())
+                .unwrap()
+                .len(),
+            1
+        );
+
+        write_active_lock(&root).unwrap();
+        assert!(
+            MeetingCaptureSession::find_recoverable_sessions(temp.path())
+                .unwrap()
+                .is_empty()
+        );
+
+        fs::write(
+            root.join(ACTIVE_LOCK),
+            serde_json::to_vec(&ActiveCaptureLockRecord {
+                owner: "404".to_owned(),
+                refreshed_at_ms: unix_timestamp_ms() - 60_000,
+            })
+            .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            MeetingCaptureSession::find_recoverable_sessions(temp.path())
+                .unwrap()
+                .len(),
+            1
+        );
+
+        fs::write(root.join(ACTIVE_LOCK), b"not json").unwrap();
+        assert_eq!(
+            MeetingCaptureSession::find_recoverable_sessions(temp.path())
+                .unwrap()
+                .len(),
+            1
+        );
     }
 
     #[test]

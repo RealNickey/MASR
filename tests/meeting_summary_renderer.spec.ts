@@ -65,4 +65,60 @@ test.describe("Meeting summary renderer", () => {
     await citation.hover();
     await expect(page.getByText("നാളെ റിലീസ് ചെയ്യാം")).toBeVisible();
   });
+
+  test("keeps citation IDs aligned after adjacent transcript segments are merged", async ({
+    page,
+  }) => {
+    await setupMocks(page);
+    await page.goto("/");
+    await page.getByText("Meetings").click();
+
+    const state = await getMockState(page);
+    await setMockState(page, {
+      historyEntries: [
+        {
+          ...state.historyEntries[0],
+          post_processed_text: `# Follow-up review
+
+## Decisions
+- Approved the rollout sequencing [[cite:SEG-001]]`,
+          transcript_segments: [
+            {
+              start_ms: 2_000,
+              end_ms: 5_000,
+              source: "microphone",
+              text: "ആദ്യ ഭാഗം",
+              confidence: 0.97,
+            },
+            {
+              start_ms: 5_200,
+              end_ms: 7_000,
+              source: "microphone",
+              text: "രണ്ടാം ഭാഗം",
+              confidence: 0.95,
+            },
+            {
+              start_ms: 12_000,
+              end_ms: 14_000,
+              source: "system",
+              text: "സിസ്റ്റം ശബ്ദം",
+              confidence: 0.9,
+            },
+          ],
+        },
+      ],
+    });
+
+    await page.reload();
+    await page.getByText("Meetings").click();
+
+    await expect(
+      page.getByRole("heading", { name: "Follow-up review" }),
+    ).toBeVisible();
+
+    const alignedCitation = page.getByLabel("Transcript evidence SEG-001");
+    await expect(alignedCitation).toBeVisible();
+    await alignedCitation.hover();
+    await expect(page.getByText("സിസ്റ്റം ശബ്ദം")).toBeVisible();
+  });
 });

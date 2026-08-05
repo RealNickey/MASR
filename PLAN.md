@@ -78,7 +78,7 @@ and keep diarization an independently downloadable, opt-in local feature.
 - `src-tauri/src/managers/meeting_capture.rs` — timestamped frame mapping,
   high-quality/chunked source storage, derivation, manifest checkpoints,
   recovery, and unit coverage.
-- `src-tauri/src/managers/meeting_capture_adapters/` (new) and
+- `src-tauri/src/managers/meeting_capture_adapter.rs` (new) and
   `src-tauri/src/managers/audio.rs` — common adapter contract and native source
   capture lifecycle/status.
 - `src-tauri/src/actions.rs` — route `MeetingAction` through the coordinator;

@@ -39,6 +39,7 @@ import {
   getMeetingActionItems,
   getMeetingFollowUpSummary,
   MeetingSummaryRenderer,
+  mergeTranscriptSegments,
 } from "@/components/meetings/MeetingSummaryRenderer";
 import { formatDateTime } from "@/utils/dateFormat";
 import { motion, AnimatePresence } from "framer-motion";
@@ -106,34 +107,15 @@ function appendTimelineText(target: string, next: string): string {
 function mergeTimestampedTranscriptSegments(
   segments: TranscriptSegment[],
 ): MeetingTimelineSegment[] {
-  const merged: MeetingTimelineSegment[] = [];
-  const ordered = [...segments].sort(
-    (left, right) =>
-      left.start_ms - right.start_ms || left.end_ms - right.end_ms,
-  );
-
-  for (const segment of ordered) {
-    const text = segment.text.trim();
-    if (!text) continue;
-    const previous = merged[merged.length - 1];
-    if (
-      previous &&
-      previous.source === segment.source &&
-      segment.start_ms - previous.end_ms <= 750
-    ) {
-      previous.end_ms = Math.max(previous.end_ms, segment.end_ms);
-      previous.text = appendTimelineText(previous.text, text);
-      continue;
-    }
-    merged.push({
+  return mergeTranscriptSegments(segments, appendTimelineText).map(
+    (segment) => ({
       start_ms: segment.start_ms,
       end_ms: segment.end_ms,
-      speaker: captureSourceLabel(segment.source),
+      speaker: "",
       source: segment.source,
-      text,
-    });
-  }
-  return merged;
+      text: segment.text,
+    }),
+  );
 }
 
 function getTimelineSegments(entry: HistoryEntry): MeetingTimelineSegment[] {
@@ -839,8 +821,19 @@ export const MeetingsView: React.FC = () => {
   };
 
   const copyTranscript = async (entry: HistoryEntry) => {
+    const segments = getTimelineSegments(entry);
+    const text =
+      segments.length > 0
+        ? segments
+            .map((segment) => {
+              const range = `${formatMeetingOffset(segment.start_ms)}–${formatMeetingOffset(segment.end_ms)}`;
+              const speaker = segment.speaker.trim() || "Unknown speaker";
+              return `[${range}] ${speaker} (${captureSourceLabel(segment.source)})\n${segment.text}`;
+            })
+            .join("\n\n")
+        : entry.transcription_text;
     try {
-      await navigator.clipboard.writeText(entry.transcription_text);
+      await navigator.clipboard.writeText(text);
       setShowTranscriptCopied(true);
       setTimeout(() => setShowTranscriptCopied(false), 2000);
       toast.success("Copied to clipboard!");
