@@ -181,7 +181,7 @@ function renderJsonSection(
   if (rendered.length > 0) output.push(`## ${title}\n${rendered.join("\n")}`);
 }
 
-function jsonToMarkdown(record: JsonRecord): string {
+function jsonToMarkdown(record: JsonRecord, originalText: string): string {
   const output: string[] = [];
   const title = firstString(record, ["title"]);
   const summary = firstString(record, [
@@ -258,6 +258,7 @@ function jsonToMarkdown(record: JsonRecord): string {
   if (output.length === 0) {
     const fallback = firstString(record, ["markdown", "content", "text"]);
     if (fallback) return fallback;
+    return originalText;
   }
 
   return output.join("\n\n");
@@ -283,7 +284,7 @@ function extractMarkdownActionItems(markdown: string): MeetingActionItem[] {
 export function getMeetingSummaryMarkdown(entry: HistoryEntry): string {
   const raw = entry.post_processed_text || entry.transcription_text || "";
   const parsed = parseJsonSummary(raw);
-  const markdown = parsed ? jsonToMarkdown(parsed) : raw;
+  const markdown = parsed ? jsonToMarkdown(parsed, raw) : raw;
   return stripLegacyDecorators(markdown || raw);
 }
 
