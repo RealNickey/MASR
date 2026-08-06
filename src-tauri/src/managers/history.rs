@@ -1633,7 +1633,8 @@ mod tests {
                 audio_tracks TEXT,
                 meeting_session TEXT,
                 speaker_segments TEXT,
-                transcript_segments TEXT
+                transcript_segments TEXT,
+                revision INTEGER NOT NULL DEFAULT 0
             );",
         )
         .expect("create transcription_history table");

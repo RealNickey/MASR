@@ -383,6 +383,7 @@ the failures before pushing. At minimum, run the relevant subset of:
 ```bash
 bun run lint
 bun run format:check
+bun run check:translations
 bun run build
 bun run test:playwright -- --workers=1 --timeout=60000
 cd src-tauri
