@@ -4,5 +4,7 @@
 <dict>
   <key>NSMicrophoneUsageDescription</key>
   <string>Request microphone access to transcribe audio locally</string>
+  <key>NSScreenCaptureUsageDescription</key>
+  <string>Capture computer audio for meetings you explicitly record locally.</string>
 </dict>
 </plist>

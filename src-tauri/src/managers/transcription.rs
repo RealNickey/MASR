@@ -60,13 +60,26 @@ pub(crate) enum LoadedEngine {
 pub struct LoadingGuard {
     is_loading: Arc<Mutex<bool>>,
     loading_condvar: Arc<Condvar>,
+    active: bool,
 }
 
 impl Drop for LoadingGuard {
     fn drop(&mut self) {
+        if !self.active {
+            return;
+        }
         let mut is_loading = self.is_loading.lock().unwrap();
         *is_loading = false;
         self.loading_condvar.notify_all();
+    }
+}
+
+impl LoadingGuard {
+    /// Leave the loading flag untouched when the callee has already released
+    /// it (for example, the legacy waiting-for-download result). This avoids a
+    /// stale guard clearing another loader that began after that release.
+    fn disarm(mut self) {
+        self.active = false;
     }
 }
 
@@ -197,6 +210,7 @@ impl TranscriptionManager {
         Some(LoadingGuard {
             is_loading: self.is_loading.clone(),
             loading_condvar: self.loading_condvar.clone(),
+            active: true,
         })
     }
 
@@ -490,6 +504,65 @@ impl TranscriptionManager {
         }
         drop(current);
         self.load_model(model_id)
+    }
+
+    /// Load a specific model, waiting for an already-running download when
+    /// necessary. Meeting capture uses this rather than treating a first-run
+    /// model download as a terminal failure: retained source tracks remain
+    /// durable while the background transcription job waits off the UI thread.
+    ///
+    /// This deliberately does not start a new download. If the requested
+    /// model is neither installed nor currently downloading, the caller gets a
+    /// clear error and can retain a retryable history entry instead.
+    pub fn load_model_if_different_waiting_for_download(&self, model_id: &str) -> Result<()> {
+        loop {
+            // A meeting completion can run while the ordinary selected-model
+            // loader is active. Never replace its engine or current-model ID
+            // halfway through that load; wait and re-check instead.
+            let already_selected = {
+                let current_model = self.current_model_id.lock().unwrap();
+                current_model.as_deref() == Some(model_id)
+            };
+            if already_selected {
+                return Ok(());
+            }
+
+            // Do not acquire a load guard before waiting for a model download:
+            // `load_model` historically releases its own flag to report
+            // `WaitingForDownload`, and holding an RAII guard across that
+            // hand-off would let a stale drop clear another active loader.
+            let model_info = self
+                .model_manager
+                .get_model_info(model_id)
+                .ok_or_else(|| anyhow::anyhow!("Model not found: {model_id}"))?;
+            if !model_info.is_downloaded {
+                if model_info.is_downloading {
+                    self.wait_for_download(model_id)?;
+                    continue;
+                }
+                return Err(anyhow::anyhow!("Model not downloaded"));
+            }
+
+            let Some(loading_guard) = self.try_start_loading() else {
+                let mut is_loading = self.is_loading.lock().unwrap();
+                while *is_loading {
+                    is_loading = self.loading_condvar.wait(is_loading).unwrap();
+                }
+                continue;
+            };
+
+            match self.load_model_if_different(model_id)? {
+                LoadModelStatus::Loaded => return Ok(()),
+                LoadModelStatus::WaitingForDownload => {
+                    // The downloaded-state check above makes this an unusual
+                    // race, but retain a safe fallback. `load_model` already
+                    // cleared the flag before this status, so disarm rather
+                    // than dropping a stale guard over a newer load.
+                    loading_guard.disarm();
+                    self.wait_for_download(model_id)?;
+                }
+            }
+        }
     }
 
     /// Kicks off the model loading in a background thread if the selected model is not already active.
@@ -884,6 +957,107 @@ impl TranscriptionManager {
         self.maybe_unload_immediately("transcription");
 
         Ok(final_result)
+    }
+
+    /// Runs the already-loaded ThegaV1 engine while retaining the Malayalam
+    /// model's CTC-frame word timing. Meeting capture explicitly loads
+    /// ThegaV1 before calling this method, so this narrow API avoids changing
+    /// the regular transcription model-selection path.
+    pub fn transcribe_thegav1_with_timing(
+        &self,
+        audio: Vec<f32>,
+    ) -> Result<crate::malayalam_asr::MalayalamTranscription> {
+        if audio.is_empty() {
+            return Ok(crate::malayalam_asr::MalayalamTranscription {
+                text: String::new(),
+                words: Vec::new(),
+            });
+        }
+
+        self.touch_activity();
+        let mut is_loading = self.is_loading.lock().unwrap();
+        while *is_loading {
+            is_loading = self.loading_condvar.wait(is_loading).unwrap();
+        }
+        drop(is_loading);
+
+        let mut engine_guard = self.lock_engine();
+        let mut engine = engine_guard.take().ok_or_else(|| {
+            anyhow::anyhow!("ThegaV1 must be loaded before timed meeting transcription")
+        })?;
+        drop(engine_guard);
+
+        let transcription = catch_unwind(AssertUnwindSafe(|| match &mut engine {
+            LoadedEngine::ThegaV1(asr) => asr.transcribe_with_timing(&audio),
+            _ => Err(anyhow::anyhow!(
+                "Timed meeting transcription requires the ThegaV1 model"
+            )),
+        }));
+
+        match transcription {
+            Ok(result) => {
+                // Only restore the taken ThegaV1 engine if the selected model
+                // is still ThegaV1. A concurrent load may have replaced it in
+                // the engine slot (and its current_model_id) while we held the
+                // engine, and restoring would clobber that engine.
+                let still_thegav1 = self
+                    .current_model_id
+                    .lock()
+                    .unwrap_or_else(|error| error.into_inner())
+                    .as_deref()
+                    == Some("thegav1");
+                if still_thegav1 {
+                    let mut engine_guard = self.lock_engine();
+                    *engine_guard = Some(engine);
+                    drop(engine_guard);
+                }
+
+                let mut result = result?;
+                let settings = get_settings(&self.app_handle);
+                if !settings.custom_words.is_empty() {
+                    result.text = apply_custom_words(
+                        &result.text,
+                        &settings.custom_words,
+                        settings.word_correction_threshold,
+                    );
+                }
+                result.text = filter_transcription_output(
+                    &result.text,
+                    &settings.app_language,
+                    &settings.custom_filler_words,
+                );
+                // The meeting action invokes this once per independently
+                // captured source, then restores the user's selected model
+                // after the batch. Do not unload between microphone and
+                // system passes when immediate unloading is enabled.
+                Ok(result)
+            }
+            Err(panic_payload) => {
+                let panic_msg = if let Some(message) = panic_payload.downcast_ref::<&str>() {
+                    (*message).to_string()
+                } else if let Some(message) = panic_payload.downcast_ref::<String>() {
+                    message.clone()
+                } else {
+                    "unknown panic".to_string()
+                };
+                *self
+                    .current_model_id
+                    .lock()
+                    .unwrap_or_else(|error| error.into_inner()) = None;
+                let _ = self.app_handle.emit(
+                    "model-state-changed",
+                    ModelStateEvent {
+                        event_type: "unloaded".to_string(),
+                        model_id: None,
+                        model_name: None,
+                        error: Some(format!("ThegaV1 engine panicked: {panic_msg}")),
+                    },
+                );
+                Err(anyhow::anyhow!(
+                    "ThegaV1 engine panicked during timed meeting transcription: {panic_msg}"
+                ))
+            }
+        }
     }
 }
 

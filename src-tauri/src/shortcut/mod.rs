@@ -1168,6 +1168,36 @@ pub fn change_meeting_prompt_lead_minutes_setting(
     Ok(())
 }
 
+/// Enables the optional, local-only speaker diarization pass for completed
+/// meeting captures. Keeping this independent of recording lets users test
+/// the model without changing the reliable transcription path.
+#[tauri::command]
+#[specta::specta]
+pub fn change_meeting_diarization_enabled_setting(
+    app: AppHandle,
+    enabled: bool,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.meeting_diarization_enabled = enabled;
+    settings::write_settings(&app, settings);
+
+    if enabled {
+        if let Some(manager) = app.try_state::<std::sync::Arc<
+            crate::managers::diarization_model::DiarizationModelManager,
+        >>() {
+            let manager = std::sync::Arc::clone(manager.inner());
+tauri::async_runtime::spawn(async move {
+                if let Err(error) = manager.download().await {
+                    warn!("Optional diarization model download did not complete: {error}");
+                }
+            });
+        } else {
+            warn!("Diarization model manager is unavailable; cannot download the optional speaker model");
+        }
+    }
+    Ok(())
+}
+
 /// Save accelerator settings, re-apply globals, and unload the model so it
 /// reloads with the new backend on next transcription.
 fn apply_and_reload_accelerator(app: &AppHandle, s: settings::AppSettings) {

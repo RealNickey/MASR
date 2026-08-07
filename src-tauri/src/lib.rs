@@ -30,6 +30,7 @@ use tauri_specta::{collect_commands, collect_events, Builder};
 
 use env_filter::Builder as EnvFilterBuilder;
 use managers::audio::AudioRecordingManager;
+use managers::diarization_model::DiarizationModelManager;
 use managers::history::HistoryManager;
 use managers::mcp_server::McpServerManager;
 use managers::meeting_assistant::MeetingAssistantManager;
@@ -66,6 +67,24 @@ fn level_filter_from_u8(value: u8) -> log::LevelFilter {
         5 => log::LevelFilter::Trace,
         _ => log::LevelFilter::Trace,
     }
+}
+
+/// Keeps the generated contract stable and free of whitespace-only diffs.
+///
+/// Specta 0.0.9 can emit a trailing space after a wrapped field or doc-comment
+/// line. Formatting happens as part of export (rather than by hand-editing the
+/// generated file) so every debug build and binding-export test has the same
+/// deterministic output without requiring a Node formatter on the runtime PATH.
+#[cfg(any(debug_assertions, test))]
+fn format_typescript_bindings(path: &std::path::Path) -> std::io::Result<()> {
+    let contents = std::fs::read_to_string(path)?;
+    let formatted = contents
+        .lines()
+        .map(str::trim_end)
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    std::fs::write(path, format!("{formatted}\n"))
 }
 
 fn build_console_filter() -> env_filter::Filter {
@@ -182,6 +201,13 @@ fn initialize_core_logic(app_handle: &AppHandle) {
     );
     let model_manager =
         Arc::new(ModelManager::new(app_handle).expect("Failed to initialize model manager"));
+    let diarization_model_manager = match DiarizationModelManager::new(app_handle) {
+        Ok(manager) => Some(Arc::new(manager)),
+        Err(error) => {
+            log::error!("Failed to initialize diarization model manager: {error}");
+            None
+        }
+    };
     let transcription_manager = Arc::new(
         TranscriptionManager::new(app_handle, model_manager.clone())
             .expect("Failed to initialize transcription manager"),
@@ -202,10 +228,27 @@ fn initialize_core_logic(app_handle: &AppHandle) {
     // Add managers to Tauri's managed state
     app_handle.manage(recording_manager.clone());
     app_handle.manage(model_manager.clone());
+    if let Some(manager) = diarization_model_manager {
+        app_handle.manage(manager);
+    }
     app_handle.manage(transcription_manager.clone());
     app_handle.manage(history_manager.clone());
     app_handle.manage(rag_manager);
     app_handle.manage(mcp_server_manager.clone());
+
+    // Recovery can scan and atomically publish several checkpointed meeting
+    // sessions. It must not delay window creation or first-run onboarding, so
+    // keep all filesystem/database recovery on the blocking worker pool.
+    let meeting_recovery_manager = history_manager.clone();
+    tauri::async_runtime::spawn(async move {
+        if let Err(error) = tokio::task::spawn_blocking(move || {
+            meeting_recovery_manager.recover_abandoned_meeting_captures();
+        })
+        .await
+        {
+            log::error!("Meeting capture recovery worker panicked: {error}");
+        }
+    });
 
     mcp_server_manager.sync_from_settings(app_handle);
 
@@ -451,6 +494,7 @@ pub fn run(cli_args: CliArgs) {
             shortcut::change_show_tray_icon_setting,
             shortcut::change_meeting_detection_enabled_setting,
             shortcut::change_meeting_prompt_lead_minutes_setting,
+            shortcut::change_meeting_diarization_enabled_setting,
             shortcut::change_whisper_accelerator_setting,
             shortcut::change_ort_accelerator_setting,
             shortcut::change_whisper_gpu_device,
@@ -508,6 +552,9 @@ pub fn run(cli_args: CliArgs) {
             commands::audio::set_clamshell_microphone,
             commands::audio::get_clamshell_microphone,
             commands::audio::is_recording,
+            commands::diarization::get_diarization_model_status,
+            commands::diarization::download_diarization_model,
+            commands::diarization::cancel_diarization_model_download,
             commands::transcription::set_model_unload_timeout,
             commands::transcription::get_model_load_status,
             commands::transcription::unload_model_manually,
@@ -544,7 +591,9 @@ pub fn run(cli_args: CliArgs) {
     #[cfg(debug_assertions)] // <- Only export on non-release builds
     specta_builder
         .export(
-            Typescript::default().bigint(BigIntExportBehavior::Number),
+            Typescript::default()
+                .bigint(BigIntExportBehavior::Number)
+                .formatter(format_typescript_bindings),
             "../src/bindings.ts",
         )
         .expect("Failed to export typescript bindings");
@@ -835,6 +884,7 @@ mod test_bindings {
                 shortcut::change_show_tray_icon_setting,
                 shortcut::change_meeting_detection_enabled_setting,
                 shortcut::change_meeting_prompt_lead_minutes_setting,
+                shortcut::change_meeting_diarization_enabled_setting,
                 shortcut::change_whisper_accelerator_setting,
                 shortcut::change_ort_accelerator_setting,
                 shortcut::change_whisper_gpu_device,
@@ -892,6 +942,9 @@ mod test_bindings {
                 commands::audio::set_clamshell_microphone,
                 commands::audio::get_clamshell_microphone,
                 commands::audio::is_recording,
+                commands::diarization::get_diarization_model_status,
+                commands::diarization::download_diarization_model,
+                commands::diarization::cancel_diarization_model_download,
                 commands::transcription::set_model_unload_timeout,
                 commands::transcription::get_model_load_status,
                 commands::transcription::unload_model_manually,
@@ -929,7 +982,9 @@ mod test_bindings {
 
         specta_builder
             .export(
-                Typescript::default().bigint(BigIntExportBehavior::Number),
+                Typescript::default()
+                    .bigint(BigIntExportBehavior::Number)
+                    .formatter(format_typescript_bindings),
                 "../src/bindings.ts",
             )
             .expect("Failed to export typescript bindings");

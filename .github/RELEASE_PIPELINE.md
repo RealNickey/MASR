@@ -6,16 +6,18 @@ Development lands through reviewed pull requests into `dev`. A reviewed
 CI/CD-only pull requests are the exception: they do not change product
 versions and therefore bypass that promotion-policy job after being classified
 by the lightweight validation gate.
-Opening or updating that PR runs the normal CI gates. A merge to `main` starts
-the publishing workflow, which checks out and rebuilds the exact `main` SHA;
-it never publishes a PR head or a reused package.
+Opening or updating that PR runs the full CI gates. Pushes to `dev` and PRs
+targeting `dev` run only the fast/basic checks plus the lightweight required
+Windows status; they do not provision platform packaging jobs. A merge to
+`main` starts the publishing workflow, which checks out and rebuilds the exact
+`main` SHA; it never publishes a PR head or a reused package.
 
-`MASR CI` runs frontend checks plus Windows x64 package, Rust tests, Malayalam
-model smoke, and ONNX Runtime bundle inspection for application changes.
-Linux x64 and macOS Apple Silicon report the corresponding readiness checks on
-ordinary PRs. A CI/CD-only diff runs `CI/CD validation` (Prettier, actionlint,
-and local-action-reference validation) and keeps the protected `Windows x64
-beta gate` status successful without provisioning a Windows runner.
+`MASR CI` runs frontend checks plus the Windows x64 package, Rust tests,
+Malayalam model smoke, and ONNX Runtime bundle inspection for application PRs
+targeting `main`. The Linux x64 and macOS Apple Silicon matrix runs alongside
+those checks as non-blocking readiness reports. Workflow-only and safe
+docs-only PRs keep the fast validation/status path without provisioning the
+full package matrix. Safe docs-only pushes do not start CI or release jobs.
 
 `Publish MASR release` runs only from `main` (or a manual recovery dispatch of
 the workflow on `main`). It builds, signs, package-inspects, and smoke-tests

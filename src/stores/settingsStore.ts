@@ -156,6 +156,8 @@ const settingUpdaters: {
     commands.setMeetingCalendarPromptsEnabled(value as boolean),
   meeting_prompt_lead_minutes: (value) =>
     commands.changeMeetingPromptLeadMinutesSetting(value as number),
+  meeting_diarization_enabled: (value) =>
+    commands.changeMeetingDiarizationEnabledSetting(value as boolean),
   rag_enabled: (value) => commands.setRagEnabled(value as boolean),
   mcp_server_enabled: (value) => commands.setMcpServerEnabled(value as boolean),
   mcp_server_port: (value) => commands.setMcpServerPort(value as number),

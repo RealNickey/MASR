@@ -1,10 +1,14 @@
 pub mod audio;
+pub mod diarization;
+pub mod diarization_inference;
+pub mod diarization_model;
 pub mod google_api;
 pub mod google_oauth;
 pub mod history;
 pub mod mcp_server;
 pub mod meeting_assistant;
 pub mod meeting_capture;
+pub mod meeting_capture_adapter;
 pub mod model;
 pub mod rag;
 pub mod transcription;

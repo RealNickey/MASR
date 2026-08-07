@@ -1,4 +1,5 @@
 pub mod audio;
+pub mod diarization;
 pub mod google;
 pub mod history;
 pub mod mcp;

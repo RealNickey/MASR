@@ -40,6 +40,21 @@ export interface MockState {
     post_processed_text: string | null;
     post_process_prompt: string | null;
     post_process_requested: boolean;
+    transcript_segments?: Array<{
+      start_ms: number;
+      end_ms: number;
+      source: string;
+      text: string;
+      confidence: number | null;
+    }> | null;
+    speaker_segments?: Array<{
+      start_ms: number;
+      end_ms: number;
+      source: string;
+      speaker: string;
+      text: string;
+      confidence: number | null;
+    }> | null;
   }>;
   lastFollowUp: {
     recipients: string[];

@@ -61,6 +61,13 @@ impl TranscriptionManager {
         Ok(LoadModelStatus::Loaded)
     }
 
+    pub fn load_model_if_different_waiting_for_download(
+        &self,
+        _model_id: &str,
+    ) -> Result<()> {
+        Ok(())
+    }
+
     pub fn initiate_model_load(&self) {}
 
     pub fn get_current_model(&self) -> Option<String> {
@@ -69,6 +76,16 @@ impl TranscriptionManager {
 
     pub fn transcribe(&self, _audio: Vec<f32>) -> Result<String> {
         Ok(String::new())
+    }
+
+    pub fn transcribe_thegav1_with_timing(
+        &self,
+        _audio: Vec<f32>,
+    ) -> Result<crate::malayalam_asr::MalayalamTranscription> {
+        Ok(crate::malayalam_asr::MalayalamTranscription {
+            text: String::new(),
+            words: Vec::new(),
+        })
     }
 }
 
